@@ -1,0 +1,29 @@
+[package]
+name = "iii-iv-lettre"
+version = "0.0.0"
+description = "III-IV: SMTP support"
+authors = ["Julio Merino <julio@meroh.net>"]
+edition = "2021"
+publish = false
+
+[features]
+default = []
+testutils = []
+
+[dependencies]
+async-trait = "0.1"
+axum = "0.6"
+derivative = "2.2"
+http = "0.2.8"
+serde_json = "1"
+thiserror = "1.0"
+time = "0.3"
+iii-iv-core = { path = "../core" }
+
+[dependencies.lettre]
+version = "0.10.0-rc.6"
+default-features = false
+features = ["builder", "hostname", "pool", "rustls-tls", "smtp-transport", "tokio1-rustls-tls"]
+
+[dev-dependencies]
+iii-iv-core = { path = "../core", features = ["testutils"] }

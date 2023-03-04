@@ -1,0 +1,356 @@
+// III-IV
+// Copyright 2023 Julio Merino
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not
+// use this file except in compliance with the License.  You may obtain a copy
+// of the License at:
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+// WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
+// License for the specific language governing permissions and limitations
+// under the License.
+
+//! Generic code for REST handlers.
+//!
+//! All services should implement an `app` function in this module that returns the `Router` for the
+//! application.
+//!
+//! Every API should be put in its own `.rs` file, using a name like `<entity>_<method>.rs`.  This
+//! may seem overkill, but putting every API in its own file makes it easy to ensure all the
+//! integration tests for the given API truly belong to that API.
+//!
+//! More specifically, the `tests` module within an API should define a `route` method that
+//! returns the HTTP method and the API path under test.  All integration tests within the module
+//! then rely on `route` to obtain this information, ensuring that they all test the desired API.
+//!
+//! It is also useful for the tests in this layer to define a `TestContext` in a `testutils` module
+//! that allows interacting with the database layer directly, using simplified types.
+
+use crate::driver::DriverError;
+use crate::model::ModelError;
+use async_trait::async_trait;
+use axum::body::HttpBody;
+use axum::extract::FromRequest;
+use axum::response::IntoResponse;
+use axum::{BoxError, Json};
+use http::Request;
+use serde::{Deserialize, Serialize};
+
+/// Frontend errors.  These are the errors that are visible to the user on failed requests.
+#[derive(Debug, thiserror::Error)]
+pub enum RestError {
+    /// Indicates that the request is not allowed.
+    #[error("{0}")]
+    Forbidden(String),
+
+    /// Catch-all error type for all unexpected errors.
+    #[error("{0}")]
+    InternalError(String),
+
+    /// Indicates an error in the contents of the request.
+    #[error("{0}")]
+    InvalidRequest(String),
+
+    /// Indicates that a requested entity does not exist.
+    #[error("{0}")]
+    NotFound(String),
+
+    /// Indicates that a request that should have empty content did not.
+    #[error("Content should be empty")]
+    PayloadNotEmpty,
+}
+
+impl From<DriverError> for RestError {
+    fn from(e: DriverError) -> Self {
+        match e {
+            DriverError::AlreadyExists(_) => RestError::InvalidRequest(e.to_string()),
+            DriverError::BackendError(_) => RestError::InternalError(e.to_string()),
+            DriverError::InvalidInput(_) => RestError::InvalidRequest(e.to_string()),
+            DriverError::NotFound(_) => RestError::NotFound(e.to_string()),
+        }
+    }
+}
+
+impl From<ModelError> for RestError {
+    fn from(e: ModelError) -> Self {
+        RestError::InvalidRequest(e.to_string())
+    }
+}
+
+impl From<serde_json::Error> for RestError {
+    fn from(e: serde_json::Error) -> Self {
+        RestError::InvalidRequest(e.to_string())
+    }
+}
+
+impl IntoResponse for RestError {
+    fn into_response(self) -> axum::response::Response {
+        let status = match self {
+            RestError::Forbidden(_) => http::StatusCode::FORBIDDEN,
+            RestError::InternalError(_) => http::StatusCode::INTERNAL_SERVER_ERROR,
+            RestError::InvalidRequest(_) => http::StatusCode::BAD_REQUEST,
+            RestError::NotFound(_) => http::StatusCode::NOT_FOUND,
+            RestError::PayloadNotEmpty => http::StatusCode::PAYLOAD_TOO_LARGE,
+        };
+
+        let response = ErrorResponse { message: self.to_string() };
+
+        (status, Json(response)).into_response()
+    }
+}
+
+/// Result type for this module.
+pub type RestResult<T> = Result<T, RestError>;
+
+/// Representation of the details of an error response.
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct ErrorResponse {
+    /// Textual representation of the error message.
+    pub(crate) message: String,
+}
+
+/// A request body extractor that forbids any content.
+///
+/// Any API that doesn't expect a body should use this to ensure we don't get garbage data that we
+/// don't care about.  This future-proofs the service.
+pub struct EmptyBody {}
+
+#[async_trait]
+impl<S, B> FromRequest<S, B> for EmptyBody
+where
+    B: HttpBody + Send + 'static,
+    B::Data: Send,
+    B::Error: Into<BoxError>,
+    S: Send + Sync,
+{
+    type Rejection = RestError;
+
+    async fn from_request(req: Request<B>, _: &S) -> Result<Self, Self::Rejection> {
+        if req.into_body().is_end_stream() {
+            Ok(EmptyBody {})
+        } else {
+            Err(RestError::PayloadNotEmpty)
+        }
+    }
+}
+
+/// Common test code for the REST server.
+#[cfg(feature = "testutils")]
+pub mod testutils {
+    use super::*;
+    use axum::{http, Router};
+    use bytes::Bytes;
+    use serde::de::DeserializeOwned;
+    use serde::Serialize;
+    use tower::util::ServiceExt;
+
+    /// Builder for a single request to the API server.
+    #[must_use]
+    pub struct OneShotBuilder {
+        /// The router for the app being tested.
+        app: Router,
+
+        /// Builder for the request that will be sent to the app.
+        builder: axum::http::request::Builder,
+    }
+
+    impl OneShotBuilder {
+        /// Creates a new request against a given `method`/`uri` pair served by an `app` router.
+        pub fn new<U: AsRef<str>>(app: Router, (method, uri): (http::Method, U)) -> Self {
+            let builder = axum::http::Request::builder().method(method).uri(uri.as_ref());
+            Self { app, builder }
+        }
+
+        /// Sets the header `name` to `value` in the outgoing request.
+        pub fn with_header<K, V>(mut self, name: K, value: V) -> Self
+        where
+            http::header::HeaderName: TryFrom<K>,
+            <http::header::HeaderName as TryFrom<K>>::Error: Into<http::Error>,
+            http::HeaderValue: TryFrom<V>,
+            <http::HeaderValue as TryFrom<V>>::Error: Into<http::Error>,
+        {
+            self.builder = self.builder.header(name, value);
+            self
+        }
+
+        /// Finishes building the request and sends it with an empty payload.
+        pub async fn send_empty(self) -> ResponseChecker {
+            let request = self.builder.body(axum::body::Body::empty()).unwrap();
+            ResponseChecker::from(self.app.oneshot(request).await.unwrap())
+        }
+
+        /// Finishes building the request and sends it with a text payload.
+        pub async fn send_text<T: Into<String>>(self, text: T) -> ResponseChecker {
+            let request = self
+                .builder
+                .header(http::header::CONTENT_TYPE, mime::TEXT_PLAIN.as_ref())
+                .body(axum::body::Body::from(text.into()))
+                .unwrap();
+            ResponseChecker::from(self.app.oneshot(request).await.unwrap())
+        }
+
+        /// Finishes building the request and sends it with a JSON payload.
+        pub async fn send_json<T: Serialize>(self, request: T) -> ResponseChecker {
+            let request = self
+                .builder
+                .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
+                .body(axum::body::Body::from(serde_json::to_vec(&request).unwrap()))
+                .unwrap();
+            ResponseChecker::from(self.app.oneshot(request).await.unwrap())
+        }
+    }
+
+    /// Type alias for the complex type returned by the `oneshot` function.
+    type HttpResponse = hyper::Response<http_body::combinators::UnsyncBoxBody<Bytes, axum::Error>>;
+
+    /// Validator for the outcome of a request sent by a `OneShotBuilder`.
+    #[must_use]
+    pub struct ResponseChecker {
+        /// Actual response that we received from the app.
+        response: HttpResponse,
+
+        /// Expected HTTP status code in the response above.
+        exp_status: http::StatusCode,
+    }
+
+    impl From<HttpResponse> for ResponseChecker {
+        fn from(response: HttpResponse) -> Self {
+            Self { response, exp_status: http::StatusCode::OK }
+        }
+    }
+
+    impl ResponseChecker {
+        /// Sets the expected exit HTTP status to `status`.
+        pub fn expect_status(mut self, status: http::StatusCode) -> Self {
+            self.exp_status = status;
+            self
+        }
+
+        /// Performs common validation operations on the response.
+        pub fn verify(&self) {
+            assert_eq!(self.exp_status, self.response.status());
+        }
+
+        /// Finishes checking the response and expects it to contain an empty body.
+        pub async fn expect_empty(self) {
+            self.verify();
+
+            let body = hyper::body::to_bytes(self.response.into_body()).await.unwrap();
+            assert!(body.is_empty());
+        }
+
+        /// Finishes checking the response and expects its body to be an `ErrorResponse` that
+        /// matches `exp_re`.
+        pub async fn expect_error(self, exp_re: &str) {
+            self.verify();
+
+            let body = hyper::body::to_bytes(self.response.into_body()).await.unwrap();
+            let response: ErrorResponse = match serde_json::from_slice(&body) {
+                Ok(response) => response,
+                Err(e) => {
+                    let body = String::from_utf8(body.to_vec()).unwrap();
+                    panic!("Invalid error response due to {}; content was {}", e, body);
+                }
+            };
+            if exp_re.is_empty() {
+                assert!(
+                    response.message.is_empty(),
+                    "Response content '{:?}' is not empty",
+                    response
+                );
+            } else {
+                let re = regex::Regex::new(exp_re).unwrap();
+                assert!(
+                    re.is_match(&response.message),
+                    "Response content '{:?}' does not match re '{}'",
+                    response,
+                    exp_re
+                );
+            }
+        }
+
+        /// Finishes checking the response and expects it to contain a valid JSON object of
+        /// type `T`.
+        pub async fn expect_json<T: DeserializeOwned>(self) -> T {
+            self.verify();
+
+            let body = hyper::body::to_bytes(self.response.into_body()).await.unwrap();
+            serde_json::from_slice::<T>(&body).unwrap()
+        }
+
+        /// Finishes checking the response and expects its body to be valid UTF-8 and to match
+        /// `exp_re`.
+        pub async fn expect_text(self, exp_re: &str) {
+            assert!(!exp_re.is_empty(), "Use expect_empty to validate empty responses");
+
+            self.verify();
+
+            let body = hyper::body::to_bytes(self.response.into_body()).await.unwrap();
+            let body = String::from_utf8(body.to_vec()).unwrap();
+            assert!(
+                !body.contains("\"message\":"),
+                "Use expect_error to validate errors wrapped in an ErrorResponse"
+            );
+            let re = regex::Regex::new(exp_re).unwrap();
+            assert!(re.is_match(&body), "Body content '{}' does not match re '{}'", body, exp_re);
+        }
+
+        /// Finishes checking the response and returns the response itself for out of band
+        /// validation of properties not supported by the `ResponseChecker`.
+        pub async fn take_response(self) -> HttpResponse {
+            self.verify();
+
+            self.response
+        }
+    }
+
+    /// Generates a test to verify that an API that expects JSON fails when it gets something else.
+    #[macro_export]
+    macro_rules! test_payload_must_be_json {
+        ( $app:expr, $route:expr ) => {
+            #[tokio::test]
+            async fn test_payload_must_be_json() {
+                // TODO(jmmv): These checks should be using expect_error instead of expect_text, but
+                // JSON deserialization errors are not funneled through RestError.
+
+                $crate::rest::testutils::OneShotBuilder::new($app, $route)
+                    .send_text("this is not json")
+                    .await
+                    .expect_status(axum::http::StatusCode::UNSUPPORTED_MEDIA_TYPE)
+                    .expect_text("Content-Type")
+                    .await;
+
+                $crate::rest::testutils::OneShotBuilder::new($app, $route)
+                    .with_header(axum::http::header::CONTENT_TYPE, "application/json")
+                    .send_text("this is not json")
+                    .await
+                    .expect_status(axum::http::StatusCode::BAD_REQUEST)
+                    .expect_text("expected ident")
+                    .await;
+            }
+        };
+    }
+
+    pub use test_payload_must_be_json;
+
+    /// Generates a test to verify that an API that does not expect a payload fails as necessary.
+    #[macro_export]
+    macro_rules! test_payload_must_be_empty {
+        ( $app:expr, $route:expr ) => {
+            #[tokio::test]
+            async fn test_payload_must_be_empty() {
+                $crate::rest::testutils::OneShotBuilder::new($app, $route)
+                    .send_text("should not be here")
+                    .await
+                    .expect_status(axum::http::StatusCode::PAYLOAD_TOO_LARGE)
+                    .expect_error("should be empty")
+                    .await;
+            }
+        };
+    }
+
+    pub use test_payload_must_be_empty;
+}

@@ -1,0 +1,47 @@
+[package]
+name = "iii-iv-example"
+version = "0.0.0"
+description = "III-IV: Sample service and template"
+authors = ["Julio Merino <julio@meroh.net>"]
+edition = "2021"
+publish = false
+
+[dependencies]
+async-session = "3"
+async-trait = "0.1"
+axum = "0.6"
+derive-getters = "0.2.0"
+env_logger = "0.8"
+futures = "0.3"
+hyper = { version = "0.14", features = ["full"] }
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.6", features = ["runtime-tokio-rustls", "sqlite"] }
+thiserror = "1.0"
+tokio = { version = "1", features = ["rt", "macros", "rt-multi-thread"] }
+tower-http = { version = "0.3", features = ["cors"] }
+url = { version = "2.3", features = ["serde"] }
+
+[dependencies.iii-iv-core]
+path = "../core"
+
+[dependencies.iii-iv-postgres]
+path = "../postgres"
+
+[dependencies.derive_more]
+version = "0.99.0"
+default-features = false
+features = ["as_ref", "constructor"]
+
+[dev-dependencies.iii-iv-core]
+path = "../core"
+features = ["testutils"]
+
+[dev-dependencies.iii-iv-postgres]
+path = "../postgres"
+features = ["testutils"]
+
+[dev-dependencies.iii-iv-sqlite]
+path = "../sqlite"
+features = ["testutils"]

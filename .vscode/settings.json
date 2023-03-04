@@ -1,0 +1,73 @@
+{
+    "editor.insertSpaces": true,
+    "editor.rulers": [100],
+    "editor.tabSize": 4,
+    "editor.wordWrapColumn": 100,
+
+    "files.associations": {
+        "Makefile.in": "makefile",
+        "config.mk.tmpl": "makefile"
+    },
+    "files.exclude": {
+        "**/.DS_Store": true,
+        "**/.git": true,
+        "Cargo.lock": true,
+        "**/config.mk": true,
+        "target": true,
+        "vscode-target": true
+    },
+    "files.insertFinalNewline": true,
+    "files.trimTrailingWhitespace": true,
+
+    "[markdown]": {
+        "editor.rulers": [80],
+        "editor.quickSuggestions": {
+            "comments": "off",
+            "strings": "off",
+            "other": "off"
+        },
+        "editor.wordWrapColumn": 80
+    },
+
+    "markdownlint.config": {
+        "MD007": {
+            "indent": 4
+        },
+        "MD026": {
+            "punctuation":  ".,:;'"
+        },
+        "MD030": {
+            "ol_single": 2,
+            "ol_multi": 2,
+            "ul_single": 3,
+            "ul_multi": 3
+        },
+        "MD033": false
+    },
+
+    "[rust]": {
+        "editor.formatOnSave": true
+    },
+
+    "[plaintext]": {
+        "editor.rulers": [80],
+        "editor.quickSuggestions": {
+            "comments": "off",
+            "strings": "off",
+            "other": "off"
+        },
+        "editor.wordWrapColumn": 80
+    },
+
+    "cSpell.language": "en",
+    "cSpell.words": [
+        "iii-iv",
+        "jmmv",
+        "lettre",
+        "newtype",
+        "oneshot",
+        "sqlx",
+        "testutils",
+        "thiserror"
+    ]
+}

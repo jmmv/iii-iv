@@ -1,0 +1,6 @@
+Cargo.lock
+build.stamp
+config.env
+perfectschedule
+target/
+vscode-target/

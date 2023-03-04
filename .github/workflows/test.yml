@@ -1,0 +1,47 @@
+# III Model
+# Copyright 2023 Julio Merino
+
+name: Test
+
+on: [push, pull_request]
+
+jobs:
+    lint:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions-rs/toolchain@v1
+              with:
+                  profile: minimal
+                  # Use the latest stable Rust version for lint checks to
+                  # verify any new Clippy warnings that may appear.
+                  toolchain: stable
+                  default: true
+                  components: clippy, rustfmt
+            - uses: actions/checkout@v2
+            - run: sudo apt update
+            - run: sudo apt install pre-commit
+            - run: make lint
+
+    test-individually:
+        runs-on: ubuntu-latest
+        env:
+            PGSQL_TEST_HOST: ${{ secrets.PGSQL_TEST_HOST }}
+            PGSQL_TEST_PORT: ${{ secrets.PGSQL_TEST_PORT }}
+            PGSQL_TEST_DATABASE: ${{ secrets.PGSQL_TEST_DATABASE }}
+            PGSQL_TEST_USERNAME: ${{ secrets.PGSQL_TEST_USERNAME }}
+            PGSQL_TEST_PASSWORD: ${{ secrets.PGSQL_TEST_PASSWORD }}
+        steps:
+            - uses: actions/checkout@v2
+            - run: make test-individually
+
+    test-workspace:
+        runs-on: ubuntu-latest
+        env:
+            PGSQL_TEST_HOST: ${{ secrets.PGSQL_TEST_HOST }}
+            PGSQL_TEST_PORT: ${{ secrets.PGSQL_TEST_PORT }}
+            PGSQL_TEST_DATABASE: ${{ secrets.PGSQL_TEST_DATABASE }}
+            PGSQL_TEST_USERNAME: ${{ secrets.PGSQL_TEST_USERNAME }}
+            PGSQL_TEST_PASSWORD: ${{ secrets.PGSQL_TEST_PASSWORD }}
+        steps:
+            - uses: actions/checkout@v2
+            - run: make test-workspace
