@@ -10,6 +10,7 @@ publish = false
 default = []
 internal = []
 testutils = [
+    "dep:base64",
     "dep:bytes",
     "dep:http-body",
     "dep:hyper",
@@ -22,6 +23,7 @@ testutils = [
 [dependencies]
 async-trait = "0.1"
 axum = "0.6"
+base64 = { version = "0.13", optional = true }
 bytes = { version = "1.0", optional = true }
 derivative = "2.2"
 http = "0.2.8"

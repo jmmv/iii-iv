@@ -36,14 +36,15 @@ use axum::body::HttpBody;
 use axum::extract::FromRequest;
 use axum::response::IntoResponse;
 use axum::{BoxError, Json};
-use http::Request;
+use http::{HeaderMap, Request};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 /// Frontend errors.  These are the errors that are visible to the user on failed requests.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, PartialEq, thiserror::Error)]
 pub enum RestError {
-    /// Indicates that the request is not allowed.
-    #[error("{0}")]
+    /// Indicates an authorization problem.
+    #[error("Access denied: {0}")]
     Forbidden(String),
 
     /// Catch-all error type for all unexpected errors.
@@ -54,6 +55,14 @@ pub enum RestError {
     #[error("{0}")]
     InvalidRequest(String),
 
+    /// Indicates insufficient disk quota to perform the requested write operation.
+    #[error("{0}")]
+    NoSpace(String),
+
+    /// Indicates that login cannot succeed because the account is not yet activated.
+    #[error("Account has not been activated yet")]
+    NotActivated,
+
     /// Indicates that a requested entity does not exist.
     #[error("{0}")]
     NotFound(String),
@@ -61,6 +70,11 @@ pub enum RestError {
     /// Indicates that a request that should have empty content did not.
     #[error("Content should be empty")]
     PayloadNotEmpty,
+
+    /// Indicates an authentication problem.  The first string is the expected scheme and the second
+    /// string is the authorization realm.
+    #[error("Unauthorized: {0}")]
+    Unauthorized(&'static str, &'static str, String),
 }
 
 impl From<DriverError> for RestError {
@@ -69,8 +83,17 @@ impl From<DriverError> for RestError {
             DriverError::AlreadyExists(_) => RestError::InvalidRequest(e.to_string()),
             DriverError::BackendError(_) => RestError::InternalError(e.to_string()),
             DriverError::InvalidInput(_) => RestError::InvalidRequest(e.to_string()),
+            DriverError::NoSpace(_) => RestError::NoSpace(e.to_string()),
+            DriverError::NotActivated => RestError::NotActivated,
             DriverError::NotFound(_) => RestError::NotFound(e.to_string()),
+            DriverError::Unauthorized(_) => RestError::Forbidden(e.to_string()),
         }
+    }
+}
+
+impl From<fmt::Error> for RestError {
+    fn from(e: fmt::Error) -> Self {
+        RestError::InternalError(e.to_string())
     }
 }
 
@@ -88,17 +111,42 @@ impl From<serde_json::Error> for RestError {
 
 impl IntoResponse for RestError {
     fn into_response(self) -> axum::response::Response {
-        let status = match self {
-            RestError::Forbidden(_) => http::StatusCode::FORBIDDEN,
-            RestError::InternalError(_) => http::StatusCode::INTERNAL_SERVER_ERROR,
-            RestError::InvalidRequest(_) => http::StatusCode::BAD_REQUEST,
-            RestError::NotFound(_) => http::StatusCode::NOT_FOUND,
-            RestError::PayloadNotEmpty => http::StatusCode::PAYLOAD_TOO_LARGE,
+        let status;
+        let mut headers = HeaderMap::new();
+        match self {
+            RestError::Forbidden(_) => {
+                status = http::StatusCode::FORBIDDEN;
+            }
+            RestError::InternalError(_) => {
+                status = http::StatusCode::INTERNAL_SERVER_ERROR;
+            }
+            RestError::InvalidRequest(_) => {
+                status = http::StatusCode::BAD_REQUEST;
+            }
+            RestError::NoSpace(_) => {
+                status = http::StatusCode::INSUFFICIENT_STORAGE;
+            }
+            RestError::NotActivated => {
+                status = http::StatusCode::CONFLICT;
+            }
+            RestError::NotFound(_) => {
+                status = http::StatusCode::NOT_FOUND;
+            }
+            RestError::PayloadNotEmpty => {
+                status = http::StatusCode::PAYLOAD_TOO_LARGE;
+            }
+            RestError::Unauthorized(exp_scheme, exp_realm, _) => {
+                status = http::StatusCode::UNAUTHORIZED;
+                headers.insert(
+                    "WWW-Authenticate",
+                    format!("{} realm=\"{}\"", exp_scheme, exp_realm).parse().unwrap(),
+                );
+            }
         };
 
         let response = ErrorResponse { message: self.to_string() };
 
-        (status, Json(response)).into_response()
+        (status, headers, Json(response)).into_response()
     }
 }
 
@@ -162,6 +210,27 @@ pub mod testutils {
         pub fn new<U: AsRef<str>>(app: Router, (method, uri): (http::Method, U)) -> Self {
             let builder = axum::http::Request::builder().method(method).uri(uri.as_ref());
             Self { app, builder }
+        }
+
+        /// Adds basic authentication to the request.
+        pub fn with_basic_auth<U, P>(mut self, username: U, password: P) -> Self
+        where
+            U: fmt::Display,
+            P: fmt::Display,
+        {
+            let value = format!("Basic {}", base64::encode(format!("{}:{}", username, password)));
+            self.builder = self.builder.header(http::header::AUTHORIZATION, value);
+            self
+        }
+
+        /// Adds bearer authentication to the request.
+        pub fn with_bearer_auth<T>(mut self, token: T) -> Self
+        where
+            T: fmt::Display,
+        {
+            let value = format!("Bearer {}", token);
+            self.builder = self.builder.header(http::header::AUTHORIZATION, value);
+            self
         }
 
         /// Sets the header `name` to `value` in the outgoing request.
@@ -239,7 +308,8 @@ pub mod testutils {
             self.verify();
 
             let body = hyper::body::to_bytes(self.response.into_body()).await.unwrap();
-            assert!(body.is_empty());
+            let body = String::from_utf8(body.to_vec()).unwrap();
+            assert!(body.is_empty(), "Body not empty; got {}", body);
         }
 
         /// Finishes checking the response and expects its body to be an `ErrorResponse` that
@@ -296,6 +366,14 @@ pub mod testutils {
             );
             let re = regex::Regex::new(exp_re).unwrap();
             assert!(re.is_match(&body), "Body content '{}' does not match re '{}'", body, exp_re);
+        }
+
+        /// Finishes checking the response and returns the body of the response as UTF-8.
+        pub async fn take_body_as_text(self) -> String {
+            self.verify();
+
+            let body = hyper::body::to_bytes(self.response.into_body()).await.unwrap();
+            String::from_utf8(body.to_vec()).unwrap()
         }
 
         /// Finishes checking the response and returns the response itself for out of band

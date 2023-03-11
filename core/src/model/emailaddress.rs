@@ -51,6 +51,13 @@ impl EmailAddress {
         Ok(Self(s))
     }
 
+    /// Creates a new email address from an untrusted string `s`, without validation.  Useful for
+    /// testing purposes only.
+    #[cfg(any(test, feature = "testutils"))]
+    pub fn new_invalid<S: Into<String>>(s: S) -> Self {
+        Self(s.into())
+    }
+
     /// Returns a string view of the email address.
     pub fn as_str(&self) -> &str {
         self.0.as_str()
@@ -91,6 +98,11 @@ mod tests {
         assert!(EmailAddress::new(&long_string).is_ok());
         long_string.push('x');
         assert!(EmailAddress::new(&long_string).is_err());
+    }
+
+    #[test]
+    fn test_emailaddress_invalid() {
+        assert!(EmailAddress::new(EmailAddress::new_invalid("a").as_str()).is_err());
     }
 
     #[test]
