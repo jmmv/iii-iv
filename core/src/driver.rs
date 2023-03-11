@@ -41,6 +41,7 @@
 //! as this would require a clone and highlight an undesirable pattern.
 
 use crate::db::DbError;
+use crate::model::ModelError;
 
 /// Business logic errors.  These errors encompass backend and logical errors.
 #[derive(Debug, PartialEq, thiserror::Error)]
@@ -57,9 +58,21 @@ pub enum DriverError {
     #[error("{0}")]
     InvalidInput(String),
 
+    /// Indicates insufficient disk quota to perform the requested write operation.
+    #[error("{0}")]
+    NoSpace(String),
+
+    /// Indicates that login cannot succeed because the account is not yet activated.
+    #[error("Account has not been activated yet")]
+    NotActivated,
+
     /// Indicates that a requested entry does not exist.
     #[error("{0}")]
     NotFound(String),
+
+    /// Indicates that the calling user is not allowed to perform a read or write operation.
+    #[error("{0}")]
+    Unauthorized(String),
 }
 
 impl From<DbError> for DriverError {
@@ -71,6 +84,12 @@ impl From<DbError> for DriverError {
             DbError::NotFound => DriverError::NotFound(e.to_string()),
             DbError::Unavailable => DriverError::BackendError(e.to_string()),
         }
+    }
+}
+
+impl From<ModelError> for DriverError {
+    fn from(e: ModelError) -> Self {
+        DriverError::InvalidInput(e.to_string())
     }
 }
 
