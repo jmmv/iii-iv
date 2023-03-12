@@ -1,0 +1,21 @@
+[package]
+name = "iii-iv-authn"
+version = "0.0.0"
+description = "III-IV: Simple authentication support"
+authors = ["Julio Merino <julio@meroh.net>"]
+edition = "2021"
+publish = false
+
+[features]
+testutils = []
+
+[dependencies]
+base64 = "0.13"
+bcrypt = "0.13"
+rand = "0.8"
+http = "0.2.8"
+iii-iv-core = { path = "../core" }
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+iii-iv-core = { path = "../core", features = ["testutils"] }
