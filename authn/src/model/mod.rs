@@ -13,17 +13,9 @@
 // License for the specific language governing permissions and limitations
 // under the License.
 
-//! Generic data types often useful in REST services.
+//! Generic data types for authentication.
 
-mod emailaddress;
-pub use emailaddress::EmailAddress;
-mod username;
-pub use username::Username;
-
-/// Data model errors.
-#[derive(Debug, PartialEq, thiserror::Error)]
-#[error("{0}")]
-pub struct ModelError(pub String);
-
-/// Result type for this module.
-pub type ModelResult<T> = Result<T, ModelError>;
+mod accesstoken;
+pub use accesstoken::AccessToken;
+mod passwords;
+pub use passwords::{HashedPassword, Password};

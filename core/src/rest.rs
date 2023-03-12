@@ -34,9 +34,10 @@ use crate::model::ModelError;
 use async_trait::async_trait;
 use axum::body::HttpBody;
 use axum::extract::FromRequest;
+use axum::http::header::AsHeaderName;
+use axum::http::{HeaderMap, HeaderValue, Request};
 use axum::response::IntoResponse;
 use axum::{BoxError, Json};
-use http::{HeaderMap, Request};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -185,11 +186,28 @@ where
     }
 }
 
+/// Extracts the header `name` from `headers` and ensures it has at most one value.
+pub fn get_unique_header<K: AsHeaderName + Copy>(
+    headers: &HeaderMap,
+    name: K,
+) -> RestResult<Option<&HeaderValue>> {
+    let mut iter = headers.get_all(name).iter();
+    let value = iter.next();
+    if iter.next().is_some() {
+        return Err(RestError::InvalidRequest(format!(
+            "Header {} cannot have more than one value",
+            name.as_str()
+        )));
+    }
+    Ok(value)
+}
+
 /// Common test code for the REST server.
 #[cfg(feature = "testutils")]
 pub mod testutils {
     use super::*;
-    use axum::{http, Router};
+    use axum::http::{self, HeaderName};
+    use axum::Router;
     use bytes::Bytes;
     use serde::de::DeserializeOwned;
     use serde::Serialize;
@@ -236,10 +254,10 @@ pub mod testutils {
         /// Sets the header `name` to `value` in the outgoing request.
         pub fn with_header<K, V>(mut self, name: K, value: V) -> Self
         where
-            http::header::HeaderName: TryFrom<K>,
-            <http::header::HeaderName as TryFrom<K>>::Error: Into<http::Error>,
-            http::HeaderValue: TryFrom<V>,
-            <http::HeaderValue as TryFrom<V>>::Error: Into<http::Error>,
+            HeaderName: TryFrom<K>,
+            <HeaderName as TryFrom<K>>::Error: Into<http::Error>,
+            HeaderValue: TryFrom<V>,
+            <HeaderValue as TryFrom<V>>::Error: Into<http::Error>,
         {
             self.builder = self.builder.header(name, value);
             self
@@ -431,4 +449,38 @@ pub mod testutils {
     }
 
     pub use test_payload_must_be_empty;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_unique_header_missing() {
+        let mut headers = HeaderMap::new();
+        headers.append("ignore-me", "ignored".parse().unwrap());
+        assert!(get_unique_header(&headers, "the-header").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_get_unique_header_one() {
+        let mut headers = HeaderMap::new();
+        headers.append("ignore-me", "ignored".parse().unwrap());
+        headers.append("the-header", "foo".parse().unwrap());
+        assert_eq!(b"foo", get_unique_header(&headers, "the-header").unwrap().unwrap().as_bytes());
+    }
+
+    #[test]
+    fn test_get_unique_header_many() {
+        let mut headers = HeaderMap::new();
+        headers.append("the-header", "foo".parse().unwrap());
+        headers.append("ignore-me", "ignored".parse().unwrap());
+        headers.append("The-Header", "bar".parse().unwrap());
+        assert_eq!(
+            RestError::InvalidRequest(
+                "Header the-header cannot have more than one value".to_owned()
+            ),
+            get_unique_header(&headers, "the-header").unwrap_err()
+        );
+    }
 }

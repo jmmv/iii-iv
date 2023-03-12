@@ -13,17 +13,12 @@
 // License for the specific language governing permissions and limitations
 // under the License.
 
-//! Generic data types often useful in REST services.
+//! Common utilities to implement custom authentication.
 
-mod emailaddress;
-pub use emailaddress::EmailAddress;
-mod username;
-pub use username::Username;
+// Keep these in sync with other top-level files.
+#![warn(anonymous_parameters, bad_style, clippy::missing_docs_in_private_items, missing_docs)]
+#![warn(unused, unused_extern_crates, unused_import_braces, unused_qualifications)]
+#![warn(unsafe_code)]
 
-/// Data model errors.
-#[derive(Debug, PartialEq, thiserror::Error)]
-#[error("{0}")]
-pub struct ModelError(pub String);
-
-/// Result type for this module.
-pub type ModelResult<T> = Result<T, ModelError>;
+pub mod model;
+pub mod rest;
