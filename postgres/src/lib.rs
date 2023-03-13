@@ -291,6 +291,65 @@ mod tests {
     use super::*;
     use iii_iv_core::db::testutils::generate_core_db_tests;
 
+    #[test]
+    pub fn test_postgres_options_from_env_all_present() {
+        temp_env::with_vars(
+            [
+                ("PGSQL_HOST", Some("the-host")),
+                ("PGSQL_PORT", Some("1234")),
+                ("PGSQL_DATABASE", Some("the-database")),
+                ("PGSQL_USERNAME", Some("the-username")),
+                ("PGSQL_PASSWORD", Some("the-password")),
+            ],
+            || {
+                let opts = PostgresOptions::from_env("PGSQL").unwrap();
+                assert_eq!(
+                    PostgresOptions {
+                        host: "the-host".to_owned(),
+                        port: 1234,
+                        database: "the-database".to_owned(),
+                        username: "the-username".to_owned(),
+                        password: "the-password".to_owned()
+                    },
+                    opts
+                );
+            },
+        );
+    }
+
+    #[test]
+    pub fn test_postgres_options_from_env_missing() {
+        let overrides = [
+            ("MISSING_HOST", Some("the-host")),
+            ("MISSING_PORT", Some("1234")),
+            ("MISSING_DATABASE", Some("the-database")),
+            ("MISSING_USERNAME", Some("the-username")),
+            ("MISSING_PASSWORD", Some("the-password")),
+        ];
+        for (var, _) in overrides {
+            temp_env::with_vars(overrides, || {
+                env::remove_var(var);
+                let err = PostgresOptions::from_env("MISSING").unwrap_err();
+                assert!(err.to_string().contains(&format!("{} not present", var)));
+            });
+        }
+    }
+
+    #[test]
+    pub fn test_postgres_options_bad_port_type() {
+        let overrides = [
+            ("MISSING_HOST", Some("the-host")),
+            ("MISSING_PORT", Some("not a number")),
+            ("MISSING_DATABASE", Some("the-database")),
+            ("MISSING_USERNAME", Some("the-username")),
+            ("MISSING_PASSWORD", Some("the-password")),
+        ];
+        temp_env::with_vars(overrides, || {
+            let err = PostgresOptions::from_env("MISSING").unwrap_err();
+            assert!(err.to_string().contains("Invalid port number"));
+        });
+    }
+
     /// Creates a new connection to the test database and initializes it.
     async fn setup() -> PostgresDb<testutils::PostgresTestTx> {
         let _can_fail = env_logger::builder().is_test(true).try_init();
