@@ -27,10 +27,12 @@ use iii_iv_core::model::EmailAddress;
 use lettre::transport::smtp::authentication::Credentials;
 pub use lettre::Message;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Tokio1Executor};
+use std::env;
 
 /// Options to establish an SMTP connection.
 #[derive(Derivative)]
 #[derivative(Debug)]
+#[cfg_attr(test, derivative(PartialEq))]
 pub struct SmtpOptions {
     /// SMTP server to use.
     pub relay: String,
@@ -41,6 +43,34 @@ pub struct SmtpOptions {
     /// Password for logging into the SMTP server.
     #[derivative(Debug = "ignore")]
     pub password: String,
+}
+
+impl SmtpOptions {
+    /// Initializes a set of options from environment variables whose name is prefixed with the
+    /// given `prefix`.
+    ///
+    /// This will use variables such as `<prefix>_RELAY`, `<prefix>_USERNAME` and
+    /// `<prefix>_PASSWORD`.
+    pub fn from_env(prefix: &str) -> Result<Self, String> {
+        #[allow(clippy::missing_docs_in_private_items)]
+        fn get_required_var(prefix: &str, suffix: &str) -> Result<String, String> {
+            let name = format!("{}_{}", prefix, suffix);
+            match env::var(&name) {
+                Ok(value) => Ok(value),
+                Err(env::VarError::NotPresent) => {
+                    Err(format!("Required environment variable {} not present", name))
+                }
+                Err(env::VarError::NotUnicode(_)) => {
+                    Err(format!("Invalid value in environment variable {}", name))
+                }
+            }
+        }
+        Ok(Self {
+            relay: get_required_var(prefix, "RELAY")?,
+            username: get_required_var(prefix, "USERNAME")?,
+            password: get_required_var(prefix, "PASSWORD")?,
+        })
+    }
 }
 
 /// Trait to abstract the integration with the mailer.
@@ -141,5 +171,46 @@ pub mod testutils {
         let mailer = RecorderSmtpMailer { messages: messages.clone() };
         let messenger = SmtpMessenger { mailer };
         (messages, messenger)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    pub fn test_smtp_options_from_env_all_present() {
+        let overrides = [
+            ("SMTP_RELAY", Some("the-relay")),
+            ("SMTP_USERNAME", Some("the-username")),
+            ("SMTP_PASSWORD", Some("the-password")),
+        ];
+        temp_env::with_vars(overrides, || {
+            let opts = SmtpOptions::from_env("SMTP").unwrap();
+            assert_eq!(
+                SmtpOptions {
+                    relay: "the-relay".to_owned(),
+                    username: "the-username".to_owned(),
+                    password: "the-password".to_owned()
+                },
+                opts
+            );
+        });
+    }
+
+    #[test]
+    pub fn test_smtp_options_from_env_missing() {
+        let overrides = [
+            ("MISSING_RELAY", Some("the-relay")),
+            ("MISSING_USERNAME", Some("the-username")),
+            ("MISSING_PASSWORD", Some("the-password")),
+        ];
+        for (var, _) in overrides {
+            temp_env::with_vars(overrides, || {
+                env::remove_var(var);
+                let err = SmtpOptions::from_env("MISSING").unwrap_err();
+                assert!(err.to_string().contains(&format!("{} not present", var)));
+            });
+        }
     }
 }

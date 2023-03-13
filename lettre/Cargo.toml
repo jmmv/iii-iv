@@ -27,3 +27,4 @@ features = ["builder", "hostname", "pool", "rustls-tls", "smtp-transport", "toki
 
 [dev-dependencies]
 iii-iv-core = { path = "../core", features = ["testutils"] }
+temp-env = "0.3.2"
