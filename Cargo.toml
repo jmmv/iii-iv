@@ -3,6 +3,7 @@ members = [
     "authn",
     "core",
     "example",
+    "geo",
     "lettre",
     "postgres",
     "sqlite",

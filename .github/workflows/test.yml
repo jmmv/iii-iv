@@ -25,6 +25,7 @@ jobs:
     test-individually:
         runs-on: ubuntu-latest
         env:
+            AZURE_MAPS_KEY: ${{ secrets.AZURE_MAPS_KEY }}
             PGSQL_TEST_HOST: ${{ secrets.PGSQL_TEST_HOST }}
             PGSQL_TEST_PORT: ${{ secrets.PGSQL_TEST_PORT }}
             PGSQL_TEST_DATABASE: ${{ secrets.PGSQL_TEST_DATABASE }}
@@ -37,6 +38,7 @@ jobs:
     test-workspace:
         runs-on: ubuntu-latest
         env:
+            AZURE_MAPS_KEY: ${{ secrets.AZURE_MAPS_KEY }}
             PGSQL_TEST_HOST: ${{ secrets.PGSQL_TEST_HOST }}
             PGSQL_TEST_PORT: ${{ secrets.PGSQL_TEST_PORT }}
             PGSQL_TEST_DATABASE: ${{ secrets.PGSQL_TEST_DATABASE }}

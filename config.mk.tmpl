@@ -18,13 +18,12 @@
 # To modify this file, first copy it to config.mk and then edit that local copy.  This file
 # (config.mk.tmpl) must not contain secrets and the config.mk file must never be checked in.
 
+# Azure Maps key to use to geolocate IPs.
+AZURE_MAPS_KEY=
+
 # Settings to connect to the test database.
 PGSQL_TEST_HOST=
 PGSQL_TEST_PORT=5432
 PGSQL_TEST_DATABASE=iii-iv-test
 PGSQL_TEST_USERNAME=
 PGSQL_TEST_PASSWORD=
-
-# Limit test parallelism so that, even if we have multiple CI runs executing tests at once, we
-# minimize the load on the test database and avoid risking running out of concurrent connections.
-#TEST_THREADS=--test-threads=4
