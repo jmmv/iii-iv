@@ -330,7 +330,7 @@ mod tests {
             temp_env::with_vars(overrides, || {
                 env::remove_var(var);
                 let err = PostgresOptions::from_env("MISSING").unwrap_err();
-                assert!(err.to_string().contains(&format!("{} not present", var)));
+                assert!(err.contains(&format!("{} not present", var)));
             });
         }
     }
@@ -346,7 +346,7 @@ mod tests {
         ];
         temp_env::with_vars(overrides, || {
             let err = PostgresOptions::from_env("MISSING").unwrap_err();
-            assert!(err.to_string().contains("Invalid port number"));
+            assert!(err.contains("Invalid port number"));
         });
     }
 

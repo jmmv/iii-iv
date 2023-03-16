@@ -209,7 +209,7 @@ mod tests {
             temp_env::with_vars(overrides, || {
                 env::remove_var(var);
                 let err = SmtpOptions::from_env("MISSING").unwrap_err();
-                assert!(err.to_string().contains(&format!("{} not present", var)));
+                assert!(err.contains(&format!("{} not present", var)));
             });
         }
     }

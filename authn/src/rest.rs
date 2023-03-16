@@ -159,7 +159,7 @@ mod tests {
     fn do_get_basic_auth_error_test(exp_error: &str, values: &[&[u8]]) {
         let mut headers = HeaderMap::new();
         for value in values {
-            headers.append("Authorization", HeaderValue::from_bytes(*value).unwrap());
+            headers.append("Authorization", HeaderValue::from_bytes(value).unwrap());
         }
         match get_basic_auth(&headers, "the-realm") {
             Err(RestError::Unauthorized(scheme, realm, message)) => {
@@ -257,7 +257,7 @@ mod tests {
     fn do_get_bearer_auth_error_test(exp_error: &str, values: &[&[u8]]) {
         let mut headers = HeaderMap::new();
         for value in values {
-            headers.append("Authorization", HeaderValue::from_bytes(*value).unwrap());
+            headers.append("Authorization", HeaderValue::from_bytes(value).unwrap());
         }
         match get_bearer_auth(&headers, "the-realm") {
             Err(RestError::Unauthorized(scheme, realm, message)) => {
