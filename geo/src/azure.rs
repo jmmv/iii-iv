@@ -18,6 +18,9 @@
 use crate::{CountryIsoCode, GeoLocator, GeoResult};
 use async_trait::async_trait;
 use bytes::Buf;
+use derivative::Derivative;
+use iii_iv_core::env::get_optional_var;
+use iii_iv_core::env::get_required_var;
 use log::warn;
 use lru_time_cache::LruCache;
 use reqwest::{Client, Response, StatusCode};
@@ -27,11 +30,11 @@ use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-/// Maximum amount of time to keep cached entries in memory.
-const CACHE_TTL_SECONDS: u64 = 60 * 60;
+/// Default maximum amount of time to keep cached entries in memory.
+const DEFAULT_CACHE_TTL_SECONDS: u64 = 60 * 60;
 
-/// Maximum number of responses to keep cached in memory.
-const CACHE_CAPACITY: usize = 10 * 1024;
+/// Default maximum number of responses to keep cached in memory.
+const DEFAULT_CACHE_CAPACITY: usize = 10 * 1024;
 
 /// Converts a `reqwest::Error` to an `io::Error`.
 fn reqwest_error_to_io_error(e: reqwest::Error) -> io::Error {
@@ -106,6 +109,39 @@ struct LocateResponse {
     ip: String,
 }
 
+/// Options to configure an `AzureGeoLocator`.
+#[derive(Derivative)]
+#[derivative(Debug)]
+#[cfg_attr(test, derivative(PartialEq))]
+pub struct AzureGeoLocatorOptions {
+    /// The API key to use to contact Azure Maps.
+    #[derivative(Debug = "ignore")]
+    pub key: String,
+
+    /// The TTL for the entries in the cache.
+    pub cache_ttl: Duration,
+
+    /// The cache capacity in number of entries.
+    pub cache_capacity: usize,
+}
+
+impl AzureGeoLocatorOptions {
+    /// Creates a set of options from from environment variables whose name is prefixed with the
+    /// given `prefix`.
+    ///
+    /// This will use variables such as `<prefix>_KEY`, `<prefix>_CACHE_TTL` and
+    /// `<prefix>_CACHE_CAPACITY`.
+    pub fn from_env(prefix: &str) -> Result<Self, String> {
+        Ok(Self {
+            key: get_required_var::<String>(prefix, "KEY")?,
+            cache_ttl: get_optional_var::<Duration>(prefix, "CACHE_TTL")?
+                .unwrap_or_else(|| Duration::from_secs(DEFAULT_CACHE_TTL_SECONDS)),
+            cache_capacity: get_optional_var::<usize>(prefix, "CACHE_CAPACITY")?
+                .unwrap_or(DEFAULT_CACHE_CAPACITY),
+        })
+    }
+}
+
 /// Geolocator that uses an Azure Maps account.
 #[derive(Clone)]
 pub struct AzureGeoLocator {
@@ -120,24 +156,11 @@ pub struct AzureGeoLocator {
 }
 
 impl AzureGeoLocator {
-    /// Creates a new Azure Maps-backed geolocator using `key` to authenticate and with default
-    /// cache settings.
-    pub fn new<S: Into<String>>(key: S) -> Self {
-        AzureGeoLocator::new_with_settings(key, CACHE_TTL_SECONDS, CACHE_CAPACITY)
-    }
-
-    /// Creates a new Azure Maps-backed geolocator using `key` to authenticate and with custom
-    /// cache settings.
-    fn new_with_settings<S: Into<String>>(
-        key: S,
-        cache_ttl_seconds: u64,
-        cache_capacity: usize,
-    ) -> Self {
-        let cache = LruCache::with_expiry_duration_and_capacity(
-            Duration::from_secs(cache_ttl_seconds),
-            cache_capacity,
-        );
-        Self { key: key.into(), client: Client::default(), cache: Arc::from(Mutex::from(cache)) }
+    /// Creates a new Azure Maps-backed geolocator using `opts` for configuration.
+    pub fn new(opts: AzureGeoLocatorOptions) -> Self {
+        let cache =
+            LruCache::with_expiry_duration_and_capacity(opts.cache_ttl, opts.cache_capacity);
+        Self { key: opts.key, client: Client::default(), cache: Arc::from(Mutex::from(cache)) }
     }
 
     /// Same as `locate` but takes an IP as a string.  Useful for testing purposes only as this
@@ -221,9 +244,56 @@ mod tests {
     use std::env;
     use std::net::Ipv4Addr;
 
+    #[test]
+    pub fn test_azuregeolocatoroptions_from_env_all_present() {
+        let overrides = [
+            ("AZURE_MAPS_KEY", Some("the-key")),
+            ("AZURE_MAPS_CACHE_TTL", Some("3d")),
+            ("AZURE_MAPS_CACHE_CAPACITY", Some("1024")),
+        ];
+        temp_env::with_vars(overrides, || {
+            let opts = AzureGeoLocatorOptions::from_env("AZURE_MAPS").unwrap();
+            assert_eq!(
+                AzureGeoLocatorOptions {
+                    key: "the-key".to_owned(),
+                    cache_ttl: Duration::from_secs(3 * 24 * 60 * 60),
+                    cache_capacity: 1024,
+                },
+                opts
+            );
+        });
+    }
+
+    #[test]
+    pub fn test_azuregeolocatoroptions_from_env_use_defaults() {
+        let overrides = [
+            ("AZURE_MAPS_KEY", Some("the-key")),
+            ("AZURE_MAPS_CACHE_TTL", None),
+            ("AZURE_MAPS_CACHE_CAPACITY", None),
+        ];
+        temp_env::with_vars(overrides, || {
+            let opts = AzureGeoLocatorOptions::from_env("AZURE_MAPS").unwrap();
+            assert_eq!(
+                AzureGeoLocatorOptions {
+                    key: "the-key".to_owned(),
+                    cache_ttl: Duration::from_secs(DEFAULT_CACHE_TTL_SECONDS),
+                    cache_capacity: DEFAULT_CACHE_CAPACITY,
+                },
+                opts
+            );
+        });
+    }
+
+    #[test]
+    pub fn test_azuregeolocatoroptions_from_env_missing() {
+        temp_env::with_var_unset("AZURE_MAPS_KEY", || {
+            let err = AzureGeoLocatorOptions::from_env("AZURE_MAPS").unwrap_err();
+            assert!(err.contains("AZURE_MAPS_KEY not present"));
+        });
+    }
+
     fn setup() -> AzureGeoLocator {
-        let key = env::var("AZURE_MAPS_KEY").unwrap();
-        AzureGeoLocator::new(key)
+        AzureGeoLocator::new(AzureGeoLocatorOptions::from_env("AZURE_MAPS").unwrap())
     }
 
     #[tokio::test]
@@ -253,7 +323,11 @@ mod tests {
     #[ignore = "Requires environment configuration and is expensive"]
     async fn test_cache() {
         let key = env::var("AZURE_MAPS_KEY").unwrap();
-        let mut geolocator = AzureGeoLocator::new_with_settings(key, 1000000, 10);
+        let mut geolocator = AzureGeoLocator::new(AzureGeoLocatorOptions {
+            key,
+            cache_ttl: Duration::from_secs(1000000),
+            cache_capacity: 10,
+        });
 
         for i in 0..5 {
             let ip = IpAddr::V4(Ipv4Addr::new(212, 170, 36, 79 + i));

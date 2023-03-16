@@ -27,7 +27,7 @@ use std::io;
 use std::net::IpAddr;
 
 mod azure;
-pub use azure::AzureGeoLocator;
+pub use azure::{AzureGeoLocator, AzureGeoLocatorOptions};
 #[cfg(any(test, feature = "testutils"))]
 mod mock;
 #[cfg(any(test, feature = "testutils"))]
