@@ -22,9 +22,9 @@
 
 use derivative::Derivative;
 use iii_iv_core::db::{BareTx, Db, DbError, DbResult};
+use iii_iv_core::env::get_required_var;
 use sqlx::postgres::{PgConnectOptions, PgDatabaseError, PgPool, PgPoolOptions, Postgres};
 use sqlx::Transaction;
-use std::env;
 use std::marker::PhantomData;
 #[cfg(test)]
 use std::sync::Arc;
@@ -73,27 +73,12 @@ impl PostgresOptions {
     /// This will use variables such as `<prefix>_HOST`, `<prefix>_PORT`, `<prefix>_DATABASE`,
     /// `<prefix>_USERNAME` and `<prefix>_PASSWORD`.
     pub fn from_env(prefix: &str) -> Result<PostgresOptions, String> {
-        #[allow(clippy::missing_docs_in_private_items)]
-        fn get_required_var(prefix: &str, suffix: &str) -> Result<String, String> {
-            let name = format!("{}_{}", prefix, suffix);
-            match env::var(&name) {
-                Ok(value) => Ok(value),
-                Err(env::VarError::NotPresent) => {
-                    Err(format!("Required environment variable {} not present", name))
-                }
-                Err(env::VarError::NotUnicode(_)) => {
-                    Err(format!("Invalid value in environment variable {}", name))
-                }
-            }
-        }
         Ok(PostgresOptions {
-            host: get_required_var(prefix, "HOST")?,
-            port: get_required_var(prefix, "PORT")?
-                .parse::<u16>()
-                .map_err(|e| format!("Invalid port number: {}", e))?,
-            database: get_required_var(prefix, "DATABASE")?,
-            username: get_required_var(prefix, "USERNAME")?,
-            password: get_required_var(prefix, "PASSWORD")?,
+            host: get_required_var::<String>(prefix, "HOST")?,
+            port: get_required_var::<u16>(prefix, "PORT")?,
+            database: get_required_var::<String>(prefix, "DATABASE")?,
+            username: get_required_var::<String>(prefix, "USERNAME")?,
+            password: get_required_var::<String>(prefix, "PASSWORD")?,
         })
     }
 }
@@ -290,6 +275,7 @@ pub mod testutils {
 mod tests {
     use super::*;
     use iii_iv_core::db::testutils::generate_core_db_tests;
+    use std::env;
 
     #[test]
     pub fn test_postgres_options_from_env_all_present() {
@@ -346,7 +332,8 @@ mod tests {
         ];
         temp_env::with_vars(overrides, || {
             let err = PostgresOptions::from_env("MISSING").unwrap_err();
-            assert!(err.contains("Invalid port number"));
+            assert!(err.contains("MISSING_PORT"));
+            assert!(err.contains("Invalid u16"));
         });
     }
 

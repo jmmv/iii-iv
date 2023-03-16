@@ -23,11 +23,11 @@
 use async_trait::async_trait;
 use derivative::Derivative;
 use iii_iv_core::driver::{DriverError, DriverResult};
+use iii_iv_core::env::get_required_var;
 use iii_iv_core::model::EmailAddress;
 use lettre::transport::smtp::authentication::Credentials;
 pub use lettre::Message;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Tokio1Executor};
-use std::env;
 
 /// Options to establish an SMTP connection.
 #[derive(Derivative)]
@@ -52,23 +52,10 @@ impl SmtpOptions {
     /// This will use variables such as `<prefix>_RELAY`, `<prefix>_USERNAME` and
     /// `<prefix>_PASSWORD`.
     pub fn from_env(prefix: &str) -> Result<Self, String> {
-        #[allow(clippy::missing_docs_in_private_items)]
-        fn get_required_var(prefix: &str, suffix: &str) -> Result<String, String> {
-            let name = format!("{}_{}", prefix, suffix);
-            match env::var(&name) {
-                Ok(value) => Ok(value),
-                Err(env::VarError::NotPresent) => {
-                    Err(format!("Required environment variable {} not present", name))
-                }
-                Err(env::VarError::NotUnicode(_)) => {
-                    Err(format!("Invalid value in environment variable {}", name))
-                }
-            }
-        }
         Ok(Self {
-            relay: get_required_var(prefix, "RELAY")?,
-            username: get_required_var(prefix, "USERNAME")?,
-            password: get_required_var(prefix, "PASSWORD")?,
+            relay: get_required_var::<String>(prefix, "RELAY")?,
+            username: get_required_var::<String>(prefix, "USERNAME")?,
+            password: get_required_var::<String>(prefix, "PASSWORD")?,
         })
     }
 }
@@ -177,6 +164,7 @@ pub mod testutils {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env;
 
     #[test]
     pub fn test_smtp_options_from_env_all_present() {
