@@ -56,6 +56,7 @@ lint:
 	pre-commit run -a
 	cargo clippy -- -D warnings
 	cargo clippy --features=testutils -- -D warnings
+	cargo clippy --all-features --all-targets -- -D warnings
 	cargo fmt -- --check
 
 .PHONY: clean
