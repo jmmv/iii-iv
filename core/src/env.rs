@@ -15,7 +15,7 @@
 
 //! Utilities to deal with environment variables.
 
-use std::env;
+use std::{env, time::Duration};
 
 /// Result type for environment errors.
 type Result<T> = std::result::Result<T, String>;
@@ -56,6 +56,53 @@ tryfrom_value_for_fromstr!(u64);
 tryfrom_value_for_fromstr!(u128);
 tryfrom_value_for_fromstr!(usize);
 
+impl TryFrom<Value> for Duration {
+    type Error = String;
+
+    fn try_from(value: Value) -> std::result::Result<Self, Self::Error> {
+        let mut split_point = 0;
+        for (i, ch) in value.0.chars().enumerate() {
+            if !ch.is_ascii_digit() {
+                split_point = i;
+                break;
+            }
+        }
+        let (quantity, unit) = value.0.split_at(split_point);
+
+        let quantity = quantity
+            .parse::<u64>()
+            .map_err(|e| format!("Invalid time quantity '{}': {}", quantity, e))?;
+
+        match unit {
+            "ms" => Ok(Duration::from_millis(quantity)),
+            "s" => Ok(Duration::from_secs(quantity)),
+            "m" => Ok(Duration::from_secs(quantity.saturating_mul(60))),
+            "h" => Ok(Duration::from_secs(quantity.saturating_mul(60 * 60))),
+            "d" => Ok(Duration::from_secs(quantity.saturating_mul(24 * 60 * 60))),
+            unit => Err(format!("Invalid time unit '{}'", unit)),
+        }
+    }
+}
+
+/// Gets an optional environment variable whose name is `<prefix>_<suffix>` with a conversion to
+/// a target type `T`.
+pub fn get_optional_var<T: TryFrom<Value, Error = String>>(
+    prefix: &str,
+    suffix: &str,
+) -> Result<Option<T>> {
+    let name = format!("{}_{}", prefix, suffix);
+    match env::var(&name) {
+        Ok(value) => match Value(value).try_into() {
+            Ok(value) => Ok(Some(value)),
+            Err(e) => Err(format!("Invalid type in environment variable {}: {}", name, e)),
+        },
+        Err(env::VarError::NotPresent) => Ok(None),
+        Err(env::VarError::NotUnicode(_)) => {
+            Err(format!("Invalid value in environment variable {}", name))
+        }
+    }
+}
+
 /// Gets a required environment variable whose name is `<prefix>_<suffix>` with a conversion to
 /// a target type `T`.
 pub fn get_required_var<T: TryFrom<Value, Error = String>>(
@@ -94,6 +141,74 @@ mod tests {
 
         let err = TryInto::<u16>::try_into(Value("-1".to_owned())).unwrap_err();
         assert!(err.starts_with("Invalid u16:"));
+    }
+
+    #[test]
+    fn test_value_to_duration() {
+        for (exp_duration, raw) in [
+            (Duration::from_millis(3), "3ms"),
+            (Duration::from_millis(123456789), "123456789ms"),
+            (Duration::from_secs(5), "5s"),
+            (Duration::from_secs(60), "1m"),
+            (Duration::from_secs(2 * 60 * 60), "2h"),
+            (Duration::from_secs(20 * 24 * 60 * 60), "20d"),
+            (Duration::from_millis(u64::MAX), &format!("{}ms", u64::MAX)),
+            (Duration::from_secs(u64::MAX), &format!("{}s", u64::MAX)),
+            (Duration::from_secs(u64::MAX), &format!("{}m", u64::MAX)),
+            (Duration::from_secs(u64::MAX), &format!("{}h", u64::MAX)),
+            (Duration::from_secs(u64::MAX), &format!("{}d", u64::MAX)),
+        ] {
+            assert_eq!(exp_duration, TryInto::<Duration>::try_into(Value(raw.to_owned())).unwrap());
+        }
+
+        for (exp_err, raw) in [
+            ("Invalid time quantity '':", ""),
+            ("Invalid time quantity '':", "-"),
+            ("Invalid time unit 'H'", "4H"),
+            ("Invalid time unit 'a3d'", "2a3d"),
+            ("Invalid time quantity '':", "-1d"),
+            ("Invalid time quantity '':", " 1 s"),
+            ("Invalid time quantity '':", " 1s"),
+            ("Invalid time unit 's '", "1s "),
+        ] {
+            let err = TryInto::<Duration>::try_into(Value(raw.to_owned())).unwrap_err();
+            assert!(err.starts_with(exp_err), "Error '{}' does not start with '{}'", err, exp_err);
+        }
+    }
+
+    #[test]
+    fn test_get_optional_var_ok() {
+        temp_env::with_var("PREFIX_PRESENT", Some("1234"), || {
+            assert_eq!(
+                Some("1234"),
+                get_optional_var::<String>("PREFIX", "PRESENT").unwrap().as_deref()
+            );
+        });
+    }
+
+    #[test]
+    fn test_get_optional_var_missing() {
+        temp_env::with_var_unset("PREFIX_MISSING", || {
+            assert_eq!(None, get_optional_var::<String>("PREFIX", "MISSING").unwrap());
+        });
+    }
+
+    #[test]
+    fn test_get_optional_var_not_utf8() {
+        temp_env::with_var("PREFIX_INVALID", Some(OsStr::from_bytes(b"\xc3\x28")), || {
+            assert_eq!(
+                "Invalid value in environment variable PREFIX_INVALID",
+                &get_optional_var::<String>("PREFIX", "INVALID").unwrap_err()
+            );
+        });
+    }
+
+    #[test]
+    fn test_get_optional_var_bad_type() {
+        temp_env::with_var("PREFIX_BAD", Some("b4d"), || {
+            let err = get_optional_var::<u16>("PREFIX", "BAD").unwrap_err();
+            assert!(err.starts_with("Invalid type in environment variable PREFIX_BAD: Invalid u16"));
+        });
     }
 
     #[test]
