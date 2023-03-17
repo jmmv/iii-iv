@@ -10,8 +10,8 @@ publish = false
 testutils = []
 
 [dependencies]
-base64 = "0.13"
-bcrypt = "0.13"
+base64 = "0.21"
+bcrypt = "0.14"
 rand = "0.8"
 http = "0.2.8"
 iii-iv-core = { path = "../core" }
