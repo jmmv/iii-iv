@@ -208,6 +208,8 @@ pub mod testutils {
     use super::*;
     use axum::http::{self, HeaderName};
     use axum::Router;
+    use base64::engine::general_purpose;
+    use base64::Engine;
     use bytes::Bytes;
     use serde::de::DeserializeOwned;
     use serde::Serialize;
@@ -236,7 +238,10 @@ pub mod testutils {
             U: fmt::Display,
             P: fmt::Display,
         {
-            let value = format!("Basic {}", base64::encode(format!("{}:{}", username, password)));
+            let value = format!(
+                "Basic {}",
+                general_purpose::STANDARD_NO_PAD.encode(format!("{}:{}", username, password))
+            );
             self.builder = self.builder.header(http::header::AUTHORIZATION, value);
             self
         }

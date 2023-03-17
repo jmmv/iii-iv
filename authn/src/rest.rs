@@ -4,6 +4,8 @@
 //! Utilities to deal with HTTP authorization.
 
 use crate::model::{AccessToken, Password};
+use base64::engine::general_purpose;
+use base64::Engine;
 use http::header::HeaderMap;
 use iii_iv_core::model::Username;
 use iii_iv_core::rest::{get_unique_header, RestError, RestResult};
@@ -80,7 +82,7 @@ pub fn get_basic_auth(
 ) -> RestResult<(Username, Password)> {
     let base64_payload = get_authorization_header(headers, "Basic", exp_realm)?;
 
-    let payload = match base64::decode(base64_payload) {
+    let payload = match general_purpose::STANDARD_NO_PAD.decode(base64_payload) {
         Ok(bytes) => bytes,
         Err(e) => {
             return Err(RestError::Unauthorized(
@@ -146,7 +148,9 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.append(
             "Authorization",
-            format!("Basic {}", base64::encode("hello:bye")).parse().unwrap(),
+            format!("Basic {}", general_purpose::STANDARD_NO_PAD.encode("hello:bye"))
+                .parse()
+                .unwrap(),
         );
         assert_eq!(
             (Username::from("hello"), Password::from("bye")),
@@ -215,7 +219,9 @@ mod tests {
     fn test_get_basic_auth_invalid_payload_utf8() {
         let mut value = vec![];
         value.extend_from_slice(b"Basic ");
-        value.extend_from_slice(base64::encode(b"bad \xc5 bytes").as_bytes());
+        value.extend_from_slice(
+            general_purpose::STANDARD_NO_PAD.encode(b"bad \xc5 bytes").as_bytes(),
+        );
         do_get_basic_auth_error_test("Bad UTF-8 encoding in payload", &[&value]);
     }
 
@@ -223,7 +229,9 @@ mod tests {
     fn test_get_basic_auth_bad_content() {
         let mut value = vec![];
         value.extend_from_slice(b"Basic ");
-        value.extend_from_slice(base64::encode("username-password").as_bytes());
+        value.extend_from_slice(
+            general_purpose::STANDARD_NO_PAD.encode("username-password").as_bytes(),
+        );
         do_get_basic_auth_error_test("Bad content", &[&value]);
     }
 
