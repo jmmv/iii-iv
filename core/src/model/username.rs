@@ -26,6 +26,7 @@ pub(crate) const USERS_MAX_USERNAME_LENGTH: usize = 32;
 /// Usernames are case-insensitive and, for simplicity reasons, we force them to be all in
 /// lowercase.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(transparent)]
 pub struct Username(String);
 
 impl Username {
@@ -111,6 +112,7 @@ impl<'de> Deserialize<'de> for Username {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_test::{assert_de_tokens_error, assert_tokens, Token};
 
     #[test]
     fn test_username_ok() {
@@ -144,5 +146,19 @@ mod tests {
         assert_ne!(Username::from("foo"), Username::new("fo").unwrap());
 
         assert_eq!("someusername", Username::new("SomeUsername").unwrap().as_str());
+    }
+
+    #[test]
+    fn test_username_ser_de_ok() {
+        let code = Username::new("HelloWorld").unwrap();
+        assert_tokens(&code, &[Token::String("helloworld")]);
+    }
+
+    #[test]
+    fn test_username_de_error() {
+        assert_de_tokens_error::<Username>(
+            &[Token::String("hello world")],
+            "Unsupported character ' ' in username 'hello world'",
+        );
     }
 }
