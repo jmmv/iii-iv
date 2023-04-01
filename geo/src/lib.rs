@@ -37,7 +37,8 @@ pub use mock::MockGeoLocator;
 type GeoResult<T> = io::Result<T>;
 
 /// Representation of a two-letter country ISO code.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize)]
+#[serde(transparent)]
 pub struct CountryIsoCode(String);
 
 impl CountryIsoCode {
@@ -56,15 +57,6 @@ impl CountryIsoCode {
     /// Returns the country ISO code as a uppercase string.
     pub fn as_str(&self) -> &str {
         &self.0
-    }
-}
-
-impl Serialize for CountryIsoCode {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(self.as_str())
     }
 }
 
@@ -118,11 +110,19 @@ pub trait GeoLocator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_test::{assert_tokens, Token};
+    use serde_test::{assert_de_tokens_error, assert_tokens, Token};
 
     #[test]
-    fn test_country_iso_code_ser_de() {
+    fn test_country_iso_code_ser_de_ok() {
         let code = CountryIsoCode::new("ES").unwrap();
         assert_tokens(&code, &[Token::String("ES")]);
+    }
+
+    #[test]
+    fn test_country_iso_code_de_error() {
+        assert_de_tokens_error::<CountryIsoCode>(
+            &[Token::String("ESP")],
+            "Country code ESP does not have length 2",
+        );
     }
 }
