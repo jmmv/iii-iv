@@ -16,6 +16,8 @@
 //! The `EmailAddress` data type.
 
 use crate::model::{ModelError, ModelResult};
+use serde::de::Visitor;
+use serde::{Deserialize, Serialize};
 
 /// Maximum length of email addresses per the schema.
 pub(crate) const MAX_EMAIL_LENGTH: usize = 64;
@@ -25,7 +27,8 @@ pub(crate) const MAX_EMAIL_LENGTH: usize = 64;
 /// According to the standard, the local part of an email address may be case sensitive but the
 /// domain part is case insensitive.  Given that we only persist email addresses for tracing
 /// purposes, this treats them as case sensitive overall.
-#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Serialize)]
+#[serde(transparent)]
 pub struct EmailAddress(String);
 
 impl EmailAddress {
@@ -71,9 +74,50 @@ impl From<&str> for EmailAddress {
     }
 }
 
+/// Visitor to deserialize an `EmailAddress` from a string.
+struct EmailAddressVisitor;
+
+impl<'de> Visitor<'de> for EmailAddressVisitor {
+    type Value = EmailAddress;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str(r#"a two-letter country ISO code"#)
+    }
+
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        match EmailAddress::new(v) {
+            Ok(code) => Ok(code),
+            Err(e) => Err(E::custom(format!("{}", e))),
+        }
+    }
+
+    fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        match EmailAddress::new(v) {
+            Ok(code) => Ok(code),
+            Err(e) => Err(E::custom(format!("{}", e))),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for EmailAddress {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_string(EmailAddressVisitor)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_test::{assert_de_tokens_error, assert_tokens, Token};
 
     #[test]
     fn test_emailaddress_ok() {
@@ -114,6 +158,20 @@ mod tests {
         assert_ne!(
             EmailAddress::new("foo@example.com").unwrap(),
             EmailAddress::new("foo@Example.Com").unwrap()
+        );
+    }
+
+    #[test]
+    fn test_emailaddress_ser_de_ok() {
+        let code = EmailAddress::new("HelloWorld@example.com").unwrap();
+        assert_tokens(&code, &[Token::String("HelloWorld@example.com")]);
+    }
+
+    #[test]
+    fn test_emailaddress_de_error() {
+        assert_de_tokens_error::<EmailAddress>(
+            &[Token::String("HelloWorld")],
+            "Email does not look like a valid address 'HelloWorld'",
         );
     }
 }
