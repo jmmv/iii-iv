@@ -16,11 +16,15 @@
 //! The `Password` and `HashedPassword` data types.
 
 use iii_iv_core::model::{ModelError, ModelResult};
+use serde::Deserialize;
+#[cfg(any(test, feature = "testutils"))]
+use serde::Serialize;
 use std::fmt;
 
 /// An opaque type to hold a password, protecting it from leaking into logs.
-#[derive(PartialEq)]
-#[cfg_attr(any(test, feature = "testutils"), derive(Clone))]
+#[derive(Deserialize, PartialEq)]
+#[serde(transparent)]
+#[cfg_attr(any(test, feature = "testutils"), derive(Clone, Serialize))]
 pub struct Password(String);
 
 impl Password {

@@ -19,3 +19,7 @@ mod accesstoken;
 pub use accesstoken::AccessToken;
 mod passwords;
 pub use passwords::{HashedPassword, Password};
+mod session;
+pub use session::Session;
+mod user;
+pub use user::User;

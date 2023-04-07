@@ -20,18 +20,24 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+/// Length of our binary tokens, in bytes.
+///
+/// This is not customizable because this size is replicated in the database schema and we cannot
+/// simply change what it is at runtime.
+const TOKEN_LENGTH: usize = 256;
+
 /// An opaque type representing a user's access token.
+///
+/// Access tokens are user-readable character sequences of a fixed size.
 #[derive(Clone, Deserialize, PartialEq, Serialize)]
+#[serde(transparent)]
 pub struct AccessToken(String);
 
 impl AccessToken {
-    /// Length of our tokens, in bytes.
-    const TOKEN_LENGTH: usize = 256;
-
-    /// Creates a new access token from its base64 representation.
+    /// Creates a new access token.
     pub fn new<S: Into<String>>(token: S) -> ModelResult<Self> {
         let token = token.into();
-        if token.len() != Self::TOKEN_LENGTH {
+        if token.len() != TOKEN_LENGTH {
             return Err(ModelError("Invalid access token".to_owned()));
         }
         for ch in token.chars() {
@@ -45,8 +51,8 @@ impl AccessToken {
     /// Generates a new access token.
     pub fn generate() -> Self {
         let mut rng = rand::thread_rng();
-        let mut token = String::new();
-        for _ in 0..Self::TOKEN_LENGTH {
+        let mut token = String::with_capacity(TOKEN_LENGTH);
+        for _ in 0..TOKEN_LENGTH {
             let i = rng.gen_range(0..(10 + 26 + 26));
             let ch = if i < 10 {
                 (b'0' + i) as char
@@ -81,7 +87,7 @@ mod tests {
     #[test]
     fn test_accesstoken_ok() {
         let mut raw_token = String::new();
-        for _ in 0..AccessToken::TOKEN_LENGTH {
+        for _ in 0..TOKEN_LENGTH {
             raw_token.push('a');
         }
         let token = AccessToken::new(&raw_token).unwrap();
@@ -89,20 +95,21 @@ mod tests {
     }
 
     #[test]
-    fn test_accesstoken_error() {
+    fn test_accesstoken_error_too_short() {
         AccessToken::new("abcde").unwrap_err();
+    }
 
-        let mut raw_token = String::new();
-        for _ in 0..AccessToken::TOKEN_LENGTH + 1 {
-            raw_token.push('!');
-        }
+    #[test]
+    fn test_accesstoken_error_invalid_character() {
+        let raw_token = "!".repeat(TOKEN_LENGTH);
         AccessToken::new(&raw_token).unwrap_err();
+    }
 
-        let mut raw_token = String::new();
-        AccessToken::new(&raw_token).unwrap_err();
-        for _ in 0..AccessToken::TOKEN_LENGTH + 1 {
-            raw_token.push('b');
-        }
+    #[test]
+    fn test_accesstoken_error_too_long() {
+        let mut raw_token = "b".repeat(TOKEN_LENGTH);
+        AccessToken::new(&raw_token).unwrap();
+        raw_token.push('b');
         AccessToken::new(&raw_token).unwrap_err();
     }
 
