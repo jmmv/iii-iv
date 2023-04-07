@@ -252,7 +252,8 @@ pub mod testutils {
             PostgresOptions::from_env("PGSQL_TEST").unwrap(),
             PgPoolOptions::new().min_connections(1).max_connections(1),
         );
-        let db = PostgresDb::attach(pool).await.unwrap();
+        // We don't use attach because we don't want to run the DB migration code.
+        let db = PostgresDb { pool, _phantom_tx: PhantomData::default() };
 
         let mut tx;
         let mut delay = Duration::from_millis(100 + rand::random::<u64>() % 100);

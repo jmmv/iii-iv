@@ -143,7 +143,8 @@ pub mod testutils {
     {
         let _can_fail = env_logger::builder().is_test(true).try_init();
         let pool = connect_internal(":memory:").await.unwrap();
-        let db = SqliteDb::attach(pool).await.unwrap();
+        // We don't use attach because we don't want to run the DB migration code.
+        let db = SqliteDb { pool, _phantom_tx: PhantomData::default() };
 
         let mut tx: T = db.begin().await.unwrap();
         tx.migrate_test().await.unwrap();
