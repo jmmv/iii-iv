@@ -20,7 +20,7 @@
 #![warn(unused, unused_extern_crates, unused_import_braces, unused_qualifications)]
 #![warn(unsafe_code)]
 
-use iii_iv_postgres::{PostgresDb, PostgresOptions};
+use iii_iv_postgres::{PostgresDb, PostgresOptions, PostgresPool};
 use std::error::Error;
 use std::net::SocketAddr;
 
@@ -40,7 +40,8 @@ pub async fn serve(
     bind_addr: impl Into<SocketAddr>,
     db_opts: PostgresOptions,
 ) -> Result<(), Box<dyn Error>> {
-    let db = PostgresDb::<PostgresTx>::connect(db_opts).await?;
+    let pool = PostgresPool::connect(db_opts).await?;
+    let db = PostgresDb::<PostgresTx>::attach(pool).await?;
     let driver = Driver::new(db);
     let app = app(driver);
 

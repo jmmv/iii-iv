@@ -22,7 +22,7 @@ use crate::model::*;
 use crate::rest::app;
 use axum::Router;
 use iii_iv_core::db::{BareTx, Db};
-use iii_iv_sqlite::SqliteDb;
+use iii_iv_sqlite::{self, SqliteDb};
 
 pub(crate) struct TestContext {
     db: SqliteDb<SqliteTx>,
@@ -31,7 +31,8 @@ pub(crate) struct TestContext {
 
 impl TestContext {
     pub(crate) async fn setup() -> Self {
-        let db = SqliteDb::<SqliteTx>::connect(":memory:").await.unwrap();
+        let pool = iii_iv_sqlite::connect(":memory:").await.unwrap();
+        let db = SqliteDb::<SqliteTx>::attach(pool).await.unwrap();
         let driver = Driver::new(db.clone());
         let app = app(driver);
         Self { db, app }
