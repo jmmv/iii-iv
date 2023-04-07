@@ -102,32 +102,23 @@ impl Drop for PoolCloser {
     }
 }
 
-/// A database instance backed by a PostgreSQL database.
+/// Shareable connection across transactions and `PostgresDb` types.
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""))]
-pub struct PostgresDb<T>
-where
-    T: BareTx + From<Transaction<'static, Postgres>> + Send + Sync + 'static,
-{
+pub struct PostgresPool {
     /// Shared PostgreSQL connection pool.  This is a cloneable type that all concurrent
     /// transactions can use it concurrently.
     pool: PgPool,
-
-    /// Marker for the unused type `T`.
-    _phantom_tx: PhantomData<T>,
 
     /// Automatic connection closer for tests to limit concurrent connections.
     #[cfg(test)]
     closer: Arc<PoolCloser>,
 }
 
-impl<T> PostgresDb<T>
-where
-    T: BareTx + From<Transaction<'static, Postgres>> + Send + Sync + 'static,
-{
+impl PostgresPool {
     /// Creates a new connection with a set of pool options.
     ///
-    /// Note that this does *not* establish the connection nor calls `migrate` on the database.
+    /// Note that this does *not* establish the connection.
     fn connect_lazy_with_pool_options(opts: PostgresOptions, pool_options: PgPoolOptions) -> Self {
         let options = PgConnectOptions::new()
             .host(&opts.host)
@@ -139,24 +130,49 @@ where
         let pool = pool_options.connect_lazy_with(options);
 
         #[cfg(not(test))]
-        let db = Self { pool, _phantom_tx: PhantomData::default() };
+        let db = Self { pool };
 
         #[cfg(test)]
-        let db = Self {
-            pool: pool.clone(),
-            _phantom_tx: PhantomData::default(),
-            closer: Arc::from(PoolCloser { pool }),
-        };
+        let db = Self { pool: pool.clone(), closer: Arc::from(PoolCloser { pool }) };
 
         db
     }
 
     /// Creates a new connection based on a dynamic pool.
+    pub async fn connect(opts: PostgresOptions) -> DbResult<Self> {
+        Ok(PostgresPool::connect_lazy_with_pool_options(opts, PgPoolOptions::new()))
+    }
+
+    /// Opens a new transaction.
+    async fn begin(&self) -> DbResult<Transaction<'static, Postgres>> {
+        self.pool.begin().await.map_err(map_sqlx_error)
+    }
+}
+
+/// A database instance backed by a PostgreSQL database.
+#[derive(Derivative)]
+#[derivative(Clone(bound = ""))]
+pub struct PostgresDb<T>
+where
+    T: BareTx + From<Transaction<'static, Postgres>> + Send + Sync + 'static,
+{
+    /// Shared PostgreSQL connection pool.
+    pool: PostgresPool,
+
+    /// Marker for the unused type `T`.
+    _phantom_tx: PhantomData<T>,
+}
+
+impl<T> PostgresDb<T>
+where
+    T: BareTx + From<Transaction<'static, Postgres>> + Send + Sync + 'static,
+{
+    /// Attaches a new database of type `T` to an existing pool.
     ///
-    /// This takes care of running the migration process, which in turn results in the database
-    /// connection being established.
-    pub async fn connect(opts: PostgresOptions) -> DbResult<PostgresDb<T>> {
-        let db = PostgresDb::connect_lazy_with_pool_options(opts, PgPoolOptions::new());
+    /// This takes care of running the migration process for the type `T`, which in turn results
+    /// in the database connection being established.
+    pub async fn attach(pool: PostgresPool) -> DbResult<PostgresDb<T>> {
+        let db = Self { pool, _phantom_tx: PhantomData::default() };
 
         let mut tx: T = db.begin().await?;
         tx.migrate().await?;
@@ -175,7 +191,7 @@ where
     type Tx = T;
 
     async fn begin(&self) -> DbResult<Self::Tx> {
-        let tx = self.pool.begin().await.map_err(map_sqlx_error)?;
+        let tx = self.pool.begin().await?;
         Ok(Self::Tx::from(tx))
     }
 }
@@ -232,15 +248,16 @@ pub mod testutils {
     {
         let _can_fail = env_logger::builder().is_test(true).try_init();
 
-        let db = PostgresDb::connect_lazy_with_pool_options(
+        let pool = PostgresPool::connect_lazy_with_pool_options(
             PostgresOptions::from_env("PGSQL_TEST").unwrap(),
             PgPoolOptions::new().min_connections(1).max_connections(1),
         );
+        let db = PostgresDb::attach(pool).await.unwrap();
 
         let mut tx;
         let mut delay = Duration::from_millis(100 + rand::random::<u64>() % 100);
         loop {
-            match db.pool.begin().await.map_err(map_sqlx_error) {
+            match db.pool.begin().await {
                 Ok(tx2) => {
                     tx = tx2;
                     break;
@@ -344,7 +361,9 @@ mod tests {
         // We don't use connect_lazy_for_test here because that function must limit concurrent
         // connections to 1, yet we need at least 2 connections for our tests here to succeed.
         // This means we cannot write to the database because we did not set up the `search_path`.
-        PostgresDb::connect(PostgresOptions::from_env("PGSQL_TEST").unwrap()).await.unwrap()
+        let pool =
+            PostgresPool::connect(PostgresOptions::from_env("PGSQL_TEST").unwrap()).await.unwrap();
+        PostgresDb::attach(pool).await.unwrap()
     }
 
     generate_core_db_tests!(

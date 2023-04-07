@@ -39,6 +39,16 @@ pub fn map_sqlx_error(e: sqlx::Error) -> DbError {
     }
 }
 
+/// Creates a new connection.
+async fn connect_internal(conn_str: &str) -> DbResult<SqlitePool> {
+    SqlitePool::connect(conn_str).await.map_err(map_sqlx_error)
+}
+
+/// Creates a new connection and sets the database schema.
+pub async fn connect(conn_str: &str) -> DbResult<SqlitePool> {
+    connect_internal(conn_str).await
+}
+
 /// A database instance backed by an in-memory SQLite database.
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""))]
@@ -58,14 +68,12 @@ impl<T> SqliteDb<T>
 where
     T: BareTx + From<Mutex<Transaction<'static, Sqlite>>> + Send + Sync + 'static,
 {
-    /// Creates a new connection.
-    async fn connect_internal(conn_str: &str) -> DbResult<Self> {
-        let pool = SqlitePool::connect(conn_str).await.map_err(map_sqlx_error)?;
-        Ok(Self { pool, _phantom_tx: PhantomData::default() })
-    }
-    /// Creates a new connection and sets the database schema.
-    pub async fn connect(conn_str: &str) -> DbResult<Self> {
-        let db = SqliteDb::<T>::connect_internal(conn_str).await?;
+    /// Attaches a new database of type `T` to an existing pool.
+    ///
+    /// This takes care of running the migration process for the type `T`, which in turn results
+    /// in the database connection being established.
+    pub async fn attach(pool: SqlitePool) -> DbResult<Self> {
+        let db = Self { pool, _phantom_tx: PhantomData::default() };
 
         let mut tx: T = db.begin().await?;
         tx.migrate().await?;
@@ -134,7 +142,8 @@ pub mod testutils {
         T: BareTx + From<Mutex<Transaction<'static, Sqlite>>> + Send + Sync + 'static,
     {
         let _can_fail = env_logger::builder().is_test(true).try_init();
-        let db = SqliteDb::connect_internal(":memory:").await.unwrap();
+        let pool = connect_internal(":memory:").await.unwrap();
+        let db = SqliteDb::attach(pool).await.unwrap();
 
         let mut tx: T = db.begin().await.unwrap();
         tx.migrate_test().await.unwrap();
