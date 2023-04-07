@@ -7,15 +7,38 @@ edition = "2021"
 publish = false
 
 [features]
+default = ["postgres"]
+postgres = ["iii-iv-core/postgres", "sqlx/postgres"]
+sqlite = ["dep:futures", "iii-iv-core/sqlite", "sqlx/sqlite"]
 testutils = []
 
 [dependencies]
+async-trait = "0.1"
+axum = "0.6"
 base64 = "0.21"
 bcrypt = "0.14"
+derivative = "2.2"
+futures = { version = "0.3", optional = true }
 rand = "0.8"
 http = "0.2.8"
 iii-iv-core = { path = "../core" }
+iii-iv-lettre = { path = "../lettre" }
 serde = { version = "1", features = ["derive"] }
+serde_urlencoded = "0.7"
+time = "0.3"
+
+[dependencies.sqlx]
+version = "0.7"
+optional = true
+features = ["runtime-tokio-rustls", "time"]
 
 [dev-dependencies]
-iii-iv-core = { path = "../core", features = ["testutils"] }
+futures = "0.3"
+iii-iv-core = { path = "../core", features = ["sqlite", "testutils"] }
+iii-iv-lettre = { path = "../lettre", features = ["testutils"] }
+tokio = { version = "1", features = ["rt", "macros", "rt-multi-thread"] }
+url = "2.3"
+
+[dev-dependencies.sqlx]
+version = "0.7"
+features = ["runtime-tokio-rustls", "sqlite", "time"]
