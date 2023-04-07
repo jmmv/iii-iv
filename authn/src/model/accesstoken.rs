@@ -26,6 +26,7 @@ pub struct AccessToken(String);
 
 impl AccessToken {
     /// Length of our tokens, in bytes.
+    // TODO(jmmv): This should be customizable via an environment setting.
     const TOKEN_LENGTH: usize = 256;
 
     /// Creates a new access token from its base64 representation.
