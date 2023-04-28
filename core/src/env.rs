@@ -17,6 +17,8 @@
 
 use std::{env, time::Duration};
 
+use url::Url;
+
 /// Result type for environment errors.
 type Result<T> = std::result::Result<T, String>;
 
@@ -80,6 +82,17 @@ impl TryFrom<Value> for Duration {
             "h" => Ok(Duration::from_secs(quantity.saturating_mul(60 * 60))),
             "d" => Ok(Duration::from_secs(quantity.saturating_mul(24 * 60 * 60))),
             unit => Err(format!("Invalid time unit '{}'", unit)),
+        }
+    }
+}
+
+impl TryFrom<Value> for Url {
+    type Error = String;
+
+    fn try_from(value: Value) -> std::result::Result<Self, Self::Error> {
+        match Url::parse(&value.0) {
+            Ok(url) => Ok(url),
+            Err(e) => Err(format!("Invalid URL '{}': '{}'", value.0, e)),
         }
     }
 }
@@ -174,6 +187,14 @@ mod tests {
             let err = TryInto::<Duration>::try_into(Value(raw.to_owned())).unwrap_err();
             assert!(err.starts_with(exp_err), "Error '{}' does not start with '{}'", err, exp_err);
         }
+    }
+
+    #[test]
+    fn test_value_to_url() {
+        assert_eq!(
+            &Url::parse("https://somewhere.example.com/").unwrap(),
+            &TryInto::<Url>::try_into(Value("https://somewhere.example.com/".to_owned())).unwrap()
+        );
     }
 
     #[test]
