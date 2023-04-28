@@ -19,6 +19,7 @@ use crate::{CountryIsoCode, GeoLocator, GeoResult};
 use async_trait::async_trait;
 use bytes::Buf;
 use derivative::Derivative;
+use futures::lock::Mutex;
 use iii_iv_core::env::get_optional_var;
 use iii_iv_core::env::get_required_var;
 use log::warn;
@@ -27,7 +28,7 @@ use reqwest::{Client, Response, StatusCode};
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::net::IpAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Default maximum amount of time to keep cached entries in memory.
@@ -217,7 +218,7 @@ impl AzureGeoLocator {
 impl GeoLocator for AzureGeoLocator {
     async fn locate(&self, ip: &IpAddr) -> GeoResult<Option<CountryIsoCode>> {
         {
-            let mut cache = self.cache.lock().unwrap();
+            let mut cache = self.cache.lock().await;
             if let Some(code) = cache.get(ip) {
                 return Ok(code.clone());
             };
@@ -225,7 +226,7 @@ impl GeoLocator for AzureGeoLocator {
 
         let code = self.locate_raw(&ip.to_string()).await?;
 
-        let mut cache = self.cache.lock().unwrap();
+        let mut cache = self.cache.lock().await;
         if let Some(old_code) = cache.insert(*ip, code.clone()) {
             if old_code != code {
                 warn!(

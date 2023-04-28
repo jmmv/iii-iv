@@ -134,7 +134,8 @@ where
 #[cfg(feature = "testutils")]
 pub mod testutils {
     use super::*;
-    use std::sync::{Arc, Mutex};
+    use futures::lock::Mutex;
+    use std::sync::Arc;
 
     /// Mailer that captures outgoing messages.
     #[derive(Clone)]
@@ -146,7 +147,7 @@ pub mod testutils {
     #[async_trait]
     impl SmtpMailer for RecorderSmtpMailer {
         async fn send(&self, message: Message) -> DriverResult<()> {
-            let mut messages = self.messages.lock().unwrap();
+            let mut messages = self.messages.lock().await;
             messages.push(message);
             Ok(())
         }
