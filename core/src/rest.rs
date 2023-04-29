@@ -235,6 +235,27 @@ pub mod testutils {
             Self { app, builder }
         }
 
+        /// Extends the URI in the request with a `query`.
+        pub fn with_query<Q: Serialize>(mut self, query: Q) -> Self {
+            let uri = self.builder.uri_ref().unwrap().to_string();
+            assert!(!uri.contains('?'), "URI already contains a query: {}", uri);
+            assert!(!uri.contains('#'), "URI contains a fragment: {}", uri);
+            self.builder = self.builder.uri(format!(
+                "{}?{}",
+                uri,
+                serde_urlencoded::to_string(query).unwrap()
+            ));
+            self
+        }
+
+        /// Extends the URI in the request with a `fragment`.
+        pub fn with_fragment<F: AsRef<str>>(mut self, fragment: F) -> Self {
+            let uri = self.builder.uri_ref().unwrap().to_string();
+            assert!(!uri.contains('#'), "URI already contains a fragment: {}", uri);
+            self.builder = self.builder.uri(format!("{}#{}", uri, fragment.as_ref()));
+            self
+        }
+
         /// Adds basic authentication to the request.
         pub fn with_basic_auth<U, P>(mut self, username: U, password: P) -> Self
         where
@@ -283,6 +304,17 @@ pub mod testutils {
                 .builder
                 .header(http::header::CONTENT_TYPE, mime::TEXT_PLAIN.as_ref())
                 .body(axum::body::Body::from(text.into()))
+                .unwrap();
+            ResponseChecker::from(self.app.oneshot(request).await.unwrap())
+        }
+
+        /// Finishes building the request and sends it with a form encoded in the
+        /// body as the payload.
+        pub async fn send_form<T: Serialize>(self, request: T) -> ResponseChecker {
+            let request = self
+                .builder
+                .header(http::header::CONTENT_TYPE, mime::APPLICATION_WWW_FORM_URLENCODED.as_ref())
+                .body(axum::body::Body::from(serde_urlencoded::to_string(&request).unwrap()))
                 .unwrap();
             ResponseChecker::from(self.app.oneshot(request).await.unwrap())
         }
@@ -414,13 +446,14 @@ pub mod testutils {
     /// Generates a test to verify that an API that expects JSON fails when it gets something else.
     #[macro_export]
     macro_rules! test_payload_must_be_json {
-        ( $app:expr, $route:expr ) => {
+        ( $app:expr, $route:expr $(, $query:expr)? ) => {
             #[tokio::test]
             async fn test_payload_must_be_json() {
                 // TODO(jmmv): These checks should be using expect_error instead of expect_text, but
                 // JSON deserialization errors are not funneled through RestError.
 
                 $crate::rest::testutils::OneShotBuilder::new($app, $route)
+                    $( .with_query($query) )?
                     .send_text("this is not json")
                     .await
                     .expect_status(axum::http::StatusCode::UNSUPPORTED_MEDIA_TYPE)
@@ -428,6 +461,7 @@ pub mod testutils {
                     .await;
 
                 $crate::rest::testutils::OneShotBuilder::new($app, $route)
+                    $( .with_query($query) )?
                     .with_header(axum::http::header::CONTENT_TYPE, "application/json")
                     .send_text("this is not json")
                     .await
@@ -443,10 +477,11 @@ pub mod testutils {
     /// Generates a test to verify that an API that does not expect a payload fails as necessary.
     #[macro_export]
     macro_rules! test_payload_must_be_empty {
-        ( $app:expr, $route:expr ) => {
+        ( $app:expr, $route:expr $(, $query:expr)? ) => {
             #[tokio::test]
             async fn test_payload_must_be_empty() {
                 $crate::rest::testutils::OneShotBuilder::new($app, $route)
+                    $( .with_query($query) )?
                     .send_text("should not be here")
                     .await
                     .expect_status(axum::http::StatusCode::PAYLOAD_TOO_LARGE)
@@ -457,6 +492,38 @@ pub mod testutils {
     }
 
     pub use test_payload_must_be_empty;
+
+    /// Generates a test to verify that an API that expects a form in its body fails when it gets
+    /// something else.
+    #[macro_export]
+    macro_rules! test_payload_must_be_form {
+        ( $app:expr, $route:expr $(, $query:expr)? ) => {
+            #[tokio::test]
+            async fn test_payload_must_be_form() {
+                // TODO(jmmv): These checks should be using expect_error instead of expect_text, but
+                // form deserialization errors are not funneled through RestError.
+
+                $crate::rest::testutils::OneShotBuilder::new($app, $route)
+                    $( .with_query($query) )?
+                    .send_text("this is not a form")
+                    .await
+                    .expect_status(axum::http::StatusCode::UNSUPPORTED_MEDIA_TYPE)
+                    .expect_text("Content-Type")
+                    .await;
+
+                $crate::rest::testutils::OneShotBuilder::new($app, $route)
+                    $( .with_query($query) )?
+                    .with_header(axum::http::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .send_text("this is not a form")
+                    .await
+                    .expect_status(axum::http::StatusCode::UNPROCESSABLE_ENTITY)
+                    .expect_text("missing field")
+                    .await;
+            }
+        };
+    }
+
+    pub use test_payload_must_be_form;
 }
 
 #[cfg(test)]
