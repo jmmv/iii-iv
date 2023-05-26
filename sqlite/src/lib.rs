@@ -27,6 +27,8 @@ use iii_iv_core::db::{BareTx, Db, DbError, DbResult};
 use sqlx::sqlite::{Sqlite, SqlitePool};
 use sqlx::Transaction;
 use std::marker::PhantomData;
+use std::time::Duration;
+use time::OffsetDateTime;
 
 /// Takes a raw SQLx error `e` and converts it to our generic error type.
 pub fn map_sqlx_error(e: sqlx::Error) -> DbError {
@@ -111,6 +113,53 @@ pub async fn run_schema(
     Ok(())
 }
 
+/// Converts a duration as extracted from the database into a `Duration`.
+///
+/// We expect `u64` values here but the sqlx interfaces require `i64`.  This is intentional,
+/// and the code that loads these numbers from the database should cast them as `u64` understanding
+/// that the stored representation may become negative.
+pub fn build_duration(duration_sec: u64, duration_nsec: u64) -> DbResult<Duration> {
+    Ok(Duration::from_secs(duration_sec) + Duration::from_nanos(duration_nsec))
+}
+
+/// Converts a timestamp as extracted from the database into an `OffsetDateTime`.
+///
+/// We expect `u64` values here but the sqlx interfaces require `i64`.  This is intentional,
+/// and the code that loads these numbers from the database should cast them as `u64` understanding
+/// that the stored representation may become negative.
+pub fn build_timestamp(timestamp_sec: u64, timestamp_nsec: u64) -> DbResult<OffsetDateTime> {
+    match OffsetDateTime::from_unix_timestamp_nanos(
+        (i128::from(timestamp_sec) * 1_000_000_000) + (i128::from(timestamp_nsec)),
+    ) {
+        Ok(timestamp) => Ok(timestamp),
+        Err(e) => Err(DbError::DataIntegrityError(format!("Invalid timestamp: {}", e))),
+    }
+}
+
+/// Converts a duration into the seconds and nanoseconds pair needed by the database.
+///
+/// We expect `u64` values here but the sqlx interfaces require `i64`.  This is intentional,
+/// and the code that stores these numbers into the database should cast them as `u64` understanding
+/// that the stored representation may become negative.
+pub fn unpack_duration(d: Duration) -> (u64, u64) {
+    let nanos = d.as_nanos();
+    let sec = u64::try_from(nanos / 1_000_000_000).expect("Must have fit");
+    let nsec = u64::try_from(nanos % 1_000_000_000).expect("Must have fit");
+    (sec, nsec)
+}
+
+/// Converts a timestamp into the seconds and nanoseconds pair needed by the database.
+///
+/// We expect `u64` values here but the sqlx interfaces require `i64`.  This is intentional,
+/// and the code that stores these numbers into the database should cast them as `u64` understanding
+/// that the stored representation may become negative.
+pub fn unpack_timestamp(ts: OffsetDateTime) -> (u64, u64) {
+    let nanos = ts.unix_timestamp_nanos();
+    let sec = u64::try_from(nanos / 1_000_000_000).expect("Must have fit");
+    let nsec = u64::try_from(nanos % 1_000_000_000).expect("Must have fit");
+    (sec, nsec)
+}
+
 /// Test utilities for the SQLite connection.
 #[cfg(any(feature = "testutils", test))]
 pub mod testutils {
@@ -157,7 +206,52 @@ pub mod testutils {
 #[cfg(test)]
 mod tests {
     use super::testutils::*;
+    use super::*;
     use iii_iv_core::db::testutils::generate_core_db_tests;
 
     generate_core_db_tests!(setup::<SqliteTestTx>().await);
+
+    #[test]
+    fn test_build_unpack_duration_secs_precision() {
+        let d = Duration::from_secs(123456789123456789u64);
+        let (secs, nsecs) = unpack_duration(d);
+        assert_eq!(123456789123456789u64, secs);
+        assert_eq!(0, nsecs);
+        assert_eq!(Ok(d), build_duration(secs, nsecs));
+    }
+
+    #[test]
+    fn test_build_unpack_duration_nsecs_precision() {
+        let d = Duration::from_nanos(1234567899876543215u64);
+        let (secs, nsecs) = unpack_duration(d);
+        assert_eq!(1234567899u64, secs);
+        assert_eq!(876543215u64, nsecs);
+        assert_eq!(Ok(d), build_duration(secs, nsecs));
+    }
+
+    #[test]
+    fn test_build_unpack_timestamp_secs_precision() {
+        let d = OffsetDateTime::from_unix_timestamp(123456789i64).unwrap();
+        let (secs, nsecs) = unpack_timestamp(d);
+        assert_eq!(123456789u64, secs);
+        assert_eq!(0, nsecs);
+        assert_eq!(Ok(d), build_timestamp(secs, nsecs));
+    }
+
+    #[test]
+    fn test_build_unpack_timestamp_nsecs_precision() {
+        let d = OffsetDateTime::from_unix_timestamp_nanos(1234567899876543215i128).unwrap();
+        let (secs, nsecs) = unpack_timestamp(d);
+        assert_eq!(1234567899u64, secs);
+        assert_eq!(876543215u64, nsecs);
+        assert_eq!(Ok(d), build_timestamp(secs, nsecs));
+    }
+
+    #[test]
+    fn test_build_timestamp_too_big() {
+        match build_timestamp(123456789123456789u64, 0) {
+            Err(_) => (),
+            Ok(_) => panic!("Must have failed"),
+        }
+    }
 }
