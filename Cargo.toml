@@ -5,6 +5,7 @@ members = [
     "example",
     "geo",
     "lettre",
+    "queue",
     "postgres",
     "sqlite",
 ]
