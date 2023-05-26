@@ -34,13 +34,15 @@ test: test-individually test-workspace
 .PHONY: test-individually
 test-individually:
 	@set -e; \
-	for crate in $$(grep '^ *"' Cargo.toml | cut -d '"' -f 2); do \
-            cd $$crate; \
-	    echo "cd $$crate && cargo test -- --include-ignored"; \
-	    $(TEST_ENV) cargo test -- --include-ignored; \
+	crates="$$(grep '^ *"' Cargo.toml | cut -d '"' -f 2)"; \
+	if [ -n "$(TEST_CRATES)" ]; then crates="$(TEST_CRATES)"; fi; \
+	for crate in $${crates}; do \
+	    cd $$crate; \
+	    echo "cd $${crate} && cargo test $(TEST_ARGS) -- --include-ignored"; \
+	    $(TEST_ENV) cargo test $(TEST_ARGS) -- --include-ignored; \
 	    if grep -q ^testutils Cargo.toml; then \
-	        echo "cd $$crate && cargo test --features=testutils -- --include-ignored"; \
-	        $(TEST_ENV) cargo test --features=testutils -- --include-ignored; \
+	        echo "cd $${crate} && cargo test $(TEST_ARGS) --features=testutils -- --include-ignored"; \
+	        $(TEST_ENV) cargo test --features=testutils $(TEST_ARGS) -- --include-ignored; \
 	    fi; \
 	    cd -; \
 	done
@@ -48,9 +50,9 @@ test-individually:
 .PHONY: test-workspace
 test-workspace:
 	@echo cargo test -- --include-ignored
-	@$(TEST_ENV) cargo test -- --include-ignored
+	@$(TEST_ENV) cargo test $(TEST_ARGS) -- --include-ignored
 	@echo cargo test --features=testutils -- --include-ignored
-	@$(TEST_ENV) cargo test --features=testutils -- --include-ignored
+	@$(TEST_ENV) cargo test --features=testutils $(TEST_ARGS) -- --include-ignored
 
 .PHONY: lint
 lint:
