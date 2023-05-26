@@ -183,6 +183,14 @@ pub mod testutils {
             let tx = self.tx.into_inner();
             tx.commit().await.map_err(map_sqlx_error)
         }
+
+        async fn migrate(&mut self) -> DbResult<()> {
+            unreachable!("Should not be called during tests");
+        }
+
+        async fn migrate_test(&mut self) -> DbResult<()> {
+            Ok(())
+        }
     }
 
     /// Initializes the test database.
@@ -201,6 +209,22 @@ pub mod testutils {
 
         db
     }
+
+    /// Initializes another test database sharing the connection of `other`.
+    pub async fn setup_attach<T, O>(other: SqliteDb<O>) -> SqliteDb<T>
+    where
+        T: BareTx + From<Mutex<Transaction<'static, Sqlite>>> + Send + Sync + 'static,
+        O: BareTx + From<Mutex<Transaction<'static, Sqlite>>> + Send + Sync + 'static,
+    {
+        // We don't use attach because we don't want to run the DB migration code.
+        let db = SqliteDb { pool: other.pool, _phantom_tx: PhantomData::default() };
+
+        let mut tx: T = db.begin().await.unwrap();
+        tx.migrate_test().await.unwrap();
+        tx.commit().await.unwrap();
+
+        db
+    }
 }
 
 #[cfg(test)]
@@ -208,8 +232,58 @@ mod tests {
     use super::testutils::*;
     use super::*;
     use iii_iv_core::db::testutils::generate_core_db_tests;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     generate_core_db_tests!(setup::<SqliteTestTx>().await);
+
+    /// Tracks whether `AttachTx::migrate_test` has been called.  Only one test can exercise
+    /// this due to the process-wide nature of the static value.
+    static ATTACH_TX_MIGRATE_TEST_CALLED: AtomicBool = AtomicBool::new(false);
+
+    /// A transaction backed by a SQLite database used to verify the behavior of the
+    /// `setup_attach` method.
+    struct AttachTx {
+        /// Inner transaction type to obtain access to the raw sqlx transaction.
+        tx: Mutex<Transaction<'static, Sqlite>>,
+    }
+
+    impl From<Mutex<Transaction<'static, Sqlite>>> for AttachTx {
+        fn from(tx: Mutex<Transaction<'static, Sqlite>>) -> Self {
+            Self { tx }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl BareTx for AttachTx {
+        async fn commit(mut self) -> DbResult<()> {
+            let tx = self.tx.into_inner();
+            tx.commit().await.map_err(map_sqlx_error)
+        }
+
+        async fn migrate(&mut self) -> DbResult<()> {
+            unreachable!("Should not be called during tests");
+        }
+
+        async fn migrate_test(&mut self) -> DbResult<()> {
+            let called = ATTACH_TX_MIGRATE_TEST_CALLED
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                .unwrap();
+            assert!(!called);
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_setup_attach() {
+        let db1: SqliteDb<SqliteTestTx> = setup().await;
+
+        assert!(!ATTACH_TX_MIGRATE_TEST_CALLED.load(Ordering::SeqCst));
+        let db2: SqliteDb<AttachTx> = setup_attach(db1).await;
+        assert!(ATTACH_TX_MIGRATE_TEST_CALLED.load(Ordering::SeqCst));
+
+        let tx = db2.begin().await.unwrap();
+        tx.commit().await.unwrap();
+    }
 
     #[test]
     fn test_build_unpack_duration_secs_precision() {
