@@ -115,19 +115,36 @@ pub async fn run_schema(
 
 /// Converts a duration as extracted from the database into a `Duration`.
 ///
-/// We expect `u64` values here but the sqlx interfaces require `i64`.  This is intentional,
-/// and the code that loads these numbers from the database should cast them as `u64` understanding
-/// that the stored representation may become negative.
-pub fn build_duration(duration_sec: u64, duration_nsec: u64) -> DbResult<Duration> {
-    Ok(Duration::from_secs(duration_sec) + Duration::from_nanos(duration_nsec))
+/// The input parameters must both be positive.  The reason why their types are `i64`s instead of
+/// the `u64` you would expect is because the numeric types exposed by sqlx and SQLite are all
+/// signed.  We could simply cast the types and accept negative representations in the database,
+/// but that would pose difficulties when attempting to compare timestamps via relation operators
+/// in SQL queries.
+pub fn build_duration(duration_sec: i64, duration_nsec: i64) -> DbResult<Duration> {
+    match (u64::try_from(duration_sec), u64::try_from(duration_nsec)) {
+        (Ok(sec), Ok(nsec)) => Ok(Duration::from_secs(sec) + Duration::from_nanos(nsec)),
+        _ => Err(DbError::DataIntegrityError(format!(
+            "Duration cannot have negative quantities: sec={}, nsec={}",
+            duration_sec, duration_nsec
+        ))),
+    }
 }
 
 /// Converts a timestamp as extracted from the database into an `OffsetDateTime`.
 ///
-/// We expect `u64` values here but the sqlx interfaces require `i64`.  This is intentional,
-/// and the code that loads these numbers from the database should cast them as `u64` understanding
-/// that the stored representation may become negative.
-pub fn build_timestamp(timestamp_sec: u64, timestamp_nsec: u64) -> DbResult<OffsetDateTime> {
+/// The input parameters must both be positive.  The reason why their types are `i64`s instead of
+/// the `u64` you would expect is because the numeric types exposed by sqlx and SQLite are all
+/// signed.  We could simply cast the types and accept negative representations in the database,
+/// but that would pose difficulties when attempting to compare timestamps via relation operators
+/// in SQL queries.
+pub fn build_timestamp(timestamp_sec: i64, timestamp_nsec: i64) -> DbResult<OffsetDateTime> {
+    if timestamp_sec < 0 || timestamp_nsec < 0 {
+        return Err(DbError::DataIntegrityError(format!(
+            "Timestamp cannot have negative quantities: sec={}, nsec={}",
+            timestamp_sec, timestamp_nsec
+        )));
+    }
+
     match OffsetDateTime::from_unix_timestamp_nanos(
         (i128::from(timestamp_sec) * 1_000_000_000) + (i128::from(timestamp_nsec)),
     ) {
@@ -138,25 +155,24 @@ pub fn build_timestamp(timestamp_sec: u64, timestamp_nsec: u64) -> DbResult<Offs
 
 /// Converts a duration into the seconds and nanoseconds pair needed by the database.
 ///
-/// We expect `u64` values here but the sqlx interfaces require `i64`.  This is intentional,
-/// and the code that stores these numbers into the database should cast them as `u64` understanding
-/// that the stored representation may become negative.
-pub fn unpack_duration(d: Duration) -> (u64, u64) {
-    let nanos = d.as_nanos();
-    let sec = u64::try_from(nanos / 1_000_000_000).expect("Must have fit");
-    let nsec = u64::try_from(nanos % 1_000_000_000).expect("Must have fit");
+/// The duration must be positive because `build_duration` also expects it to be positive when
+/// recovering its values from the database.
+pub fn unpack_duration(d: Duration) -> (i64, i64) {
+    let nanos: u128 = d.as_nanos();
+    let sec = i64::try_from(nanos / 1_000_000_000).expect("Must have fit");
+    let nsec = i64::try_from(nanos % 1_000_000_000).expect("Must have fit");
     (sec, nsec)
 }
 
 /// Converts a timestamp into the seconds and nanoseconds pair needed by the database.
 ///
-/// We expect `u64` values here but the sqlx interfaces require `i64`.  This is intentional,
-/// and the code that stores these numbers into the database should cast them as `u64` understanding
-/// that the stored representation may become negative.
-pub fn unpack_timestamp(ts: OffsetDateTime) -> (u64, u64) {
+/// The timestamp must be positive because `build_timestamp` also expects it to be positive when
+/// recovering its values from the database.
+pub fn unpack_timestamp(ts: OffsetDateTime) -> (i64, i64) {
     let nanos = ts.unix_timestamp_nanos();
-    let sec = u64::try_from(nanos / 1_000_000_000).expect("Must have fit");
-    let nsec = u64::try_from(nanos % 1_000_000_000).expect("Must have fit");
+    assert!(nanos >= 0, "Cannot store a negative timestamp into the database");
+    let sec = i64::try_from(nanos / 1_000_000_000).expect("Must have fit");
+    let nsec = i64::try_from(nanos % 1_000_000_000).expect("Must have fit");
     (sec, nsec)
 }
 
@@ -286,10 +302,19 @@ mod tests {
     }
 
     #[test]
+    fn test_build_unpack_duration_zero() {
+        let d = Duration::from_secs(0);
+        let (secs, nsecs) = unpack_duration(d);
+        assert_eq!(0, secs);
+        assert_eq!(0, nsecs);
+        assert_eq!(Ok(d), build_duration(secs, nsecs));
+    }
+
+    #[test]
     fn test_build_unpack_duration_secs_precision() {
         let d = Duration::from_secs(123456789123456789u64);
         let (secs, nsecs) = unpack_duration(d);
-        assert_eq!(123456789123456789u64, secs);
+        assert_eq!(123456789123456789i64, secs);
         assert_eq!(0, nsecs);
         assert_eq!(Ok(d), build_duration(secs, nsecs));
     }
@@ -298,16 +323,38 @@ mod tests {
     fn test_build_unpack_duration_nsecs_precision() {
         let d = Duration::from_nanos(1234567899876543215u64);
         let (secs, nsecs) = unpack_duration(d);
-        assert_eq!(1234567899u64, secs);
-        assert_eq!(876543215u64, nsecs);
+        assert_eq!(1234567899i64, secs);
+        assert_eq!(876543215i64, nsecs);
         assert_eq!(Ok(d), build_duration(secs, nsecs));
+    }
+
+    #[test]
+    fn test_build_duration_negative() {
+        match build_duration(-1, 0) {
+            Err(DbError::DataIntegrityError(_)) => (),
+            e => panic!("Must have failed with a DataIntegrityError but got: {:?}", e),
+        }
+
+        match build_duration(0, -1) {
+            Err(DbError::DataIntegrityError(_)) => (),
+            e => panic!("Must have failed with a DataIntegrityError but got: {:?}", e),
+        }
+    }
+
+    #[test]
+    fn test_build_unpack_timestamp_zero() {
+        let d = OffsetDateTime::from_unix_timestamp(0).unwrap();
+        let (secs, nsecs) = unpack_timestamp(d);
+        assert_eq!(0, secs);
+        assert_eq!(0, nsecs);
+        assert_eq!(Ok(d), build_timestamp(secs, nsecs));
     }
 
     #[test]
     fn test_build_unpack_timestamp_secs_precision() {
         let d = OffsetDateTime::from_unix_timestamp(123456789i64).unwrap();
         let (secs, nsecs) = unpack_timestamp(d);
-        assert_eq!(123456789u64, secs);
+        assert_eq!(123456789i64, secs);
         assert_eq!(0, nsecs);
         assert_eq!(Ok(d), build_timestamp(secs, nsecs));
     }
@@ -316,14 +363,27 @@ mod tests {
     fn test_build_unpack_timestamp_nsecs_precision() {
         let d = OffsetDateTime::from_unix_timestamp_nanos(1234567899876543215i128).unwrap();
         let (secs, nsecs) = unpack_timestamp(d);
-        assert_eq!(1234567899u64, secs);
-        assert_eq!(876543215u64, nsecs);
+        assert_eq!(1234567899i64, secs);
+        assert_eq!(876543215i64, nsecs);
         assert_eq!(Ok(d), build_timestamp(secs, nsecs));
     }
 
     #[test]
+    fn test_build_timestamp_negative() {
+        match build_timestamp(-1, 0) {
+            Err(DbError::DataIntegrityError(_)) => (),
+            e => panic!("Must have failed with a DataIntegrityError but got: {:?}", e),
+        }
+
+        match build_timestamp(0, -1) {
+            Err(DbError::DataIntegrityError(_)) => (),
+            e => panic!("Must have failed with a DataIntegrityError but got: {:?}", e),
+        }
+    }
+
+    #[test]
     fn test_build_timestamp_too_big() {
-        match build_timestamp(123456789123456789u64, 0) {
+        match build_timestamp(123456789123456789i64, 0) {
             Err(_) => (),
             Ok(_) => panic!("Must have failed"),
         }
