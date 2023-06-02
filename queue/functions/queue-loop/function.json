@@ -5,7 +5,7 @@
       "type": "timerTrigger",
       "direction": "in",
       "name": "req",
-      "schedule": "* */10 * * * *"
+      "schedule": "0 */10 * * * *"
     }
   ]
 }
