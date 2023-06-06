@@ -61,10 +61,15 @@ where
     D::Tx: ClientTx<T = T> + From<D::SqlxTx> + Send + Sync + 'static,
     T: Send + Sync,
 {
-    /// Creates a new driver backed by `db` and a `clock`, optionally poking `worker` when tasks
-    /// are enqueued.
-    pub fn new(db: D, clock: C, worker: Option<Arc<Mutex<Worker<T>>>>) -> Self {
-        Self { db, clock, worker }
+    /// Creates a new driver backed by `db` and a `clock`.
+    pub fn new(db: D, clock: C) -> Self {
+        Self { db, clock, worker: None }
+    }
+
+    /// Configures the client to poke `worker` when new tasks are enqueued.
+    pub fn with_worker(mut self, worker: Arc<Mutex<Worker<T>>>) -> Self {
+        self.worker = Some(worker);
+        self
     }
 
     /// Attempts to notify the worker, if one is configured, to ensure we make forward progress
