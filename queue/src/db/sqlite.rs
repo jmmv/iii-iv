@@ -96,7 +96,12 @@ impl<T: Send + Sync + Serialize> ClientTx for SqliteClientTx<T> {
             }
         };
 
-        let query_str = "INSERT INTO tasks VALUES (?, ?, ?, NULL, 0, ?, ?, ?, ?)";
+        let query_str = "
+            INSERT INTO tasks
+                (id, json, status_code, status_reason, runs,
+                created_sec, created_nsec, updated_sec, updated_nsec)
+            VALUES (?, ?, ?, NULL, 0, ?, ?, ?, ?)
+        ";
         let done = sqlx::query(query_str)
             .bind(id)
             .bind(&json_task)
