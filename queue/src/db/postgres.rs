@@ -75,7 +75,10 @@ impl<T: Send + Sync + Serialize> ClientTx for PostgresClientTx<T> {
             }
         };
 
-        let query_str = "INSERT INTO tasks VALUES ($1, $2, $3, NULL, 0, $4, $4)";
+        let query_str = "
+            INSERT INTO tasks (id, json, status_code, status_reason, runs, created, updated)
+            VALUES            ($1, $2,   $3,          NULL,          0,    $4,      $4)
+        ";
         let done = sqlx::query(query_str)
             .bind(id)
             .bind(&json_task)
