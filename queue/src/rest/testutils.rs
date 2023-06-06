@@ -62,7 +62,7 @@ impl TestContext {
 
         // The client is not connected to the worker so that we can validate that the worker loop
         // isn't invoked until we ask for it.
-        let client = Client::new(client_db, clock, None);
+        let client = Client::new(client_db, clock);
 
         let app = worker_cron_app(worker);
 

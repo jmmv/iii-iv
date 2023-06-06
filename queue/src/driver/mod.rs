@@ -109,7 +109,7 @@ mod testutils {
                 Arc::from(Mutex::from(worker))
             };
 
-            let client = Client::new(client_db, clock.clone(), Some(worker.clone()));
+            let client = Client::new(client_db, clock.clone()).with_worker(worker.clone());
 
             TestContext { client, workers: vec![worker], clock, state }
         }
@@ -136,7 +136,7 @@ mod testutils {
                 workers.push(worker);
             }
 
-            let client = Client::new(client_db, clock.clone(), None);
+            let client = Client::new(client_db, clock.clone());
 
             TestContext { client, workers, clock, state }
         }
