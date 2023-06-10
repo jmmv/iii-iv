@@ -46,6 +46,7 @@ macro_rules! tryfrom_value_for_fromstr [
     }
 ];
 
+tryfrom_value_for_fromstr!(bool);
 tryfrom_value_for_fromstr!(i8);
 tryfrom_value_for_fromstr!(i16);
 tryfrom_value_for_fromstr!(i32);
@@ -149,7 +150,16 @@ mod tests {
     }
 
     #[test]
-    fn test_value_to_fromstr() {
+    fn test_value_to_fromstr_bool() {
+        assert!(!TryInto::<bool>::try_into(Value("false".to_owned())).unwrap());
+        assert!(TryInto::<bool>::try_into(Value("true".to_owned())).unwrap());
+
+        let err = TryInto::<bool>::try_into(Value("-1".to_owned())).unwrap_err();
+        assert!(err.starts_with("Invalid bool:"));
+    }
+
+    #[test]
+    fn test_value_to_fromstr_integer() {
         assert_eq!(1234u16, TryInto::<u16>::try_into(Value("1234".to_owned())).unwrap());
 
         let err = TryInto::<u16>::try_into(Value("-1".to_owned())).unwrap_err();
