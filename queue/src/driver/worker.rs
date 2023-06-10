@@ -35,6 +35,9 @@ use tokio::task::JoinHandle;
 /// Default batch size.
 const DEFAULT_BATCH_SIZE: u16 = 16;
 
+/// Default value for the `consume_all` setting.
+const DEFAULT_CONSUME_ALL: bool = true;
+
 /// Default max runs for a task.
 const DEFAULT_MAX_RUNS: u8 = 4;
 
@@ -47,6 +50,10 @@ const DEFAULT_MAX_RUNTIME_SECS: u64 = 5 * 60;
 pub struct WorkerOptions {
     /// Number of tasks to try to process during each processing cycle.
     pub batch_size: u16,
+
+    /// If tasks exist after processing a batch, continue processing the next batch immediately
+    /// without waiting for the next notification.  Typically useful for testing only.
+    pub consume_all: bool,
 
     /// Number of times a task is allowed to run before being abandoned.
     pub max_runs: u8,
@@ -65,6 +72,7 @@ impl Default for WorkerOptions {
     fn default() -> Self {
         Self {
             batch_size: DEFAULT_BATCH_SIZE,
+            consume_all: DEFAULT_CONSUME_ALL,
             max_runs: DEFAULT_MAX_RUNS,
             max_runtime: Duration::from_secs(DEFAULT_MAX_RUNTIME_SECS),
         }
@@ -77,6 +85,8 @@ impl WorkerOptions {
         Ok(Self {
             batch_size: get_optional_var::<u16>(prefix, "BATCH_SIZE")?
                 .unwrap_or(DEFAULT_BATCH_SIZE),
+            consume_all: get_optional_var::<bool>(prefix, "CONSUME_ALL")?
+                .unwrap_or(DEFAULT_CONSUME_ALL),
             max_runs: get_optional_var::<u8>(prefix, "MAX_RUNS")?.unwrap_or(DEFAULT_MAX_RUNS),
             max_runtime: get_optional_var::<Duration>(prefix, "MAX_RUNTIME")?
                 .unwrap_or(Duration::from_secs(DEFAULT_MAX_RUNTIME_SECS)),
@@ -242,6 +252,11 @@ where
             // If one or more tasks failed, it is likely that we won't be able to process any more
             // right now.  Give up and hope that the next cycle will succeed.
             break Err(DriverError::BackendError(format!("Failed to process {} tasks", failed)));
+        }
+
+        if !opts.consume_all {
+            // The configuration doesn't allow us to drain the queue.  Exit after just one loop.
+            break Ok(());
         }
     }
 }

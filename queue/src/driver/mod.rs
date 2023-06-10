@@ -33,6 +33,9 @@ mod testutils {
     use std::collections::HashMap;
     use std::sync::Arc;
 
+    /// A queue client backed by mock entities.
+    type MockClient = Client<MockTask, MonotonicClock, SqliteDb<SqliteClientTx<MockTask>>>;
+
     /// A task definition for testing purposes.
     #[derive(Deserialize, Serialize)]
     pub(super) struct MockTask {
@@ -44,6 +47,9 @@ mod testutils {
 
         /// Number of times to crash before succeeding.
         pub(super) crash: u16,
+
+        /// Task to enqueue, if any.
+        pub(super) chain: Option<Box<MockTask>>,
     }
 
     /// Mutable state for one task.
@@ -60,7 +66,11 @@ mod testutils {
     type TaskStateById = Arc<Mutex<HashMap<u16, TaskState>>>;
 
     /// Executes `task`, updating `state` with details for validation.
-    async fn run_task(task: MockTask, state_by_id: TaskStateById) -> ExecResult {
+    async fn run_task(
+        task: MockTask,
+        state_by_id: TaskStateById,
+        mut client: MockClient,
+    ) -> ExecResult {
         let mut state_by_id = state_by_id.lock().await;
         let mut state = state_by_id.entry(task.id).or_insert_with(TaskState::default);
 
@@ -68,6 +78,10 @@ mod testutils {
 
         if state.runs <= task.crash {
             return Err(ExecError::SimulatedCrash);
+        }
+
+        if let Some(chain) = task.chain {
+            client.enqueue(&chain).await.unwrap();
         }
 
         assert!(!state.done, "Task {} completed twice", task.id);
@@ -79,7 +93,7 @@ mod testutils {
     /// State of a running test.
     pub(super) struct TestContext {
         /// The client used to enqueue and poll for tasks.
-        pub(super) client: Client<MockTask, MonotonicClock, SqliteDb<SqliteClientTx<MockTask>>>,
+        pub(super) client: MockClient,
 
         /// The workers to execute the tasks with a test-supplied function.
         pub(super) workers: Vec<Arc<Mutex<Worker<MockTask>>>>,
@@ -101,42 +115,47 @@ mod testutils {
             let clock = MonotonicClock::new(100000);
 
             let state = TaskStateById::default();
+            let client = Client::new(client_db, clock.clone());
             let worker = {
                 let state = state.clone();
+                let client = client.clone();
                 let worker = Worker::new(worker_db, clock.clone(), opts, move |task| {
-                    run_task(task, state.clone())
+                    run_task(task, state.clone(), client.clone())
                 });
                 Arc::from(Mutex::from(worker))
             };
 
-            let client = Client::new(client_db, clock.clone()).with_worker(worker.clone());
+            let client = client.with_worker(worker.clone());
 
             TestContext { client, workers: vec![worker], clock, state }
         }
 
         /// Initializes an in-memory queue with `num_workers` in-process workers and a client that
         /// is **not** configured to poke any of them when new tasks are enqueued.
-        pub(super) async fn setup_stress(opts: WorkerOptions, num_workers: usize) -> Self {
+        pub(super) async fn setup_many_disconnected(
+            opts: WorkerOptions,
+            num_workers: usize,
+        ) -> Self {
             let client_db = iii_iv_sqlite::testutils::setup().await;
             let worker_db: SqliteDb<SqliteWorkerTx<MockTask>> =
                 iii_iv_sqlite::testutils::setup_attach(client_db.clone()).await;
             let clock = MonotonicClock::new(100000);
 
             let state = TaskStateById::default();
+            let client = Client::new(client_db, clock.clone());
             let mut workers = Vec::with_capacity(num_workers);
             for _ in 0..num_workers {
                 let worker = {
                     let state = state.clone();
+                    let client = client.clone();
                     let worker =
                         Worker::new(worker_db.clone(), clock.clone(), opts.clone(), move |task| {
-                            run_task(task, state.clone())
+                            run_task(task, state.clone(), client.clone())
                         });
                     Arc::from(Mutex::from(worker))
                 };
                 workers.push(worker);
             }
-
-            let client = Client::new(client_db, clock.clone());
 
             TestContext { client, workers, clock, state }
         }
@@ -165,14 +184,14 @@ mod tests {
             max_runtime: Duration::from_millis(100000),
             ..Default::default()
         };
-        let mut context = TestContext::setup_stress(opts.clone(), num_workers).await;
+        let mut context = TestContext::setup_many_disconnected(opts.clone(), num_workers).await;
 
         let before = context.clock.now_utc();
 
         // Insert a bunch of tasks.
         let mut ids = vec![];
         for i in 0..num_tasks {
-            let task = MockTask { id: i, result: Ok(()), crash: 0 };
+            let task = MockTask { id: i, result: Ok(()), crash: 0, chain: None };
             ids.push(context.client.enqueue(&task).await.unwrap());
             if i % (opts.batch_size * 2) == 0 {
                 context.notify_workers(num_workers / 4 + 1).await;
@@ -226,7 +245,7 @@ mod tests {
         })
         .await;
 
-        let task = MockTask { id: 123, result: Ok(()), crash: 4 };
+        let task = MockTask { id: 123, result: Ok(()), crash: 4, chain: None };
         let id = context.client.enqueue(&task).await.unwrap();
         let result = context.client.wait(id, Duration::from_millis(1)).await.unwrap();
 
@@ -248,7 +267,7 @@ mod tests {
         })
         .await;
 
-        let task = MockTask { id: 123, result: Err("foo bar".to_owned()), crash: 3 };
+        let task = MockTask { id: 123, result: Err("foo bar".to_owned()), crash: 3, chain: None };
         let id = context.client.enqueue(&task).await.unwrap();
         let result = context.client.wait(id, Duration::from_millis(1)).await.unwrap();
 
@@ -270,7 +289,7 @@ mod tests {
         })
         .await;
 
-        let task = MockTask { id: 123, result: Ok(()), crash: 1 };
+        let task = MockTask { id: 123, result: Ok(()), crash: 1, chain: None };
         let id = context.client.enqueue(&task).await.unwrap();
         for _ in 0..100 {
             if let Some(_result) = context.client.poll(id).await.unwrap() {
@@ -284,5 +303,72 @@ mod tests {
         let state = context.state.lock().await;
         assert_eq!(1, state.len());
         assert_eq!(1, state.get(&123).unwrap().runs);
+    }
+
+    #[tokio::test]
+    async fn test_chained_task_runs_immediately() {
+        let opts = WorkerOptions::default();
+        assert!(opts.consume_all);
+        let mut context = TestContext::setup_many_disconnected(opts, 1).await;
+
+        let chained = MockTask { id: 2, result: Ok(()), crash: 0, chain: None };
+        let task = MockTask { id: 1, result: Ok(()), crash: 0, chain: Some(Box::from(chained)) };
+        context.client.enqueue(&task).await.unwrap();
+        context.notify_workers(1).await;
+
+        loop {
+            {
+                let state = context.state.lock().await;
+                if state.len() == 2 {
+                    assert!(state.get(&1).unwrap().done);
+                    assert!(state.get(&2).unwrap().done);
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn test_chained_task_skipped_if_consume_all_is_false() {
+        let opts = WorkerOptions { consume_all: false, ..Default::default() };
+        let mut context = TestContext::setup_many_disconnected(opts, 1).await;
+
+        let chained = MockTask { id: 2, result: Ok(()), crash: 0, chain: None };
+        let task = MockTask { id: 1, result: Ok(()), crash: 0, chain: Some(Box::from(chained)) };
+        let id = context.client.enqueue(&task).await.unwrap();
+        context.notify_workers(1).await;
+
+        // Run the task that enqueues another chained task.
+        let result = context.client.wait(id, Duration::from_millis(1)).await.unwrap();
+        assert_eq!(TaskResult::Done, result);
+
+        // Make sure the chained task did not run yet.  This is racy and we may fail to detect
+        // a problem, but it should not result in false positives.
+        for _ in 0..10 {
+            {
+                let state = context.state.lock().await;
+                if state.len() > 1 {
+                    panic!("The chained task completed but it should not have run");
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+
+        // Explicitly run a second iteration.
+        context.notify_workers(1).await;
+
+        // Now wait for the chained task to really complete.
+        loop {
+            {
+                let state = context.state.lock().await;
+                if state.len() == 2 {
+                    assert!(state.get(&1).unwrap().done);
+                    assert!(state.get(&2).unwrap().done);
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
     }
 }
