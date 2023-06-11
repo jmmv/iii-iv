@@ -52,6 +52,12 @@ mod testutils {
         pub(super) chain: Option<Box<MockTask>>,
     }
 
+    impl Default for MockTask {
+        fn default() -> Self {
+            Self { id: u16::MAX, result: Ok(()), crash: 0, chain: None }
+        }
+    }
+
     /// Mutable state for one task.
     #[derive(Default)]
     pub(super) struct TaskState {
@@ -191,7 +197,7 @@ mod tests {
         // Insert a bunch of tasks.
         let mut ids = vec![];
         for i in 0..num_tasks {
-            let task = MockTask { id: i, result: Ok(()), crash: 0, chain: None };
+            let task = MockTask { id: i, ..Default::default() };
             ids.push(context.client.enqueue(&task).await.unwrap());
             if i % (opts.batch_size * 2) == 0 {
                 context.notify_workers(num_workers / 4 + 1).await;
@@ -245,7 +251,7 @@ mod tests {
         })
         .await;
 
-        let task = MockTask { id: 123, result: Ok(()), crash: 4, chain: None };
+        let task = MockTask { id: 123, crash: 4, ..Default::default() };
         let id = context.client.enqueue(&task).await.unwrap();
         let result = context.client.wait(id, Duration::from_millis(1)).await.unwrap();
 
@@ -267,7 +273,8 @@ mod tests {
         })
         .await;
 
-        let task = MockTask { id: 123, result: Err("foo bar".to_owned()), crash: 3, chain: None };
+        let task =
+            MockTask { id: 123, result: Err("foo bar".to_owned()), crash: 3, ..Default::default() };
         let id = context.client.enqueue(&task).await.unwrap();
         let result = context.client.wait(id, Duration::from_millis(1)).await.unwrap();
 
@@ -289,7 +296,7 @@ mod tests {
         })
         .await;
 
-        let task = MockTask { id: 123, result: Ok(()), crash: 1, chain: None };
+        let task = MockTask { id: 123, crash: 1, ..Default::default() };
         let id = context.client.enqueue(&task).await.unwrap();
         for _ in 0..100 {
             if let Some(_result) = context.client.poll(id).await.unwrap() {
@@ -311,8 +318,8 @@ mod tests {
         assert!(opts.consume_all);
         let mut context = TestContext::setup_many_disconnected(opts, 1).await;
 
-        let chained = MockTask { id: 2, result: Ok(()), crash: 0, chain: None };
-        let task = MockTask { id: 1, result: Ok(()), crash: 0, chain: Some(Box::from(chained)) };
+        let chained = MockTask { id: 2, ..Default::default() };
+        let task = MockTask { id: 1, chain: Some(Box::from(chained)), ..Default::default() };
         context.client.enqueue(&task).await.unwrap();
         context.notify_workers(1).await;
 
@@ -334,8 +341,8 @@ mod tests {
         let opts = WorkerOptions { consume_all: false, ..Default::default() };
         let mut context = TestContext::setup_many_disconnected(opts, 1).await;
 
-        let chained = MockTask { id: 2, result: Ok(()), crash: 0, chain: None };
-        let task = MockTask { id: 1, result: Ok(()), crash: 0, chain: Some(Box::from(chained)) };
+        let chained = MockTask { id: 2, ..Default::default() };
+        let task = MockTask { id: 1, chain: Some(Box::from(chained)), ..Default::default() };
         let id = context.client.enqueue(&task).await.unwrap();
         context.notify_workers(1).await;
 
