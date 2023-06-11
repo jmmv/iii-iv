@@ -39,7 +39,15 @@ CREATE TABLE IF NOT EXISTS tasks (
     -- The time the task was last updated.  Must be initialized as "created" when
     -- the task is first inserted into the queue.
     updated_sec INTEGER NOT NULL,
-    updated_nsec INTEGER NOT NULL
+    updated_nsec INTEGER NOT NULL,
+
+    -- The earliest time the task is allowed to run.
+    only_after_sec INTEGER,
+    only_after_nsec INTEGER,
+
+    CONSTRAINT only_after CHECK (
+        (only_after_sec IS NULL AND only_after_nsec IS NULL)
+        OR (only_after_sec IS NOT NULL AND only_after_nsec IS NOT NULL))
 );
 
 CREATE INDEX IF NOT EXISTS tasks_by_runnable_state

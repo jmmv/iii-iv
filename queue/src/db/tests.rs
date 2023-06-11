@@ -94,7 +94,12 @@ where
 
 /// Helper function to enqueue a new task (one that has never run yet) with a data value `i`
 /// into the database `client_db`.
-async fn put_new_task<CD>(client_db: &CD, i: u32, created: OffsetDateTime) -> Uuid
+async fn put_new_task<CD>(
+    client_db: &CD,
+    i: u32,
+    created: OffsetDateTime,
+    only_after: Option<OffsetDateTime>,
+) -> Uuid
 where
     CD: Db,
     CD::Tx: ClientTx<T = MockTask>,
@@ -102,7 +107,7 @@ where
     let task = MockTask { i };
 
     let mut tx = client_db.begin().await.unwrap();
-    let id = tx.put_new_task(&task, created).await.unwrap();
+    let id = tx.put_new_task(&task, created, only_after).await.unwrap();
     tx.commit().await.unwrap();
 
     id
@@ -137,7 +142,7 @@ where
     let created = datetime!(1984-01-01 0:00 UTC);
 
     let mut tx = client_db.begin().await.unwrap();
-    let id = tx.put_new_task(&task, created).await.unwrap();
+    let id = tx.put_new_task(&task, created, None).await.unwrap();
     tx.commit().await.unwrap();
 
     let mut tx = worker_db.begin().await.unwrap();
@@ -202,9 +207,9 @@ where
     let max_runtime = Duration::from_secs(60);
     let now = datetime!(2023-05-17 5:47 UTC);
 
-    let id1 = put_new_task(&client_db, 3, datetime!(2023-05-17 5:40 UTC)).await;
-    let id2 = put_new_task(&client_db, 1, datetime!(2023-05-17 5:55 UTC)).await;
-    let id3 = put_new_task(&client_db, 2, datetime!(2023-05-17 5:50 UTC)).await;
+    let id1 = put_new_task(&client_db, 3, datetime!(2023-05-17 5:40 UTC), None).await;
+    let id2 = put_new_task(&client_db, 1, datetime!(2023-05-17 5:55 UTC), None).await;
+    let id3 = put_new_task(&client_db, 2, datetime!(2023-05-17 5:50 UTC), None).await;
 
     let mut tx = worker_db.begin().await.unwrap();
     let runnable = tx.get_runnable_tasks(10, max_runtime, now).await.unwrap();
@@ -230,11 +235,11 @@ where
 
     // Put a task with 0 reruns that's outside the max_runtime window.
     // Must be considered as runnable.
-    let id1 = put_new_task(&client_db, 1, datetime!(2023-05-18 16:00 UTC)).await;
+    let id1 = put_new_task(&client_db, 1, datetime!(2023-05-18 16:00 UTC), None).await;
 
     // Put a task with 0 reruns that's inside the max_runtime window.
     // Must be considered as runnable.
-    let id2 = put_new_task(&client_db, 2, datetime!(2023-05-18 17:08 UTC)).await;
+    let id2 = put_new_task(&client_db, 2, datetime!(2023-05-18 17:08 UTC), None).await;
 
     // Put a task with multiple reruns that's outside of the max_runtime window.
     // Must be considered as runnable.
@@ -313,7 +318,7 @@ where
     let now = datetime!(2023-05-19 8:00 UTC);
 
     for _ in 0..100 {
-        let _id = put_new_task(&client_db, 0, datetime!(2023-05-19 7:15 UTC)).await;
+        let _id = put_new_task(&client_db, 0, datetime!(2023-05-19 7:15 UTC), None).await;
     }
 
     let mut tx = worker_db.begin().await.unwrap();
@@ -321,6 +326,44 @@ where
     tx.commit().await.unwrap();
 
     assert_eq!(10, runnable.len());
+}
+
+pub(super) async fn test_put_get_runnable_only_after<CD, WD>((client_db, worker_db): (CD, WD))
+where
+    CD: Db,
+    CD::Tx: ClientTx<T = MockTask>,
+    WD: Db,
+    WD::Tx: WorkerTx<T = MockTask>,
+{
+    let max_runtime = Duration::from_secs(1);
+    let now = datetime!(2023-06-11 6:27 UTC);
+    let created = now - Duration::from_secs(3600);
+    let delta = Duration::from_millis(1);
+
+    let past = put_new_task(&client_db, 2, created, Some(now - delta)).await;
+    let present = put_new_task(&client_db, 3, created, Some(now)).await;
+    let future = put_new_task(&client_db, 1, created, Some(now + delta)).await;
+
+    let mut tx = worker_db.begin().await.unwrap();
+    let runnable = tx.get_runnable_tasks(10, max_runtime, now).await.unwrap();
+    tx.commit().await.unwrap();
+
+    let exp_runnable = vec![
+        RunnableTask::new(past, Ok(MockTask { i: 2 }), 0),
+        RunnableTask::new(present, Ok(MockTask { i: 3 }), 0),
+    ];
+    assert_eq!(exp_runnable, runnable);
+
+    let mut tx = worker_db.begin().await.unwrap();
+    let runnable = tx.get_runnable_tasks(10, max_runtime, now + delta).await.unwrap();
+    tx.commit().await.unwrap();
+
+    let exp_runnable = vec![
+        RunnableTask::new(past, Ok(MockTask { i: 2 }), 0),
+        RunnableTask::new(present, Ok(MockTask { i: 3 }), 0),
+        RunnableTask::new(future, Ok(MockTask { i: 1 }), 0),
+    ];
+    assert_eq!(exp_runnable, runnable);
 }
 
 pub(super) async fn test_put_ser_error_aborts_put<CD, WD>((client_db, worker_db): (CD, WD))
@@ -334,7 +377,11 @@ where
 
     let mut tx = client_db.begin().await.unwrap();
     let error = tx
-        .put_new_task(&MockTask { i: MockTask::TRIGGER_SER_ERROR }, now - Duration::from_secs(10))
+        .put_new_task(
+            &MockTask { i: MockTask::TRIGGER_SER_ERROR },
+            now - Duration::from_secs(10),
+            None,
+        )
         .await
         .unwrap_err();
     assert!(format!("{}", error).contains("Custom ser error"));
@@ -433,7 +480,8 @@ where
     let now = datetime!(2023-05-17 5:47 UTC);
 
     let id =
-        put_new_task(&client_db, MockTask::TRIGGER_DE_ERROR, datetime!(2023-05-17 5:40 UTC)).await;
+        put_new_task(&client_db, MockTask::TRIGGER_DE_ERROR, datetime!(2023-05-17 5:40 UTC), None)
+            .await;
 
     let mut tx = worker_db.begin().await.unwrap();
     let mut runnable = tx.get_runnable_tasks(10, max_runtime, now).await.unwrap();
@@ -455,7 +503,7 @@ where
     WD: Db,
     WD::Tx: WorkerTx<T = MockTask>,
 {
-    let id = put_new_task(&client_db, 0, datetime!(2023-05-26 14:35 UTC)).await;
+    let id = put_new_task(&client_db, 0, datetime!(2023-05-26 14:35 UTC), None).await;
 
     let mut tx = client_db.begin().await.unwrap();
     let result = tx.get_result(id).await.unwrap();
@@ -533,8 +581,8 @@ where
     let after = since + Duration::from_secs(30);
     let max_runtime = Duration::from_millis(10);
 
-    put_new_task(&client_db, 1, before).await;
-    put_new_task(&client_db, 2, after).await;
+    put_new_task(&client_db, 1, before, None).await;
+    put_new_task(&client_db, 2, after, None).await;
 
     put_running_task(&client_db, &worker_db, 3, max_runtime, before, 4).await;
     put_running_task(&client_db, &worker_db, 4, max_runtime, after, 5).await;
@@ -575,6 +623,7 @@ macro_rules! generate_db_tests [
             test_put_get_runnable_all_new,
             test_put_get_runnable_mix,
             test_put_get_runnable_limit,
+            test_put_get_runnable_only_after,
             test_put_ser_error_aborts_put,
             test_set_task_running_fails_if_already_running,
             test_set_task_running_fails_if_already_completed,

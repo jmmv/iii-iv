@@ -46,9 +46,14 @@ pub trait ClientTx: BareTx {
     type T: Send + Sync + Serialize;
 
     /// Stores a new task with a serialized `task` descriptor, marks it as runnable, and
-    /// tracks that it was enqueue at the `created` timestamp.  Returns the ID of the created
-    /// task.
-    async fn put_new_task(&mut self, task: &Self::T, created: OffsetDateTime) -> DbResult<Uuid>;
+    /// tracks that it was enqueue at the `created` timestamp.  The task is postponed until
+    /// `only_after` if specified.  Returns the ID of the created task.
+    async fn put_new_task(
+        &mut self,
+        task: &Self::T,
+        created: OffsetDateTime,
+        only_after: Option<OffsetDateTime>,
+    ) -> DbResult<Uuid>;
 
     /// Fetches the result of task `id` if it has completed, or `None` otherwise.
     async fn get_result(&mut self, id: Uuid) -> DbResult<Option<TaskResult>>;
