@@ -62,7 +62,12 @@ impl<T: Send + Sync + Serialize> BareTx for PostgresClientTx<T> {
 impl<T: Send + Sync + Serialize> ClientTx for PostgresClientTx<T> {
     type T = T;
 
-    async fn put_new_task(&mut self, task: &Self::T, created: OffsetDateTime) -> DbResult<Uuid> {
+    async fn put_new_task(
+        &mut self,
+        task: &Self::T,
+        created: OffsetDateTime,
+        only_after: Option<OffsetDateTime>,
+    ) -> DbResult<Uuid> {
         let id = Uuid::new_v4();
 
         let json_task = match serde_json::to_string(task) {
@@ -76,14 +81,15 @@ impl<T: Send + Sync + Serialize> ClientTx for PostgresClientTx<T> {
         };
 
         let query_str = "
-            INSERT INTO tasks (id, json, status_code, status_reason, runs, created, updated)
-            VALUES            ($1, $2,   $3,          NULL,          0,    $4,      $4)
+            INSERT INTO tasks (id, json, status_code, status_reason, runs, created, updated, only_after)
+            VALUES            ($1, $2,   $3,          NULL,          0,    $4,      $4,      $5)
         ";
         let done = sqlx::query(query_str)
             .bind(id)
             .bind(&json_task)
             .bind(TaskStatus::Runnable as i16)
             .bind(created)
+            .bind(only_after)
             .execute(&mut self.tx)
             .await
             .map_err(map_sqlx_error)?;
@@ -215,6 +221,7 @@ impl<T: Send + Sync + DeserializeOwned> WorkerTx for PostgresWorkerTx<T> {
             WHERE
                 status_code = $1
                 AND (runs = 0 OR updated + $2 < $3)
+                AND (only_after IS NULL OR $3 >= only_after)
             ORDER BY updated ASC
             LIMIT $4
         ";

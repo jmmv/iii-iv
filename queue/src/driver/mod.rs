@@ -378,4 +378,48 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
     }
+
+    #[tokio::test]
+    async fn test_deferred_task_only_runs_when_time_passes() {
+        let opts = WorkerOptions::default();
+        let mut context = TestContext::setup_one_connected(opts).await;
+
+        let now = context.clock.now_utc();
+
+        let delay = Duration::from_secs(60);
+        let id1 = context
+            .client
+            .enqueue_deferred_after(&MockTask { id: 1, ..Default::default() }, now + delay)
+            .await
+            .unwrap();
+        let id2 = context
+            .client
+            .enqueue_deferred_by(&MockTask { id: 2, ..Default::default() }, delay)
+            .await
+            .unwrap();
+
+        // Make sure the deferred tasks did not run yet.  This is racy and we may fail to detect
+        // a problem, but it should not result in false positives.
+        for _ in 0..10 {
+            {
+                let state = context.state.lock().await;
+                if state.len() > 0 {
+                    panic!("The deferred tasks completed but they should not have run");
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+
+        // Make time pass.  The `MonotonicClock` we use increases by 1 every time we query it.
+        // TODO(jmmv): This behavior is weird.  It'd be nicer if the fake clock was settable.
+        for _ in 0..120 {
+            context.clock.now_utc();
+        }
+
+        // The tasks will complete now that enough time has passed.
+        let result = context.client.wait(id1, Duration::from_millis(1)).await.unwrap();
+        assert_eq!(TaskResult::Done, result);
+        let result = context.client.wait(id2, Duration::from_millis(1)).await.unwrap();
+        assert_eq!(TaskResult::Done, result);
+    }
 }

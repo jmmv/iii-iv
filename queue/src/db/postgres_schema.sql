@@ -35,7 +35,10 @@ CREATE TABLE IF NOT EXISTS tasks (
 
     -- The time the task was last updated.  Must be initialized as "created" when
     -- the task is first inserted into the queue.
-    updated TIMESTAMPTZ NOT NULL
+    updated TIMESTAMPTZ NOT NULL,
+
+    -- The earliest time the task is allowed to run.
+    only_after TIMESTAMPTZ
 );
 
 CREATE INDEX IF NOT EXISTS tasks_by_runnable_state

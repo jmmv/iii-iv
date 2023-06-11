@@ -90,7 +90,46 @@ where
     /// task processing.
     pub async fn enqueue(&mut self, task: &T) -> DriverResult<Uuid> {
         let mut tx = self.db.begin().await?;
-        let id = tx.put_new_task(task, self.clock.now_utc()).await?;
+        let id = tx.put_new_task(task, self.clock.now_utc(), None).await?;
+        tx.commit().await?;
+
+        self.maybe_notify_worker().await;
+
+        Ok(id)
+    }
+
+    /// Inserts a new `task` into the queue that will only run after `only_after` and returns
+    /// its identifier.
+    ///
+    /// If the client is configured to notify a worker, this notifies the worker for immediate
+    /// task processing.
+    pub async fn enqueue_deferred_after(
+        &mut self,
+        task: &T,
+        only_after: OffsetDateTime,
+    ) -> DriverResult<Uuid> {
+        let mut tx = self.db.begin().await?;
+        let id = tx.put_new_task(task, self.clock.now_utc(), Some(only_after)).await?;
+        tx.commit().await?;
+
+        self.maybe_notify_worker().await;
+
+        Ok(id)
+    }
+
+    /// Inserts a new `task` into the queue that will only run after `only_after` time has
+    /// passed and returns its identifier.
+    ///
+    /// If the client is configured to notify a worker, this notifies the worker for immediate
+    /// task processing.
+    pub async fn enqueue_deferred_by(
+        &mut self,
+        task: &T,
+        only_after: Duration,
+    ) -> DriverResult<Uuid> {
+        let mut tx = self.db.begin().await?;
+        let now = self.clock.now_utc();
+        let id = tx.put_new_task(task, now, Some(now + only_after)).await?;
         tx.commit().await?;
 
         self.maybe_notify_worker().await;

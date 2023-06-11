@@ -80,11 +80,17 @@ impl<T: Send + Sync + Serialize> BareTx for SqliteClientTx<T> {
 impl<T: Send + Sync + Serialize> ClientTx for SqliteClientTx<T> {
     type T = T;
 
-    async fn put_new_task(&mut self, task: &Self::T, created: OffsetDateTime) -> DbResult<Uuid> {
+    async fn put_new_task(
+        &mut self,
+        task: &Self::T,
+        created: OffsetDateTime,
+        only_after: Option<OffsetDateTime>,
+    ) -> DbResult<Uuid> {
         let mut tx = self.tx.lock().await;
 
         let id = Uuid::new_v4();
         let (created_sec, created_nsec) = unpack_timestamp(created);
+        let only_after = only_after.map(unpack_timestamp);
 
         let json_task = match serde_json::to_string(task) {
             Ok(json) => json,
@@ -99,8 +105,9 @@ impl<T: Send + Sync + Serialize> ClientTx for SqliteClientTx<T> {
         let query_str = "
             INSERT INTO tasks
                 (id, json, status_code, status_reason, runs,
-                created_sec, created_nsec, updated_sec, updated_nsec)
-            VALUES (?, ?, ?, NULL, 0, ?, ?, ?, ?)
+                created_sec, created_nsec, updated_sec, updated_nsec,
+                only_after_sec, only_after_nsec)
+            VALUES (?, ?, ?, NULL, 0, ?, ?, ?, ?, ?, ?)
         ";
         let done = sqlx::query(query_str)
             .bind(id)
@@ -110,6 +117,8 @@ impl<T: Send + Sync + Serialize> ClientTx for SqliteClientTx<T> {
             .bind(created_nsec)
             .bind(created_sec) // updated_sec
             .bind(created_nsec) // updated_nsec
+            .bind(only_after.map(|(sec, _nsec)| sec))
+            .bind(only_after.map(|(_sec, nsec)| nsec))
             .execute(&mut *tx)
             .await
             .map_err(map_sqlx_error)?;
@@ -241,15 +250,20 @@ impl<T: Send + Sync + DeserializeOwned> WorkerTx for SqliteWorkerTx<T> {
         let query_str = "
             SELECT
                 id, json, runs,
-                updated_sec * 1000 + updated_nsec / 1000000 AS updated_msec
+                updated_sec * 1000 + updated_nsec / 1000000 AS updated_msec,
+                only_after_sec * 1000 + only_after_nsec / 1000000 AS only_after_msec
             FROM tasks
-            WHERE status_code = ? AND (runs = 0 OR updated_msec + ? < ?)
+            WHERE
+                status_code = ?
+                AND (runs = 0 OR updated_msec + ? < ?)
+                AND (only_after_sec IS NULL OR ? >= only_after_msec)
             ORDER BY updated_sec ASC, updated_nsec ASC
             LIMIT ?
         ";
         let mut rows = sqlx::query(query_str)
             .bind(TaskStatus::Runnable as i8)
             .bind(max_runtime_msec)
+            .bind(now_msec)
             .bind(now_msec)
             .bind(i32::from(limit))
             .fetch(&mut *tx);
