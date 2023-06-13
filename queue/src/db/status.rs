@@ -45,7 +45,7 @@ pub(super) enum TaskStatus {
 /// Converts a task result into the status code and reason to be stored into the database.
 pub(super) fn result_to_status(result: &TaskResult) -> (TaskStatus, Option<&str>) {
     match result {
-        TaskResult::Done => (TaskStatus::Done, None),
+        TaskResult::Done(msg) => (TaskStatus::Done, msg.as_deref()),
         TaskResult::Failed(e) => (TaskStatus::Failed, Some(e)),
         TaskResult::Abandoned(e) => (TaskStatus::Abandoned, Some(e)),
     }
@@ -64,13 +64,7 @@ pub(super) fn status_to_result(
     match code {
         x if x == (TaskStatus::Runnable as i8) => Ok(None),
 
-        x if x == (TaskStatus::Done as i8) => match reason {
-            None => Ok(Some(TaskResult::Done)),
-            Some(_) => Err(DbError::DataIntegrityError(format!(
-                "Task {} is Done but status_reason is not empty",
-                id
-            ))),
-        },
+        x if x == (TaskStatus::Done as i8) => Ok(Some(TaskResult::Done(reason))),
 
         x if x == (TaskStatus::Failed as i8) => match reason {
             None => Err(DbError::DataIntegrityError(format!(
@@ -98,7 +92,12 @@ mod tests {
 
     #[test]
     fn test_result_to_status() {
-        assert_eq!((TaskStatus::Done, None), result_to_status(&TaskResult::Done));
+        assert_eq!((TaskStatus::Done, None), result_to_status(&TaskResult::Done(None)));
+
+        assert_eq!(
+            (TaskStatus::Done, Some("foo")),
+            result_to_status(&TaskResult::Done(Some("foo".to_owned())))
+        );
 
         assert_eq!(
             (TaskStatus::Failed, Some("foo")),
@@ -122,6 +121,19 @@ mod tests {
             Ok(None) => (),
             r => panic!("Unexpected result: {:?}", r),
         }
+    }
+
+    #[test]
+    fn test_status_to_result_done_may_have_reason() {
+        assert_eq!(
+            Ok(Some(TaskResult::Done(None))),
+            status_to_result(Uuid::new_v4(), TaskStatus::Done as i8, None)
+        );
+
+        assert_eq!(
+            Ok(Some(TaskResult::Done(Some("msg".to_owned())))),
+            status_to_result(Uuid::new_v4(), TaskStatus::Done as i8, Some("msg".to_owned()))
+        );
     }
 
     #[test]

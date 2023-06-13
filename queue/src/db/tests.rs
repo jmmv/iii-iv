@@ -265,9 +265,11 @@ where
     )
     .await;
 
-    for result in
-        [TaskResult::Done, TaskResult::Failed("".to_owned()), TaskResult::Abandoned("".to_owned())]
-    {
+    for result in [
+        TaskResult::Done(None),
+        TaskResult::Failed("".to_owned()),
+        TaskResult::Abandoned("".to_owned()),
+    ] {
         // Put a few tasks that are done and that are outside of the max_runtime window.
         // Must NOT be considered as runnable anymore.
         put_done_task(
@@ -447,7 +449,7 @@ pub(super) async fn test_set_task_running_fails_if_already_completed<CD, WD>(
     let now = datetime!(2023-06-01 06:50 UTC);
 
     for result in [
-        TaskResult::Done,
+        TaskResult::Done(None),
         TaskResult::Failed("foo".to_owned()),
         TaskResult::Abandoned("bar".to_owned()),
     ] {
@@ -546,7 +548,7 @@ where
 {
     let max_runtime = Duration::from_millis(10);
     for exp_result in [
-        TaskResult::Done,
+        TaskResult::Done(None),
         TaskResult::Failed("foo".to_owned()),
         TaskResult::Abandoned("bar".to_owned()),
     ] {
@@ -588,10 +590,13 @@ where
     put_running_task(&client_db, &worker_db, 4, max_runtime, after, 5).await;
 
     let mut exp_results = vec![];
-    for (i, result) in
-        [TaskResult::Done, TaskResult::Failed("".to_owned()), TaskResult::Abandoned("".to_owned())]
-            .iter()
-            .enumerate()
+    for (i, result) in [
+        TaskResult::Done(None),
+        TaskResult::Failed("".to_owned()),
+        TaskResult::Abandoned("".to_owned()),
+    ]
+    .iter()
+    .enumerate()
     {
         // The results of the query are sorted by timestamp, so make sure they are stable by using
         // different values for each task.

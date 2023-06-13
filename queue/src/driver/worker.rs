@@ -138,7 +138,7 @@ where
     } else {
         match task.into_json_task() {
             Ok(task) => match exec(task).await {
-                Ok(()) => TaskResult::Done,
+                Ok(msg) => TaskResult::Done(msg),
 
                 Err(ExecError::Failed(msg)) => TaskResult::Failed(msg),
 

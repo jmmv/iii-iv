@@ -55,7 +55,7 @@ mod tests {
     use crate::model::TaskResult;
     use crate::rest::testutils::*;
     use axum::http;
-    use iii_iv_core::rest::testutils::*;
+    use iii_iv_core::{clocks::Clock, rest::testutils::*};
     use std::{collections::HashMap, time::Duration};
 
     /// Constructs a URL to call the method/API under test.
@@ -67,22 +67,32 @@ mod tests {
     async fn test_ok() {
         let mut context = TestContext::setup().await;
 
-        let id = context
+        let before = context.clock.now_utc();
+
+        let id1 = context
+            .client
+            .enqueue(&MockTask { result: Ok(Some("diagnostics".to_string())) })
+            .await
+            .unwrap();
+        let id2 = context
             .client
             .enqueue(&MockTask { result: Err("the result".to_string()) })
             .await
             .unwrap();
+        let ids = [id1, id2];
 
-        // Give some time to the worker to execute the task.  We expect this to *not* happen
-        // because the worker has not been notified that a new task is ready for execution (the
+        // Give some time to the worker to execute the tasks.  We expect this to *not* happen
+        // because the worker has not been notified that new tasks are ready for execution (the
         // client created by `TestContext::setup` is not connected to a worker. Obviously this
         // is racy and might not detect a real bug, but we should not get any false negatives.
         for _ in 0..10 {
-            let result = context.client.poll(id).await.unwrap();
-            assert!(
-                result.is_none(),
-                "Task should not have completed because we didn't poll the worker yet"
-            );
+            for id in ids {
+                let result = context.client.poll(id).await.unwrap();
+                assert!(
+                    result.is_none(),
+                    "Task should not have completed because we didn't poll the worker yet"
+                );
+            }
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
 
@@ -93,8 +103,11 @@ mod tests {
             .await;
         assert!(response.is_empty());
 
-        // Now that we poked the worker via the REST API, we can expect the task to complete.
-        let result = context.client.wait(id, Duration::from_millis(1)).await.unwrap();
-        assert_eq!(TaskResult::Failed("the result".to_string()), result);
+        // Now that we poked the worker via the REST API, we can expect the tasks to complete.
+        let results =
+            context.client.wait_all(&ids, before, Duration::from_millis(1)).await.unwrap();
+        assert_eq!(2, results.len());
+        assert_eq!(&TaskResult::Done(Some("diagnostics".to_string())), results.get(&id1).unwrap());
+        assert_eq!(&TaskResult::Failed("the result".to_string()), results.get(&id2).unwrap());
     }
 }
