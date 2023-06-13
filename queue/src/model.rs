@@ -43,7 +43,7 @@ use uuid::Uuid;
 #[cfg_attr(any(test, feature = "testutils"), derive(Clone, Eq, PartialEq))]
 pub enum TaskResult {
     /// The task successfully completed execution.
-    Done,
+    Done(Option<String>),
 
     /// The task finished processing but it failed with the given reason.
     Failed(String),
@@ -88,7 +88,7 @@ impl From<DriverError> for ExecError {
 }
 
 /// Result type returned by the closue used to run tasks.
-pub type ExecResult = Result<(), ExecError>;
+pub type ExecResult = Result<Option<String>, ExecError>;
 
 /// A runnable task.
 ///

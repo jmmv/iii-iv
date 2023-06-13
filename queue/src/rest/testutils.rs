@@ -28,7 +28,7 @@ use std::sync::Arc;
 #[derive(Deserialize, Serialize)]
 pub(super) struct MockTask {
     /// What the task will return upon execution.
-    pub(super) result: Result<(), String>,
+    pub(super) result: Result<Option<String>, String>,
 }
 
 /// Executes `task`.
@@ -43,6 +43,9 @@ pub(super) struct TestContext {
 
     /// Queue client to interact with the tasks handled by `app`.
     pub(super) client: Client<MockTask, MonotonicClock, SqliteDb<SqliteClientTx<MockTask>>>,
+
+    /// Clock used during testing.
+    pub(super) clock: MonotonicClock,
 }
 
 impl TestContext {
@@ -62,11 +65,11 @@ impl TestContext {
 
         // The client is not connected to the worker so that we can validate that the worker loop
         // isn't invoked until we ask for it.
-        let client = Client::new(client_db, clock);
+        let client = Client::new(client_db, clock.clone());
 
         let app = worker_cron_app(worker);
 
-        TestContext { client, app }
+        TestContext { client, app, clock }
     }
 
     /// Gets a clone of the app router.

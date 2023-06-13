@@ -43,7 +43,7 @@ mod testutils {
         pub(super) id: u16,
 
         /// What the task will return upon execution.
-        pub(super) result: Result<(), String>,
+        pub(super) result: Result<Option<String>, String>,
 
         /// Number of times to crash before succeeding.
         pub(super) crash: u16,
@@ -54,7 +54,7 @@ mod testutils {
 
     impl Default for MockTask {
         fn default() -> Self {
-            Self { id: u16::MAX, result: Ok(()), crash: 0, chain: None }
+            Self { id: u16::MAX, result: Ok(None), crash: 0, chain: None }
         }
     }
 
@@ -197,7 +197,8 @@ mod tests {
         // Insert a bunch of tasks.
         let mut ids = vec![];
         for i in 0..num_tasks {
-            let task = MockTask { id: i, ..Default::default() };
+            let task =
+                MockTask { id: i, result: Ok(Some(format!("Task {}", i))), ..Default::default() };
             ids.push(context.client.enqueue(&task).await.unwrap());
             if i % (opts.batch_size * 2) == 0 {
                 context.notify_workers(num_workers / 4 + 1).await;
@@ -207,7 +208,11 @@ mod tests {
 
         // Poll until all tasks complete.
         let period = Duration::from_millis(10);
-        context.client.wait_all(&ids, before, period).await.unwrap();
+        let results = context.client.wait_all(&ids, before, period).await.unwrap();
+        assert_eq!(usize::from(num_tasks), results.len());
+        for (i, id) in ids.iter().enumerate().take(usize::from(num_tasks)) {
+            assert_eq!(&TaskResult::Done(Some(format!("Task {}", i))), results.get(id).unwrap());
+        }
 
         // Verify that all tasks completed.
         let mut state = context.state.lock().await;
@@ -348,7 +353,7 @@ mod tests {
 
         // Run the task that enqueues another chained task.
         let result = context.client.wait(id, Duration::from_millis(1)).await.unwrap();
-        assert_eq!(TaskResult::Done, result);
+        assert_eq!(TaskResult::Done(None), result);
 
         // Make sure the chained task did not run yet.  This is racy and we may fail to detect
         // a problem, but it should not result in false positives.
@@ -418,8 +423,8 @@ mod tests {
 
         // The tasks will complete now that enough time has passed.
         let result = context.client.wait(id1, Duration::from_millis(1)).await.unwrap();
-        assert_eq!(TaskResult::Done, result);
+        assert_eq!(TaskResult::Done(None), result);
         let result = context.client.wait(id2, Duration::from_millis(1)).await.unwrap();
-        assert_eq!(TaskResult::Done, result);
+        assert_eq!(TaskResult::Done(None), result);
     }
 }
