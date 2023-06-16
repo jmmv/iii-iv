@@ -36,6 +36,8 @@
 use derivative::Derivative;
 use iii_iv_core::{db::DbError, driver::DriverError};
 use serde_json::Result as SerdeJsonResult;
+use std::time::Duration;
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 /// Describes the completion state of the task.
@@ -48,6 +50,9 @@ pub enum TaskResult {
     /// The task finished processing but it failed with the given reason.
     Failed(String),
 
+    /// The task asked to be retried at the specified time.
+    Retry(OffsetDateTime, String),
+
     /// The task failed to run after a configurable amount of max runs, so it is now abandoned
     /// (quarantined).  The associated string contains details on the reason for abandonment.
     Abandoned(String),
@@ -57,6 +62,12 @@ pub enum TaskResult {
 pub enum ExecError {
     /// Indicates that the task has failed in a controlled manner.
     Failed(String),
+
+    /// Indicates that the task wants to rerun after the specified delay.
+    RetryAfterDelay(Duration, String),
+
+    /// Indicates that the task wants to rerun at the specified time.
+    RetryAfterTimestamp(OffsetDateTime, String),
 
     /// Simulates that the task has caused the worker to crash.
     //

@@ -56,6 +56,10 @@ pub struct WorkerOptions {
     pub consume_all: bool,
 
     /// Number of times a task is allowed to run before being abandoned.
+    //
+    // TODO(jmmv): This is being used to limit execution for both lost tasks and deferred tasks,
+    // which might not be the right thing to do.  But in order to have two knobs, we would need
+    // separate tracking in the database for their respective counters.
     pub max_runs: u8,
 
     /// Maximum amount of time a task is expected to run.
@@ -141,6 +145,14 @@ where
                 Ok(msg) => TaskResult::Done(msg),
 
                 Err(ExecError::Failed(msg)) => TaskResult::Failed(msg),
+
+                Err(ExecError::RetryAfterDelay(only_after, msg)) => {
+                    TaskResult::Retry(clock.now_utc() + only_after, msg)
+                }
+
+                Err(ExecError::RetryAfterTimestamp(only_after, msg)) => {
+                    TaskResult::Retry(only_after, msg)
+                }
 
                 #[cfg(test)]
                 Err(ExecError::SimulatedCrash) => {

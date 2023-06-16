@@ -297,6 +297,32 @@ where
         .await;
     }
 
+    // Put a task that was deferred and is in the past.
+    // Must be considered as runnable already.
+    let id4 = put_done_task(
+        &client_db,
+        &worker_db,
+        7,
+        &TaskResult::Retry(now - Duration::from_secs(1), "".to_owned()),
+        max_runtime,
+        datetime!(2023-05-18 17:04 UTC),
+        100,
+    )
+    .await;
+
+    // Put a task that was deferred and is in the future.
+    // Must NOT be considered as runnable yet.
+    put_done_task(
+        &client_db,
+        &worker_db,
+        8,
+        &TaskResult::Retry(now + Duration::from_secs(1), "".to_owned()),
+        max_runtime,
+        datetime!(2023-05-18 17:04 UTC),
+        100,
+    )
+    .await;
+
     let mut tx = worker_db.begin().await.unwrap();
     let runnable = tx.get_runnable_tasks(10, max_runtime, now).await.unwrap();
     tx.commit().await.unwrap();
@@ -304,6 +330,7 @@ where
     let exp_runnable = vec![
         RunnableTask::new(id1, Ok(MockTask { i: 1 }), 0),
         RunnableTask::new(id3, Ok(MockTask { i: 3 }), 4),
+        RunnableTask::new(id4, Ok(MockTask { i: 7 }), 100),
         RunnableTask::new(id2, Ok(MockTask { i: 2 }), 0),
     ];
     assert_eq!(exp_runnable, runnable);
