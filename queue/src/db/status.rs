@@ -17,6 +17,7 @@
 
 use crate::model::TaskResult;
 use iii_iv_core::db::{DbError, DbResult};
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 /// Task status as stored in the database.
@@ -28,8 +29,9 @@ pub(super) enum TaskStatus {
     /// The `runs` field of the task can be used to distinguish between the two statuses.
     ///
     /// Even though a task may be marked as runnable, it should only be attempted to run if
-    /// either it is new (`runs == 0`) or if can be declared as lost (its `updated` timestamp
-    /// is older than the maximum allowed runtime for the task).
+    /// either it is new (`runs == 0`) or if it can be retried.  Retryable tasks are those
+    /// that asked to be retried or those that can be declared as lost (their `updated`
+    /// timestamp is older than the maximum allowed runtime for the task).
     Runnable = 1,
 
     /// The task completed successfully.  The `reason` will not be present.
@@ -42,12 +44,15 @@ pub(super) enum TaskStatus {
     Abandoned = 4,
 }
 
-/// Converts a task result into the status code and reason to be stored into the database.
-pub(super) fn result_to_status(result: &TaskResult) -> (TaskStatus, Option<&str>) {
+/// Converts a task result into the separate fields to be stored into the database.
+pub(super) fn result_to_status(
+    result: &TaskResult,
+) -> (TaskStatus, Option<&str>, Option<OffsetDateTime>) {
     match result {
-        TaskResult::Done(msg) => (TaskStatus::Done, msg.as_deref()),
-        TaskResult::Failed(e) => (TaskStatus::Failed, Some(e)),
-        TaskResult::Abandoned(e) => (TaskStatus::Abandoned, Some(e)),
+        TaskResult::Done(msg) => (TaskStatus::Done, msg.as_deref(), None),
+        TaskResult::Failed(e) => (TaskStatus::Failed, Some(e), None),
+        TaskResult::Retry(only_after, msg) => (TaskStatus::Runnable, Some(msg), Some(*only_after)),
+        TaskResult::Abandoned(e) => (TaskStatus::Abandoned, Some(e), None),
     }
 }
 
@@ -89,23 +94,29 @@ pub(super) fn status_to_result(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use time::macros::datetime;
 
     #[test]
     fn test_result_to_status() {
-        assert_eq!((TaskStatus::Done, None), result_to_status(&TaskResult::Done(None)));
+        assert_eq!((TaskStatus::Done, None, None), result_to_status(&TaskResult::Done(None)));
 
         assert_eq!(
-            (TaskStatus::Done, Some("foo")),
+            (TaskStatus::Done, Some("foo"), None),
             result_to_status(&TaskResult::Done(Some("foo".to_owned())))
         );
 
         assert_eq!(
-            (TaskStatus::Failed, Some("foo")),
+            (TaskStatus::Failed, Some("foo"), None),
             result_to_status(&TaskResult::Failed("foo".to_owned()))
         );
 
         assert_eq!(
-            (TaskStatus::Abandoned, Some("foo")),
+            (TaskStatus::Runnable, Some("foo"), Some(datetime!(2023-06-11 6:55 UTC))),
+            result_to_status(&TaskResult::Retry(datetime!(2023-06-11 6:55 UTC), "foo".to_owned()))
+        );
+
+        assert_eq!(
+            (TaskStatus::Abandoned, Some("foo"), None),
             result_to_status(&TaskResult::Abandoned("foo".to_owned()))
         );
     }

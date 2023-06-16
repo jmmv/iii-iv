@@ -28,10 +28,12 @@ mod testutils {
     use crate::model::{ExecError, ExecResult};
     use futures::lock::Mutex;
     use iii_iv_core::clocks::testutils::MonotonicClock;
+    use iii_iv_core::clocks::Clock;
     use iii_iv_sqlite::SqliteDb;
     use serde::{Deserialize, Serialize};
     use std::collections::HashMap;
     use std::sync::Arc;
+    use std::time::Duration;
 
     /// A queue client backed by mock entities.
     type MockClient = Client<MockTask, MonotonicClock, SqliteDb<SqliteClientTx<MockTask>>>;
@@ -50,11 +52,15 @@ mod testutils {
 
         /// Task to enqueue, if any.
         pub(super) chain: Option<Box<MockTask>>,
+
+        /// Number of times to defer a task for an extra (fake) minute before allowing it
+        /// to return `result`.
+        pub(super) defer: u16,
     }
 
     impl Default for MockTask {
         fn default() -> Self {
-            Self { id: u16::MAX, result: Ok(None), crash: 0, chain: None }
+            Self { id: u16::MAX, result: Ok(None), crash: 0, chain: None, defer: 0 }
         }
     }
 
@@ -66,6 +72,9 @@ mod testutils {
 
         /// Whether the task completed successfully and returned its stored result.
         pub(super) done: bool,
+
+        /// Number of times the task has been deferred so far.
+        pub(super) deferred: u16,
     }
 
     /// Mutable state for all tasks keyed by `MockTask::id`.
@@ -76,6 +85,7 @@ mod testutils {
         task: MockTask,
         state_by_id: TaskStateById,
         mut client: MockClient,
+        clock: MonotonicClock,
     ) -> ExecResult {
         let mut state_by_id = state_by_id.lock().await;
         let mut state = state_by_id.entry(task.id).or_insert_with(TaskState::default);
@@ -88,6 +98,22 @@ mod testutils {
 
         if let Some(chain) = task.chain {
             client.enqueue(&chain).await.unwrap();
+        }
+
+        if state.deferred < task.defer {
+            state.deferred += 1;
+            // Flip-flop between the two possible retry return values so that we exercise both.
+            if state.deferred % 2 == 0 {
+                return Err(ExecError::RetryAfterDelay(
+                    Duration::from_secs(60),
+                    format!("Deferred {} times so far", state.deferred),
+                ));
+            } else {
+                return Err(ExecError::RetryAfterTimestamp(
+                    clock.now_utc() + Duration::from_secs(60),
+                    format!("Deferred {} times so far", state.deferred),
+                ));
+            }
         }
 
         assert!(!state.done, "Task {} completed twice", task.id);
@@ -125,8 +151,9 @@ mod testutils {
             let worker = {
                 let state = state.clone();
                 let client = client.clone();
+                let clock = clock.clone();
                 let worker = Worker::new(worker_db, clock.clone(), opts, move |task| {
-                    run_task(task, state.clone(), client.clone())
+                    run_task(task, state.clone(), client.clone(), clock.clone())
                 });
                 Arc::from(Mutex::from(worker))
             };
@@ -154,9 +181,10 @@ mod testutils {
                 let worker = {
                     let state = state.clone();
                     let client = client.clone();
+                    let clock = clock.clone();
                     let worker =
                         Worker::new(worker_db.clone(), clock.clone(), opts.clone(), move |task| {
-                            run_task(task, state.clone(), client.clone())
+                            run_task(task, state.clone(), client.clone(), clock.clone())
                         });
                     Arc::from(Mutex::from(worker))
                 };
@@ -171,6 +199,16 @@ mod testutils {
             for _ in 0..n {
                 let i = rand::random::<usize>() % self.workers.len();
                 self.workers[i].lock().await.notify().await.unwrap();
+            }
+        }
+
+        /// Advances the fake monotonic clock by `secs`.
+        pub(super) fn advance_clock(&mut self, d: Duration) {
+            assert!(d.as_nanos() % 1000000000 == 0, "Cannot handle sub-second advances");
+            // The `MonotonicClock` we use increases by 1 every time we query it.
+            // TODO(jmmv): This behavior is weird.  It'd be nicer if the fake clock was settable.
+            for _ in 0..d.as_secs() {
+                self.clock.now_utc();
             }
         }
     }
@@ -415,16 +453,75 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
 
-        // Make time pass.  The `MonotonicClock` we use increases by 1 every time we query it.
-        // TODO(jmmv): This behavior is weird.  It'd be nicer if the fake clock was settable.
-        for _ in 0..120 {
-            context.clock.now_utc();
-        }
+        context.advance_clock(Duration::from_secs(120));
 
         // The tasks will complete now that enough time has passed.
         let result = context.client.wait(id1, Duration::from_millis(1)).await.unwrap();
         assert_eq!(TaskResult::Done(None), result);
         let result = context.client.wait(id2, Duration::from_millis(1)).await.unwrap();
         assert_eq!(TaskResult::Done(None), result);
+    }
+
+    #[tokio::test]
+    async fn test_task_retry_result_ok() {
+        let opts = WorkerOptions { max_runs: 5, ..Default::default() };
+        let mut context = TestContext::setup_one_connected(opts.clone()).await;
+
+        let task = MockTask { id: 123, defer: u16::from(opts.max_runs - 2), ..Default::default() };
+        let id = context.client.enqueue(&task).await.unwrap();
+
+        // Wait until we know the task has asked to retry the `defer` times we configured.
+        loop {
+            {
+                let state = context.state.lock().await;
+                assert!(state.len() <= 1);
+                if let Some(state) = state.get(&123) {
+                    assert!(!state.done);
+                    if state.deferred == task.defer {
+                        break;
+                    }
+                }
+            }
+            context.advance_clock(Duration::from_secs(60));
+            context.notify_workers(1).await;
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        assert_eq!(None, context.client.poll(id).await.unwrap());
+
+        context.advance_clock(Duration::from_secs(120));
+
+        // The task will complete now that it is not in the deferred state any more, so wait for it.
+        let result = context.client.wait(id, Duration::from_millis(1)).await.unwrap();
+        assert_eq!(TaskResult::Done(None), result);
+
+        let state = context.state.lock().await;
+        assert_eq!(1, state.len());
+        let state = state.get(&123).unwrap();
+        assert_eq!(3, state.deferred);
+        assert!(state.done);
+    }
+
+    #[tokio::test]
+    async fn test_task_retry_result_exceeds_max_runs() {
+        let opts = WorkerOptions { max_runs: 5, ..Default::default() };
+        let mut context = TestContext::setup_one_connected(opts.clone()).await;
+
+        let task = MockTask { id: 123, defer: u16::from(opts.max_runs - 1), ..Default::default() };
+        let id = context.client.enqueue(&task).await.unwrap();
+
+        context.advance_clock(Duration::from_secs(60 * u64::from(opts.max_runs)));
+
+        // The task will complete now that it is not in the deferred state any more, so wait for it.
+        let result = context.client.wait(id, Duration::from_millis(1)).await.unwrap();
+        assert_eq!(
+            TaskResult::Abandoned("Attempted to run 5 times, but max_runs is 5".to_owned()),
+            result
+        );
+
+        let state = context.state.lock().await;
+        assert_eq!(1, state.len());
+        let state = state.get(&123).unwrap();
+        assert_eq!(4, state.deferred);
+        assert!(!state.done);
     }
 }

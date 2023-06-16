@@ -290,17 +290,18 @@ impl<T: Send + Sync + DeserializeOwned> WorkerTx for PostgresWorkerTx<T> {
         result: &TaskResult,
         updated: OffsetDateTime,
     ) -> DbResult<()> {
-        let (status, reason) = result_to_status(result);
+        let (status, reason, only_after) = result_to_status(result);
 
         let query_str = "
             UPDATE tasks
-            SET status_code = $1, status_reason = $2, updated = $3
-            WHERE id = $4
+            SET status_code = $1, status_reason = $2, updated = $3, only_after = $4
+            WHERE id = $5
         ";
         let done = sqlx::query(query_str)
             .bind(status as i16)
             .bind(reason)
             .bind(updated)
+            .bind(only_after)
             .bind(id)
             .execute(&mut self.tx)
             .await

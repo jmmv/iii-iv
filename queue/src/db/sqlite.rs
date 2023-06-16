@@ -336,12 +336,16 @@ impl<T: Send + Sync + DeserializeOwned> WorkerTx for SqliteWorkerTx<T> {
     ) -> DbResult<()> {
         let mut tx = self.tx.lock().await;
 
-        let (status, reason) = result_to_status(result);
+        let (status, reason, only_after) = result_to_status(result);
+
         let (updated_sec, updated_nsec) = unpack_timestamp(updated);
+        let only_after = only_after.map(unpack_timestamp);
 
         let query_str = "
             UPDATE tasks
-            SET status_code = ?, status_reason = ?, updated_sec = ?, updated_nsec = ?
+            SET
+                status_code = ?, status_reason = ?, updated_sec = ?, updated_nsec = ?,
+                only_after_sec = ?, only_after_nsec = ?
             WHERE id = ?
         ";
         let done = sqlx::query(query_str)
@@ -349,6 +353,8 @@ impl<T: Send + Sync + DeserializeOwned> WorkerTx for SqliteWorkerTx<T> {
             .bind(reason)
             .bind(updated_sec)
             .bind(updated_nsec)
+            .bind(only_after.map(|(sec, _nsec)| sec))
+            .bind(only_after.map(|(_sec, nsec)| nsec))
             .bind(id)
             .execute(&mut *tx)
             .await
