@@ -103,7 +103,7 @@ where
     ///
     /// If the client is configured to notify a worker, this notifies the worker for immediate
     /// task processing.
-    pub async fn enqueue_deferred_after(
+    pub async fn enqueue_deferred_after_timestamp(
         &mut self,
         task: &T,
         only_after: OffsetDateTime,
@@ -122,7 +122,7 @@ where
     ///
     /// If the client is configured to notify a worker, this notifies the worker for immediate
     /// task processing.
-    pub async fn enqueue_deferred_by(
+    pub async fn enqueue_deferred_after_delay(
         &mut self,
         task: &T,
         only_after: Duration,

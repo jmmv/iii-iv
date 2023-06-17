@@ -432,12 +432,15 @@ mod tests {
         let delay = Duration::from_secs(60);
         let id1 = context
             .client
-            .enqueue_deferred_after(&MockTask { id: 1, ..Default::default() }, now + delay)
+            .enqueue_deferred_after_timestamp(
+                &MockTask { id: 1, ..Default::default() },
+                now + delay,
+            )
             .await
             .unwrap();
         let id2 = context
             .client
-            .enqueue_deferred_by(&MockTask { id: 2, ..Default::default() }, delay)
+            .enqueue_deferred_after_delay(&MockTask { id: 2, ..Default::default() }, delay)
             .await
             .unwrap();
 
