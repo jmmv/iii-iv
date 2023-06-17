@@ -33,13 +33,13 @@ use std::time::Duration;
 use tokio::task::JoinHandle;
 
 /// Default batch size.
-const DEFAULT_BATCH_SIZE: u16 = 16;
+const DEFAULT_BATCH_SIZE: u16 = 1024;
 
 /// Default value for the `consume_all` setting.
 const DEFAULT_CONSUME_ALL: bool = true;
 
 /// Default max runs for a task.
-const DEFAULT_MAX_RUNS: u8 = 4;
+const DEFAULT_MAX_RUNS: u8 = 16;
 
 /// Default max runtime, in seconds.  We assume that we run on Azure Functions with the default
 /// maximum runtime of the Consumption Plan, which is 5 minutes.
