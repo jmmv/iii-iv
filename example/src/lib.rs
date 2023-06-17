@@ -40,7 +40,7 @@ pub async fn serve(
     bind_addr: impl Into<SocketAddr>,
     db_opts: PostgresOptions,
 ) -> Result<(), Box<dyn Error>> {
-    let pool = PostgresPool::connect(db_opts).await?;
+    let pool = PostgresPool::connect(db_opts)?;
     let db = PostgresDb::<PostgresTx>::attach(pool).await?;
     let driver = Driver::new(db);
     let app = app(driver);

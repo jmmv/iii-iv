@@ -22,7 +22,7 @@
 
 use derivative::Derivative;
 use iii_iv_core::db::{BareTx, Db, DbError, DbResult};
-use iii_iv_core::env::get_required_var;
+use iii_iv_core::env::{get_optional_var, get_required_var};
 use sqlx::postgres::{PgConnectOptions, PgDatabaseError, PgPool, PgPoolOptions, Postgres};
 use sqlx::Transaction;
 use std::marker::PhantomData;
@@ -64,6 +64,12 @@ pub struct PostgresOptions {
     /// Password to establish the connection with.
     #[derivative(Debug = "ignore")]
     pub password: String,
+
+    /// Minimum number of connections to keep open against the database.
+    pub min_connections: Option<u32>,
+
+    /// Maximum number of connections to allow against the database.
+    pub max_connections: Option<u32>,
 }
 
 impl PostgresOptions {
@@ -71,7 +77,8 @@ impl PostgresOptions {
     /// given `prefix`.
     ///
     /// This will use variables such as `<prefix>_HOST`, `<prefix>_PORT`, `<prefix>_DATABASE`,
-    /// `<prefix>_USERNAME` and `<prefix>_PASSWORD`.
+    /// `<prefix>_USERNAME`, `<prefix>_PASSWORD`, `<prefix>_MIN_CONNECTIONS` and
+    /// `<prefix>_MAX_CONNECTIONS`.
     pub fn from_env(prefix: &str) -> Result<PostgresOptions, String> {
         Ok(PostgresOptions {
             host: get_required_var::<String>(prefix, "HOST")?,
@@ -79,6 +86,8 @@ impl PostgresOptions {
             database: get_required_var::<String>(prefix, "DATABASE")?,
             username: get_required_var::<String>(prefix, "USERNAME")?,
             password: get_required_var::<String>(prefix, "PASSWORD")?,
+            min_connections: get_optional_var::<u32>(prefix, "MIN_CONNECTIONS")?,
+            max_connections: get_optional_var::<u32>(prefix, "MAX_CONNECTIONS")?,
         })
     }
 }
@@ -116,10 +125,18 @@ pub struct PostgresPool {
 }
 
 impl PostgresPool {
-    /// Creates a new connection with a set of pool options.
+    /// Creates a new connection based on a set of options.
     ///
     /// Note that this does *not* establish the connection.
-    fn connect_lazy_with_pool_options(opts: PostgresOptions, pool_options: PgPoolOptions) -> Self {
+    pub fn connect(opts: PostgresOptions) -> DbResult<Self> {
+        let mut pool_options = PgPoolOptions::new();
+        if let Some(min_connections) = opts.min_connections {
+            pool_options = pool_options.min_connections(min_connections);
+        }
+        if let Some(max_connections) = opts.max_connections {
+            pool_options = pool_options.max_connections(max_connections);
+        }
+
         let options = PgConnectOptions::new()
             .host(&opts.host)
             .port(opts.port)
@@ -135,12 +152,7 @@ impl PostgresPool {
         #[cfg(test)]
         let db = Self { pool: pool.clone(), closer: Arc::from(PoolCloser { pool }) };
 
-        db
-    }
-
-    /// Creates a new connection based on a dynamic pool.
-    pub async fn connect(opts: PostgresOptions) -> DbResult<Self> {
-        Ok(PostgresPool::connect_lazy_with_pool_options(opts, PgPoolOptions::new()))
+        Ok(db)
     }
 
     /// Opens a new transaction.
@@ -248,10 +260,10 @@ pub mod testutils {
     {
         let _can_fail = env_logger::builder().is_test(true).try_init();
 
-        let pool = PostgresPool::connect_lazy_with_pool_options(
-            PostgresOptions::from_env("PGSQL_TEST").unwrap(),
-            PgPoolOptions::new().min_connections(1).max_connections(1),
-        );
+        let mut opts = PostgresOptions::from_env("PGSQL_TEST").unwrap();
+        opts.min_connections = Some(1);
+        opts.max_connections = Some(1);
+        let pool = PostgresPool::connect(opts).unwrap();
         // We don't use attach because we don't want to run the DB migration code.
         let db = PostgresDb { pool, _phantom_tx: PhantomData::default() };
 
@@ -319,7 +331,7 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     #[test]
-    pub fn test_postgres_options_from_env_all_present() {
+    pub fn test_postgres_options_from_env_all_required_present() {
         temp_env::with_vars(
             [
                 ("PGSQL_HOST", Some("the-host")),
@@ -336,7 +348,39 @@ mod tests {
                         port: 1234,
                         database: "the-database".to_owned(),
                         username: "the-username".to_owned(),
-                        password: "the-password".to_owned()
+                        password: "the-password".to_owned(),
+                        min_connections: None,
+                        max_connections: None,
+                    },
+                    opts
+                );
+            },
+        );
+    }
+
+    #[test]
+    pub fn test_postgres_options_from_env_all_required_and_optional_present() {
+        temp_env::with_vars(
+            [
+                ("PGSQL_HOST", Some("the-host")),
+                ("PGSQL_PORT", Some("1234")),
+                ("PGSQL_DATABASE", Some("the-database")),
+                ("PGSQL_USERNAME", Some("the-username")),
+                ("PGSQL_PASSWORD", Some("the-password")),
+                ("PGSQL_MIN_CONNECTIONS", Some("10")),
+                ("PGSQL_MAX_CONNECTIONS", Some("20")),
+            ],
+            || {
+                let opts = PostgresOptions::from_env("PGSQL").unwrap();
+                assert_eq!(
+                    PostgresOptions {
+                        host: "the-host".to_owned(),
+                        port: 1234,
+                        database: "the-database".to_owned(),
+                        username: "the-username".to_owned(),
+                        password: "the-password".to_owned(),
+                        min_connections: Some(10),
+                        max_connections: Some(20),
                     },
                     opts
                 );
@@ -385,8 +429,7 @@ mod tests {
         // We don't use connect_lazy_for_test here because that function must limit concurrent
         // connections to 1, yet we need at least 2 connections for our tests here to succeed.
         // This means we cannot write to the database because we did not set up the `search_path`.
-        let pool =
-            PostgresPool::connect(PostgresOptions::from_env("PGSQL_TEST").unwrap()).await.unwrap();
+        let pool = PostgresPool::connect(PostgresOptions::from_env("PGSQL_TEST").unwrap()).unwrap();
         PostgresDb::attach(pool).await.unwrap()
     }
 
