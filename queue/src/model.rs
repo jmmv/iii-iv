@@ -64,6 +64,9 @@ pub enum ExecError {
     Failed(String),
 
     /// Indicates that the task wants to rerun after the specified delay.
+    ///
+    /// If the delay is zero, the runtime uses a default configurable delay.  This feature is
+    /// useful for the automatic conversions from layered error types into this type.
     RetryAfterDelay(Duration, String),
 
     /// Indicates that the task wants to rerun at the specified time.
@@ -80,21 +83,29 @@ pub enum ExecError {
 
 impl From<DbError> for ExecError {
     fn from(value: DbError) -> Self {
-        // In the common case, the closure used to run tasks lives in the driver layer and
-        // thus deals with errors of type `DriverError`.  But given that all we will do with
-        // the error is persist it in the database as a string, we can perform this flattening
-        // here and forget about different types.
-        ExecError::Failed(value.to_string())
+        let msg = value.to_string();
+        match value {
+            DbError::AlreadyExists => ExecError::Failed(msg),
+            DbError::BackendError(_) => ExecError::RetryAfterDelay(Duration::ZERO, msg),
+            DbError::DataIntegrityError(_) => ExecError::Failed(msg),
+            DbError::NotFound => ExecError::Failed(msg),
+            DbError::Unavailable => ExecError::RetryAfterDelay(Duration::ZERO, msg),
+        }
     }
 }
 
 impl From<DriverError> for ExecError {
     fn from(value: DriverError) -> Self {
-        // In the common case, the closure used to run tasks lives in the driver layer and
-        // thus deals with errors of type `DriverError`.  But given that all we will do with
-        // the error is persist it in the database as a string, we can perform this flattening
-        // here and forget about different types.
-        ExecError::Failed(value.to_string())
+        let msg = value.to_string();
+        match value {
+            DriverError::AlreadyExists(_) => ExecError::Failed(msg),
+            DriverError::BackendError(_) => ExecError::RetryAfterDelay(Duration::ZERO, msg),
+            DriverError::InvalidInput(_) => ExecError::Failed(msg),
+            DriverError::NoSpace(_) => ExecError::Failed(msg),
+            DriverError::NotActivated => ExecError::Failed(msg),
+            DriverError::NotFound(_) => ExecError::Failed(msg),
+            DriverError::Unauthorized(_) => ExecError::Failed(msg),
+        }
     }
 }
 
