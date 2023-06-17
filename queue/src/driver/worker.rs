@@ -45,6 +45,9 @@ const DEFAULT_MAX_RUNS: u8 = 4;
 /// maximum runtime of the Consumption Plan, which is 5 minutes.
 const DEFAULT_MAX_RUNTIME_SECS: u64 = 5 * 60;
 
+/// Default delay by which to retry a task that asks to be retried with the default delay.
+const DEFAULT_RETRY_DELAY_SECS: u64 = 5 * 60;
+
 /// Configuration options for the queue worker.
 #[derive(Clone)]
 pub struct WorkerOptions {
@@ -69,6 +72,10 @@ pub struct WorkerOptions {
     /// which currently relies on the Azure Functions runtime (or some other serverless runtime)
     /// to cancel execution.
     pub max_runtime: Duration,
+
+    /// Default delay to use when retrying tasks that ask to use the default delay, which is often
+    /// used for retryable errors.
+    pub retry_delay: Duration,
 }
 
 #[cfg(any(test, feature = "testutils"))]
@@ -79,6 +86,7 @@ impl Default for WorkerOptions {
             consume_all: DEFAULT_CONSUME_ALL,
             max_runs: DEFAULT_MAX_RUNS,
             max_runtime: Duration::from_secs(DEFAULT_MAX_RUNTIME_SECS),
+            retry_delay: Duration::from_secs(DEFAULT_RETRY_DELAY_SECS),
         }
     }
 }
@@ -94,6 +102,8 @@ impl WorkerOptions {
             max_runs: get_optional_var::<u8>(prefix, "MAX_RUNS")?.unwrap_or(DEFAULT_MAX_RUNS),
             max_runtime: get_optional_var::<Duration>(prefix, "MAX_RUNTIME")?
                 .unwrap_or(Duration::from_secs(DEFAULT_MAX_RUNTIME_SECS)),
+            retry_delay: get_optional_var::<Duration>(prefix, "RETRY_ON_ERROR_DELAY")?
+                .unwrap_or(Duration::from_secs(DEFAULT_RETRY_DELAY_SECS)),
         })
     }
 }
@@ -107,6 +117,9 @@ impl WorkerOptions {
 /// If the task is already running according to its state (a computation that requires knowing
 /// `max_runtime`), returns an error.
 ///
+/// `retry_on_error_delay` is used to compute the retry delay for those tasks that failed with
+/// a retryable error and ask to be retried with the default configured delay.
+///
 /// Task errors are recorded within the task's result.  Therefore, this function only returns
 /// errors if it encounters problems persisting state to the database.
 async fn run_task<C, D, Exec, ExecFut, T>(
@@ -114,6 +127,7 @@ async fn run_task<C, D, Exec, ExecFut, T>(
     exec: Exec,
     max_runs: u8,
     max_runtime: Duration,
+    retry_on_error_delay: Duration,
     db: D,
     clock: C,
 ) -> DriverResult<Option<TaskResult>>
@@ -147,7 +161,11 @@ where
                 Err(ExecError::Failed(msg)) => TaskResult::Failed(msg),
 
                 Err(ExecError::RetryAfterDelay(only_after, msg)) => {
-                    TaskResult::Retry(clock.now_utc() + only_after, msg)
+                    if only_after == Duration::ZERO {
+                        TaskResult::Retry(clock.now_utc() + retry_on_error_delay, msg)
+                    } else {
+                        TaskResult::Retry(clock.now_utc() + only_after, msg)
+                    }
                 }
 
                 Err(ExecError::RetryAfterTimestamp(only_after, msg)) => {
@@ -224,6 +242,7 @@ where
                 exec.clone(),
                 opts.max_runs,
                 opts.max_runtime,
+                opts.retry_delay,
                 db.clone(),
                 clock.clone(),
             ));

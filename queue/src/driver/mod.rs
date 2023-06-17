@@ -53,14 +53,13 @@ mod testutils {
         /// Task to enqueue, if any.
         pub(super) chain: Option<Box<MockTask>>,
 
-        /// Number of times to defer a task for an extra (fake) minute before allowing it
-        /// to return `result`.
-        pub(super) defer: u16,
+        /// Number of times to defer a task and the amount of time by which to defer it.
+        pub(super) defer: Option<(u16, Duration)>,
     }
 
     impl Default for MockTask {
         fn default() -> Self {
-            Self { id: u16::MAX, result: Ok(None), crash: 0, chain: None, defer: 0 }
+            Self { id: u16::MAX, result: Ok(None), crash: 0, chain: None, defer: None }
         }
     }
 
@@ -100,19 +99,25 @@ mod testutils {
             client.enqueue(&chain).await.unwrap();
         }
 
-        if state.deferred < task.defer {
-            state.deferred += 1;
-            // Flip-flop between the two possible retry return values so that we exercise both.
-            if state.deferred % 2 == 0 {
-                return Err(ExecError::RetryAfterDelay(
-                    Duration::from_secs(60),
-                    format!("Deferred {} times so far", state.deferred),
-                ));
-            } else {
-                return Err(ExecError::RetryAfterTimestamp(
-                    clock.now_utc() + Duration::from_secs(60),
-                    format!("Deferred {} times so far", state.deferred),
-                ));
+        if let Some((max_deferred, delay)) = task.defer {
+            if state.deferred < max_deferred {
+                state.deferred += 1;
+                // Flip-flop between the two possible retry return values so that we exercise both.
+                if state.deferred % 2 == 1 {
+                    return Err(ExecError::RetryAfterDelay(
+                        delay,
+                        format!("Deferred {} times so far", state.deferred),
+                    ));
+                } else {
+                    assert!(
+                        delay > Duration::ZERO,
+                        "Zero delay can only be exercised with max_deferred == 1"
+                    );
+                    return Err(ExecError::RetryAfterTimestamp(
+                        clock.now_utc() + delay,
+                        format!("Deferred {} times so far", state.deferred),
+                    ));
+                }
             }
         }
 
@@ -470,7 +475,12 @@ mod tests {
         let opts = WorkerOptions { max_runs: 5, ..Default::default() };
         let mut context = TestContext::setup_one_connected(opts.clone()).await;
 
-        let task = MockTask { id: 123, defer: u16::from(opts.max_runs - 2), ..Default::default() };
+        let delay = Duration::from_secs(60);
+        let task = MockTask {
+            id: 123,
+            defer: Some((u16::from(opts.max_runs - 2), delay)),
+            ..Default::default()
+        };
         let id = context.client.enqueue(&task).await.unwrap();
 
         // Wait until we know the task has asked to retry the `defer` times we configured.
@@ -480,18 +490,18 @@ mod tests {
                 assert!(state.len() <= 1);
                 if let Some(state) = state.get(&123) {
                     assert!(!state.done);
-                    if state.deferred == task.defer {
+                    if state.deferred == task.defer.unwrap().0 {
                         break;
                     }
                 }
             }
-            context.advance_clock(Duration::from_secs(60));
+            context.advance_clock(delay);
             context.notify_workers(1).await;
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
         assert_eq!(None, context.client.poll(id).await.unwrap());
 
-        context.advance_clock(Duration::from_secs(120));
+        context.advance_clock(delay * 2);
 
         // The task will complete now that it is not in the deferred state any more, so wait for it.
         let result = context.client.wait(id, Duration::from_millis(1)).await.unwrap();
@@ -505,14 +515,56 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_task_retry_result_zero_delay() {
+        let opts = WorkerOptions { retry_delay: Duration::from_secs(300), ..Default::default() };
+        let mut context = TestContext::setup_one_connected(opts.clone()).await;
+
+        let task = MockTask { id: 123, defer: Some((1, Duration::ZERO)), ..Default::default() };
+        let id = context.client.enqueue(&task).await.unwrap();
+
+        // Make sure the task does not run if not enough time has passed.
+        context.advance_clock(opts.retry_delay - Duration::from_secs(1));
+        for _ in 0..10 {
+            {
+                let state = context.state.lock().await;
+                assert!(state.len() <= 1);
+                if state.len() == 1 {
+                    let state = state.get(&123).unwrap();
+                    assert!(!state.done);
+                }
+            }
+            context.notify_workers(1).await;
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        assert_eq!(None, context.client.poll(id).await.unwrap());
+
+        context.advance_clock(Duration::from_secs(1));
+
+        // The task will complete now that it is not in the deferred state any more, so wait for it.
+        let result = context.client.wait(id, Duration::from_millis(1)).await.unwrap();
+        assert_eq!(TaskResult::Done(None), result);
+
+        let state = context.state.lock().await;
+        assert_eq!(1, state.len());
+        let state = state.get(&123).unwrap();
+        assert_eq!(1, state.deferred);
+        assert!(state.done);
+    }
+
+    #[tokio::test]
     async fn test_task_retry_result_exceeds_max_runs() {
         let opts = WorkerOptions { max_runs: 5, ..Default::default() };
         let mut context = TestContext::setup_one_connected(opts.clone()).await;
 
-        let task = MockTask { id: 123, defer: u16::from(opts.max_runs - 1), ..Default::default() };
+        let delay = Duration::from_secs(60);
+        let task = MockTask {
+            id: 123,
+            defer: Some((u16::from(opts.max_runs - 1), delay)),
+            ..Default::default()
+        };
         let id = context.client.enqueue(&task).await.unwrap();
 
-        context.advance_clock(Duration::from_secs(60 * u64::from(opts.max_runs)));
+        context.advance_clock(delay * u32::from(opts.max_runs));
 
         // The task will complete now that it is not in the deferred state any more, so wait for it.
         let result = context.client.wait(id, Duration::from_millis(1)).await.unwrap();
