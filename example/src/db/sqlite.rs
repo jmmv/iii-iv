@@ -15,7 +15,7 @@
 
 //! Implementation of the database abstraction using SQLite.
 
-use crate::db::Tx;
+use crate::db::KVStoreTx;
 use crate::model::*;
 use futures::lock::Mutex;
 use futures::TryStreamExt;
@@ -28,19 +28,19 @@ use std::collections::BTreeSet;
 const SCHEMA: &str = include_str!("sqlite.sql");
 
 /// A transaction backed by a SQLite database.
-pub(crate) struct SqliteTx {
+pub(crate) struct SqliteKVStoreTx {
     /// Inner transaction type to obtain access to the raw sqlx transaction.
     tx: Mutex<Transaction<'static, Sqlite>>,
 }
 
-impl From<Mutex<Transaction<'static, Sqlite>>> for SqliteTx {
+impl From<Mutex<Transaction<'static, Sqlite>>> for SqliteKVStoreTx {
     fn from(tx: Mutex<Transaction<'static, Sqlite>>) -> Self {
         Self { tx }
     }
 }
 
 #[async_trait::async_trait]
-impl BareTx for SqliteTx {
+impl BareTx for SqliteKVStoreTx {
     async fn commit(mut self) -> DbResult<()> {
         let tx = self.tx.into_inner();
         tx.commit().await.map_err(map_sqlx_error)
@@ -52,7 +52,7 @@ impl BareTx for SqliteTx {
 }
 
 #[async_trait::async_trait]
-impl Tx for SqliteTx {
+impl KVStoreTx for SqliteKVStoreTx {
     async fn delete_key(&mut self, key: &Key) -> DbResult<()> {
         let mut tx = self.tx.lock().await;
 
@@ -147,5 +147,5 @@ mod tests {
     use super::*;
     use crate::db::tests::generate_db_tests;
 
-    generate_db_tests!(iii_iv_sqlite::testutils::setup::<SqliteTx>().await);
+    generate_db_tests!(iii_iv_sqlite::testutils::setup::<SqliteKVStoreTx>().await);
 }

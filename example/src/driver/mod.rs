@@ -15,7 +15,7 @@
 
 //! Business logic for the service.
 
-use crate::db::Tx;
+use crate::db::KVStoreTx;
 use iii_iv_core::db::Db;
 
 mod key;
@@ -33,7 +33,7 @@ mod testutils;
 pub(crate) struct Driver<D>
 where
     D: Db + Clone + Send + Sync + 'static,
-    D::Tx: Tx + From<D::SqlxTx> + Send + Sync + 'static,
+    D::Tx: KVStoreTx + From<D::SqlxTx> + Send + Sync + 'static,
 {
     /// The database that the driver uses for persistence.
     db: D,
@@ -42,7 +42,7 @@ where
 impl<D> Driver<D>
 where
     D: Db + Clone + Send + Sync + 'static,
-    D::Tx: Tx + From<D::SqlxTx> + Send + Sync + 'static,
+    D::Tx: KVStoreTx + From<D::SqlxTx> + Send + Sync + 'static,
 {
     /// Creates a new driver backed by the given injected components.
     pub(crate) fn new(db: D) -> Self {

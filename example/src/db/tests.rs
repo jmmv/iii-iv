@@ -15,14 +15,14 @@
 
 //! Database tests shared by all implementations.
 
-use crate::db::Tx;
+use crate::db::KVStoreTx;
 use crate::model::*;
 use iii_iv_core::db::{BareTx, Db, DbError};
 
 pub(crate) async fn test_sequence_one<D>(db: D)
 where
     D: Db,
-    D::Tx: Tx,
+    D::Tx: KVStoreTx,
 {
     let key = Key::new("the-key".to_owned());
 
@@ -52,7 +52,7 @@ where
 pub(crate) async fn test_multiple_keys<D>(db: D)
 where
     D: Db,
-    D::Tx: Tx,
+    D::Tx: KVStoreTx,
 {
     let key1 = Key::new("key 1".to_owned());
     let key2 = Key::new("key 2".to_owned());

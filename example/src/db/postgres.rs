@@ -15,7 +15,7 @@
 
 //! Implementation of the database abstraction using PostgreSQL.
 
-use crate::db::Tx;
+use crate::db::KVStoreTx;
 use crate::model::*;
 use futures::TryStreamExt;
 use iii_iv_core::db::{BareTx, DbError, DbResult};
@@ -27,19 +27,19 @@ use std::collections::BTreeSet;
 const SCHEMA: &str = include_str!("postgres.sql");
 
 /// A transaction backed by a PostgreSQL database.
-pub(crate) struct PostgresTx {
+pub(crate) struct PostgresKVStoreTx {
     /// Inner transaction type to obtain access to the raw sqlx transaction.
     tx: Transaction<'static, Postgres>,
 }
 
-impl From<Transaction<'static, Postgres>> for PostgresTx {
+impl From<Transaction<'static, Postgres>> for PostgresKVStoreTx {
     fn from(tx: Transaction<'static, Postgres>) -> Self {
         Self { tx }
     }
 }
 
 #[async_trait::async_trait]
-impl BareTx for PostgresTx {
+impl BareTx for PostgresKVStoreTx {
     async fn commit(mut self) -> DbResult<()> {
         self.tx.commit().await.map_err(map_sqlx_error)
     }
@@ -50,7 +50,7 @@ impl BareTx for PostgresTx {
 }
 
 #[async_trait::async_trait]
-impl Tx for PostgresTx {
+impl KVStoreTx for PostgresKVStoreTx {
     async fn delete_key(&mut self, key: &Key) -> DbResult<()> {
         let query_str = "DELETE FROM store WHERE key = $1";
         let done = sqlx::query(query_str)
@@ -133,6 +133,6 @@ mod tests {
     use crate::db::tests::generate_db_tests;
 
     generate_db_tests!(
-        iii_iv_postgres::testutils::setup::<PostgresTx>().await,
+        iii_iv_postgres::testutils::setup::<PostgresKVStoreTx>().await,
         #[ignore = "Requires environment configuration and is expensive"]);
 }

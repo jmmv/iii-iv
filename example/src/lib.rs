@@ -25,7 +25,7 @@ use std::error::Error;
 use std::net::SocketAddr;
 
 pub mod db;
-use db::postgres::PostgresTx;
+use db::postgres::PostgresKVStoreTx;
 pub mod driver;
 use driver::Driver;
 pub(crate) mod model;
@@ -41,7 +41,7 @@ pub async fn serve(
     db_opts: PostgresOptions,
 ) -> Result<(), Box<dyn Error>> {
     let pool = PostgresPool::connect(db_opts)?;
-    let db = PostgresDb::<PostgresTx>::attach(pool).await?;
+    let db = PostgresDb::<PostgresKVStoreTx>::attach(pool).await?;
     let driver = Driver::new(db);
     let app = app(driver);
 

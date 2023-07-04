@@ -15,28 +15,28 @@
 
 //! Test utilities for the business layer.
 
-use crate::db::sqlite::SqliteTx;
+use crate::db::sqlite::SqliteKVStoreTx;
 use crate::driver::Driver;
 use iii_iv_sqlite::{self, SqliteDb};
 
 pub(crate) struct TestContext {
-    db: SqliteDb<SqliteTx>,
-    driver: Driver<SqliteDb<SqliteTx>>,
+    db: SqliteDb<SqliteKVStoreTx>,
+    driver: Driver<SqliteDb<SqliteKVStoreTx>>,
 }
 
 impl TestContext {
     pub(crate) async fn setup() -> Self {
         let pool = iii_iv_sqlite::connect(":memory:").await.unwrap();
-        let db = SqliteDb::<SqliteTx>::attach(pool).await.unwrap();
+        let db = SqliteDb::<SqliteKVStoreTx>::attach(pool).await.unwrap();
         let driver = Driver::new(db.clone());
         Self { db, driver }
     }
 
-    pub(crate) fn db(&self) -> &SqliteDb<SqliteTx> {
+    pub(crate) fn db(&self) -> &SqliteDb<SqliteKVStoreTx> {
         &self.db
     }
 
-    pub(crate) fn driver(&self) -> Driver<SqliteDb<SqliteTx>> {
+    pub(crate) fn driver(&self) -> Driver<SqliteDb<SqliteKVStoreTx>> {
         self.driver.clone()
     }
 }
