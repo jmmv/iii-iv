@@ -15,7 +15,7 @@
 
 //! Operations on a collection of keys.
 
-use crate::db::Tx;
+use crate::db::KVStoreTx;
 use crate::driver::Driver;
 use crate::model::*;
 use iii_iv_core::db::{BareTx, Db};
@@ -25,7 +25,7 @@ use std::collections::BTreeSet;
 impl<D> Driver<D>
 where
     D: Db + Clone + Send + Sync + 'static,
-    D::Tx: Tx + From<D::SqlxTx> + Send + Sync + 'static,
+    D::Tx: KVStoreTx + From<D::SqlxTx> + Send + Sync + 'static,
 {
     /// Gets a list of all existing keys.
     pub(crate) async fn get_keys(self) -> DriverResult<BTreeSet<Key>> {

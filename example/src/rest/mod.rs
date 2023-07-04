@@ -15,7 +15,7 @@
 
 //! Entry point to the REST server.
 
-use crate::db::Tx;
+use crate::db::KVStoreTx;
 use crate::driver::Driver;
 use axum::Router;
 use iii_iv_core::db::Db;
@@ -31,7 +31,7 @@ mod testutils;
 pub(crate) fn app<D>(driver: Driver<D>) -> Router
 where
     D: Db + Clone + Send + Sync + 'static,
-    D::Tx: Tx + From<D::SqlxTx> + Send + Sync + 'static,
+    D::Tx: KVStoreTx + From<D::SqlxTx> + Send + Sync + 'static,
 {
     use axum::routing::get;
     Router::new()

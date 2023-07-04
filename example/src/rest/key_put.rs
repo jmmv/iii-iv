@@ -15,7 +15,7 @@
 
 //! API to create or update a key.
 
-use crate::db::Tx;
+use crate::db::KVStoreTx;
 use crate::driver::Driver;
 use crate::model::{Key, Version};
 use axum::extract::{Path, State};
@@ -32,7 +32,7 @@ pub(crate) async fn handler<D>(
 ) -> Result<(http::StatusCode, impl IntoResponse), RestError>
 where
     D: Db + Clone + Send + Sync + 'static,
-    D::Tx: Tx + From<D::SqlxTx> + Send + Sync + 'static,
+    D::Tx: KVStoreTx + From<D::SqlxTx> + Send + Sync + 'static,
 {
     let value = driver.set_key(&key, body).await?;
     let code = if *value.version() == Version::initial() {

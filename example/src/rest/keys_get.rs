@@ -15,7 +15,7 @@
 
 //! API to get all existing keys.
 
-use crate::db::Tx;
+use crate::db::KVStoreTx;
 use crate::driver::Driver;
 use axum::extract::State;
 use axum::response::IntoResponse;
@@ -30,7 +30,7 @@ pub(crate) async fn handler<D>(
 ) -> Result<impl IntoResponse, RestError>
 where
     D: Db + Clone + Send + Sync + 'static,
-    D::Tx: Tx + From<D::SqlxTx> + Send + Sync + 'static,
+    D::Tx: KVStoreTx + From<D::SqlxTx> + Send + Sync + 'static,
 {
     let keys = driver.get_keys().await?;
 

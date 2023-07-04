@@ -15,8 +15,8 @@
 
 //! Test utilities for the REST API.
 
-use crate::db::sqlite::SqliteTx;
-use crate::db::Tx;
+use crate::db::sqlite::SqliteKVStoreTx;
+use crate::db::KVStoreTx;
 use crate::driver::Driver;
 use crate::model::*;
 use crate::rest::app;
@@ -25,14 +25,14 @@ use iii_iv_core::db::{BareTx, Db};
 use iii_iv_sqlite::{self, SqliteDb};
 
 pub(crate) struct TestContext {
-    db: SqliteDb<SqliteTx>,
+    db: SqliteDb<SqliteKVStoreTx>,
     app: Router,
 }
 
 impl TestContext {
     pub(crate) async fn setup() -> Self {
         let pool = iii_iv_sqlite::connect(":memory:").await.unwrap();
-        let db = SqliteDb::<SqliteTx>::attach(pool).await.unwrap();
+        let db = SqliteDb::<SqliteKVStoreTx>::attach(pool).await.unwrap();
         let driver = Driver::new(db.clone());
         let app = app(driver);
         Self { db, app }

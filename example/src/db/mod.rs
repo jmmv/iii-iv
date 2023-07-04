@@ -26,7 +26,7 @@ pub(crate) mod tests;
 
 /// A transaction with high-level operations that deal with our types.
 #[async_trait::async_trait]
-pub(crate) trait Tx: BareTx {
+pub(crate) trait KVStoreTx: BareTx {
     /// Gets a list of all existing keys.
     async fn get_keys(&mut self) -> DbResult<BTreeSet<Key>>;
 
