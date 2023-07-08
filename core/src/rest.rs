@@ -264,7 +264,7 @@ pub mod testutils {
         {
             let value = format!(
                 "Basic {}",
-                general_purpose::STANDARD_NO_PAD.encode(format!("{}:{}", username, password))
+                general_purpose::STANDARD.encode(format!("{}:{}", username, password))
             );
             self.builder = self.builder.header(http::header::AUTHORIZATION, value);
             self
