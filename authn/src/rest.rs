@@ -21,23 +21,29 @@ fn get_authorization_header<'a>(
     let authz = match get_unique_header(headers, "Authorization") {
         Ok(Some(value)) => value,
         Ok(None) => {
-            return Err(RestError::Unauthorized(
-                exp_scheme,
-                exp_realm,
-                "Missing Authorization header".to_owned(),
-            ))
+            return Err(RestError::Unauthorized {
+                scheme: exp_scheme,
+                realm: exp_realm,
+                message: "Missing Authorization header".to_owned(),
+            })
         }
-        Err(e) => return Err(RestError::Unauthorized(exp_scheme, exp_realm, e.to_string())),
+        Err(e) => {
+            return Err(RestError::Unauthorized {
+                scheme: exp_scheme,
+                realm: exp_realm,
+                message: e.to_string(),
+            })
+        }
     };
 
     let authz = match authz.to_str() {
         Ok(value) => value,
         Err(e) => {
-            return Err(RestError::Unauthorized(
-                exp_scheme,
-                exp_realm,
-                format!("Bad encoding in Authorization header: {}", e),
-            ))
+            return Err(RestError::Unauthorized {
+                scheme: exp_scheme,
+                realm: exp_realm,
+                message: format!("Bad encoding in Authorization header: {}", e),
+            })
         }
     };
 
@@ -45,31 +51,31 @@ fn get_authorization_header<'a>(
     let scheme = match fields.next() {
         Some(s) if !s.is_empty() => s,
         _ => {
-            return Err(RestError::Unauthorized(
-                exp_scheme,
-                exp_realm,
-                "Bad Authorization header: missing scheme".to_owned(),
-            ))
+            return Err(RestError::Unauthorized {
+                scheme: exp_scheme,
+                realm: exp_realm,
+                message: "Bad Authorization header: missing scheme".to_owned(),
+            })
         }
     };
     let payload = match fields.next() {
         Some(s) => s,
         None => {
-            return Err(RestError::Unauthorized(
-                exp_scheme,
-                exp_realm,
-                "Bad Authorization header: missing payload".to_owned(),
-            ))
+            return Err(RestError::Unauthorized {
+                scheme: exp_scheme,
+                realm: exp_realm,
+                message: "Bad Authorization header: missing payload".to_owned(),
+            })
         }
     };
     assert!(fields.next().is_none());
 
     if scheme != exp_scheme {
-        return Err(RestError::Unauthorized(
-            exp_scheme,
-            exp_realm,
-            "Unsupported scheme".to_owned(),
-        ));
+        return Err(RestError::Unauthorized {
+            scheme: exp_scheme,
+            realm: exp_realm,
+            message: "Unsupported scheme".to_owned(),
+        });
     }
 
     Ok(payload)
@@ -85,11 +91,11 @@ pub fn get_basic_auth(
     let payload = match general_purpose::STANDARD.decode(base64_payload) {
         Ok(bytes) => bytes,
         Err(e) => {
-            return Err(RestError::Unauthorized(
-                "Basic",
-                exp_realm,
-                format!("Bad base64 encoding in payload: {}", e),
-            ))
+            return Err(RestError::Unauthorized {
+                scheme: "Basic",
+                realm: exp_realm,
+                message: format!("Bad base64 encoding in payload: {}", e),
+            })
         }
     };
 
@@ -98,17 +104,23 @@ pub fn get_basic_auth(
     let payload = match String::from_utf8(payload) {
         Ok(s) => s,
         Err(e) => {
-            return Err(RestError::Unauthorized(
-                "Basic",
-                exp_realm,
-                format!("Bad UTF-8 encoding in payload: {}", e),
-            ))
+            return Err(RestError::Unauthorized {
+                scheme: "Basic",
+                realm: exp_realm,
+                message: format!("Bad UTF-8 encoding in payload: {}", e),
+            })
         }
     };
 
     let split = match payload.chars().position(|x| x == ':') {
         Some(index) => index,
-        None => return Err(RestError::Unauthorized("Basic", exp_realm, "Bad content".to_owned())),
+        None => {
+            return Err(RestError::Unauthorized {
+                scheme: "Basic",
+                realm: exp_realm,
+                message: "Bad content".to_owned(),
+            })
+        }
     };
 
     let (username, password) = payload.split_at(split);
@@ -122,7 +134,11 @@ pub fn has_bearer_auth(headers: &HeaderMap, exp_realm: &'static str) -> RestResu
     match get_unique_header(headers, "Authorization") {
         Ok(Some(_)) => Ok(true),
         Ok(None) => Ok(false),
-        Err(e) => Err(RestError::Unauthorized("Bearer", exp_realm, e.to_string())),
+        Err(e) => Err(RestError::Unauthorized {
+            scheme: "Bearer",
+            realm: exp_realm,
+            message: e.to_string(),
+        }),
     }
 
     // TODO(jmmv): This isn't completely correct because we don't validate that the header contains
@@ -134,7 +150,11 @@ pub fn get_bearer_auth(headers: &HeaderMap, exp_realm: &'static str) -> RestResu
     let payload = get_authorization_header(headers, "Bearer", exp_realm)?;
     match AccessToken::new(payload) {
         Ok(token) => Ok(token),
-        Err(e) => Err(RestError::Unauthorized("Bearer", exp_realm, e.to_string())),
+        Err(e) => Err(RestError::Unauthorized {
+            scheme: "Bearer",
+            realm: exp_realm,
+            message: e.to_string(),
+        }),
     }
 }
 
@@ -164,7 +184,7 @@ mod tests {
             headers.append("Authorization", HeaderValue::from_bytes(value).unwrap());
         }
         match get_basic_auth(&headers, "the-realm") {
-            Err(RestError::Unauthorized(scheme, realm, message)) => {
+            Err(ref e @ RestError::Unauthorized { scheme, realm, ref message }) => {
                 assert_eq!("Basic", scheme);
                 assert_eq!("the-realm", realm);
                 assert!(
@@ -173,6 +193,10 @@ mod tests {
                     message,
                     exp_error
                 );
+
+                // Make sure that the formatted error contains the most descriptive part of the
+                // problem description.
+                assert!(e.to_string().contains(exp_error));
             }
             e => panic!("{:?}", e),
         }
@@ -262,7 +286,7 @@ mod tests {
             headers.append("Authorization", HeaderValue::from_bytes(value).unwrap());
         }
         match get_bearer_auth(&headers, "the-realm") {
-            Err(RestError::Unauthorized(scheme, realm, message)) => {
+            Err(ref e @ RestError::Unauthorized { scheme, realm, ref message }) => {
                 assert_eq!("Bearer", scheme);
                 assert_eq!("the-realm", realm);
                 assert!(
@@ -271,6 +295,10 @@ mod tests {
                     message,
                     exp_error
                 );
+
+                // Make sure that the formatted error contains the most descriptive part of the
+                // problem description.
+                assert!(e.to_string().contains(exp_error));
             }
             e => panic!("{:?}", e),
         }

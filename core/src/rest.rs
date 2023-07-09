@@ -75,10 +75,18 @@ pub enum RestError {
     #[error("Content should be empty")]
     PayloadNotEmpty,
 
-    /// Indicates an authentication problem.  The first string is the expected scheme and the second
-    /// string is the authorization realm.
-    #[error("Unauthorized: {0}")]
-    Unauthorized(&'static str, &'static str, String),
+    /// Indicates an authentication problem.
+    #[error("Unauthorized: {message}")]
+    Unauthorized {
+        /// Expected authorization scheme.
+        scheme: &'static str,
+
+        /// Expected authorization realm.
+        realm: &'static str,
+
+        /// Descriptive message explaining the nature of the problem.
+        message: String,
+    },
 }
 
 impl From<DriverError> for RestError {
@@ -139,11 +147,11 @@ impl IntoResponse for RestError {
             RestError::PayloadNotEmpty => {
                 status = http::StatusCode::PAYLOAD_TOO_LARGE;
             }
-            RestError::Unauthorized(exp_scheme, exp_realm, _) => {
+            RestError::Unauthorized { scheme, realm, message: _ } => {
                 status = http::StatusCode::UNAUTHORIZED;
                 headers.insert(
                     "WWW-Authenticate",
-                    format!("{} realm=\"{}\"", exp_scheme, exp_realm).parse().unwrap(),
+                    format!("{} realm=\"{}\"", scheme, realm).parse().unwrap(),
                 );
             }
         };
