@@ -141,12 +141,19 @@ impl TestContext {
 #[must_use]
 pub(crate) struct TestContextBuilder {
     whoami: String,
+    activated_template: Option<&'static str>,
 }
 
 impl TestContextBuilder {
     /// Initializes a new builder with the default test settings.
     pub(crate) fn new() -> Self {
-        Self { whoami: "whoami".to_owned() }
+        Self { whoami: "whoami".to_owned(), activated_template: None }
+    }
+
+    /// Overrides the default activated template.
+    pub(crate) fn with_activated_template(mut self, template: &'static str) -> Self {
+        self.activated_template = Some(template);
+        self
     }
 
     /// Overrides the default test user's identifier.  The identifier needn't be valid.
@@ -171,7 +178,7 @@ impl TestContextBuilder {
             "the-realm",
             AuthnOptions::default(),
         );
-        let app = Router::new().nest("/api/test", app(driver.clone()));
+        let app = Router::new().nest("/api/test", app(driver.clone(), self.activated_template));
 
         let whoami_password = Password::new(format!("random-{}", rand::random::<u32>())).unwrap();
 

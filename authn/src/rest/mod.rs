@@ -29,14 +29,24 @@ mod testutils;
 pub use httputils::{get_basic_auth, get_bearer_auth, has_bearer_auth};
 
 /// Creates the router for the authentication endpoints.
-pub fn app(driver: AuthnDriver) -> Router {
+///
+/// The `driver` is a configured instance of the `AuthnDriver` to handle accounts.
+///
+/// The `activated_template` HTML template is used when confirming the successful activation of
+/// a new account.
+pub fn app(driver: AuthnDriver, activated_template: Option<&'static str>) -> Router {
     use axum::routing::{get, post};
+
+    let activate_router = Router::new()
+        .route("/users/:user/activate", get(api_activate_get::handler))
+        .with_state((driver.clone(), activated_template));
+
     Router::new()
         .route("/login", post(api_login_post::handler))
-        .route("/users/:user/activate", get(api_activate_get::handler))
         .route("/users/:user/logout", post(api_logout_post::handler))
         .route("/signup", post(api_signup_post::handler))
         .with_state(driver)
+        .merge(activate_router)
 }
 
 #[cfg(test)]
