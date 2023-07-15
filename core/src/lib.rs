@@ -57,3 +57,4 @@ pub mod driver;
 pub mod env;
 pub mod model;
 pub mod rest;
+pub mod template;
