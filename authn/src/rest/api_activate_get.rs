@@ -23,11 +23,24 @@ use iii_iv_core::clocks::Clock;
 use iii_iv_core::db::Db;
 use iii_iv_core::model::Username;
 use iii_iv_core::rest::{EmptyBody, RestError};
+use iii_iv_core::template;
 use iii_iv_lettre::SmtpMailer;
 use serde::Deserialize;
 #[cfg(test)]
 use serde::Serialize;
-use std::fmt::Write;
+
+/// Default HTML to return when an account is successfully activated.
+const DEFAULT_ACTIVATED_TEMPLATE: &str = r#"<html>
+<head><title>Account activated</title></head>
+
+<body>
+<h1>Success!</h1>
+
+<p>%username%, your account has been successfully activated.</p>
+
+</body>
+</html>
+"#;
 
 /// Message sent to the server to activate a user account.
 #[derive(Default, Deserialize)]
@@ -38,8 +51,9 @@ pub struct ActivateRequest {
 }
 
 /// GET handler for this API.
+#[allow(clippy::type_complexity)]
 pub(crate) async fn handler<C, D, M>(
-    State(driver): State<AuthnDriver<C, D, M>>,
+    State((driver, activated_template)): State<(AuthnDriver<C, D, M>, Option<&'static str>)>,
     Path(user): Path<String>,
     Query(request): Query<ActivateRequest>,
     _: EmptyBody,
@@ -54,16 +68,10 @@ where
 
     driver.activate(user.clone(), request.code).await?;
 
-    // TODO(jmmv): Parameterize this so that clients can supply their own reponse
-    // to activation requests.
-    let mut body = String::new();
-    body += "<html><head><title>Account activated</title></head><body>";
-
-    body += "<h1>Success!</h1>";
-
-    write!(&mut body, "<p>{}, your account has been successfully activated.</p>", user.as_str())?;
-
-    body += "</body></html>";
+    let body = template::apply(
+        activated_template.unwrap_or(DEFAULT_ACTIVATED_TEMPLATE),
+        &[("username", user.as_str())],
+    );
 
     Ok(Html(body))
 }
@@ -101,6 +109,25 @@ mod tests {
 
         assert!(body.contains("Success"));
         assert!(body.contains(&format!("{}, your", context.whoami().as_str())));
+
+        assert!(context.user_is_active(user.username()).await);
+    }
+
+    #[tokio::test]
+    async fn test_ok_custom_template() {
+        let template = "All good, %username%!";
+        let mut context = TestContextBuilder::new().with_activated_template(template).build().await;
+
+        let user = context.create_inactive_whoami_user(8991).await;
+
+        let request = ActivateRequest { code: 8991 };
+        let body = OneShotBuilder::new(context.app(), route(user.username().as_str(), request))
+            .send_empty()
+            .await
+            .take_body_as_text()
+            .await;
+
+        assert_eq!(format!("All good, {}!", context.whoami().as_str()), body);
 
         assert!(context.user_is_active(user.username()).await);
     }
