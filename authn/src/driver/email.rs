@@ -30,7 +30,7 @@ pub(super) async fn send_activation_code(
     base_urls: &BaseUrls,
     username: &Username,
     email: &EmailAddress,
-    code: u32,
+    code: u64,
 ) -> DriverResult<()> {
     // TODO(jmmv): This doesn't really belong here because it's leaking details about the REST
     // router into the driver.
@@ -85,7 +85,7 @@ pub(crate) mod testutils {
         mailer: &RecorderSmtpMailer,
         to: &EmailAddress,
         exp_username: &Username,
-    ) -> Option<u32> {
+    ) -> Option<u64> {
         let activation_url = get_latest_activation_url(mailer, to, exp_username).await;
         activation_url.map(|url| {
             url.as_str()
