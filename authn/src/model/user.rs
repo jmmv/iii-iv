@@ -33,7 +33,7 @@ pub struct User {
     email: EmailAddress,
 
     /// Token required to activate the user if not active yet.
-    activation_code: Option<u32>,
+    activation_code: Option<u64>,
 
     /// Time of last login of the user.  None if the user has never logged in.
     last_login: Option<OffsetDateTime>,
@@ -46,7 +46,7 @@ impl User {
     }
 
     /// Modifies a user to set or clear its activation code.
-    pub(crate) fn with_activation_code(mut self, code: Option<u32>) -> Self {
+    pub(crate) fn with_activation_code(mut self, code: Option<u64>) -> Self {
         self.activation_code = code;
         self
     }
@@ -79,7 +79,7 @@ impl User {
     }
 
     /// Gets the user's activation code.
-    pub fn activation_code(&self) -> Option<u32> {
+    pub fn activation_code(&self) -> Option<u64> {
         self.activation_code
     }
 

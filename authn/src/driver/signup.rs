@@ -22,8 +22,6 @@ use crate::model::Password;
 use iii_iv_core::db::DbError;
 use iii_iv_core::driver::{DriverError, DriverResult};
 use iii_iv_core::model::{EmailAddress, Username};
-use rand::Rng;
-use std::convert::TryFrom;
 
 /// Verifies that a password is sufficiently complex.
 // TODO(jmmv): This should be hidden via a trait and the user of this crate should be able to
@@ -50,19 +48,6 @@ fn password_validator(s: &str) -> Option<&'static str> {
     None
 }
 
-/// Generates a new activation code.
-// TODO(jmmv): Simplify by allowing any value and possibly widen to 64 bits.  This was done
-// because we want codes to be positive when displayed (thus they need to be unsigned) but
-// the database can only store signed integers.  The current database code enforces that the
-// codes must fit in an `i32`... but we needn't do that: we can simply accept negative values
-// for storage and get rid of all that complexity.
-fn new_activation_code() -> u32 {
-    let mut rng = rand::thread_rng();
-    let code = rng.gen_range(10_000_000..100_000_000);
-    let _unused = i32::try_from(code).expect("Generated codes must fit in i32");
-    code
-}
-
 impl AuthnDriver {
     /// Creates a new account for a user.
     pub(crate) async fn signup(
@@ -85,7 +70,7 @@ impl AuthnDriver {
             Err(e) => return Err(e.into()),
         };
 
-        let activation_code = new_activation_code();
+        let activation_code = rand::random::<u64>();
         let user = db::set_user_activation_code(tx.ex(), user, Some(activation_code)).await?;
 
         // TODO(jmmv): This should leverage the queue somehow, but we need to figure out how that
@@ -109,14 +94,6 @@ impl AuthnDriver {
 mod tests {
     use super::*;
     use crate::driver::testutils::*;
-
-    #[test]
-    fn test_new_activation_code_length() {
-        for _ in 0..1000 {
-            let code = new_activation_code();
-            assert_eq!(8, format!("{}", code).len());
-        }
-    }
 
     #[tokio::test]
     async fn test_signup_ok() {

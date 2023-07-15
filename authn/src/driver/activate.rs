@@ -22,7 +22,7 @@ use iii_iv_core::model::Username;
 
 impl AuthnDriver {
     /// Marks a used as active based on a confirmation code.
-    pub(crate) async fn activate(self, username: Username, code: u32) -> DriverResult<()> {
+    pub(crate) async fn activate(self, username: Username, code: u64) -> DriverResult<()> {
         let mut tx = self.db.begin().await?;
 
         let user = db::get_user_by_username(tx.ex(), username).await?;
@@ -50,7 +50,7 @@ mod tests {
     use iii_iv_core::model::EmailAddress;
 
     /// Creates a test user with an optional activation `code` and returns its username.
-    async fn create_test_user(ex: &mut Executor, code: Option<u32>) -> Username {
+    async fn create_test_user(ex: &mut Executor, code: Option<u64>) -> Username {
         let username = Username::from("some-username");
 
         let user = db::create_user(ex, username.clone(), None, EmailAddress::from("a@example.com"))

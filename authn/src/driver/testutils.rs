@@ -86,7 +86,7 @@ impl TestContext {
         &self,
         email: &EmailAddress,
         exp_username: &Username,
-    ) -> Option<u32> {
+    ) -> Option<u64> {
         get_latest_activation_code(&self.mailer, email, exp_username).await
     }
 }

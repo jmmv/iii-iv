@@ -48,25 +48,6 @@ pub async fn init_schema(ex: &mut Executor) -> DbResult<()> {
     }
 }
 
-/// Converts an `i32` extracted from the database to an `u32`.
-fn i32_to_u32(field: &'static str, signed: i32) -> DbResult<u32> {
-    if signed < 0 {
-        return Err(DbError::BackendError(format!("{} ({}) cannot be negative", field, signed)));
-    }
-    Ok(signed as u32)
-}
-
-/// Converts an `u32` from the in-memory model to an `i32` suitable for storage.
-fn u32_to_i32(field: &'static str, unsigned: u32) -> DbResult<i32> {
-    if unsigned > i32::MAX as u32 {
-        return Err(DbError::BackendError(format!(
-            "{} ({}) is too large for i32",
-            field, unsigned
-        )));
-    }
-    Ok(unsigned as i32)
-}
-
 #[cfg(feature = "postgres")]
 impl TryFrom<PgRow> for Session {
     type Error = DbError;
@@ -92,18 +73,13 @@ impl TryFrom<PgRow> for User {
         let username: String = row.try_get("username").map_err(postgres::map_sqlx_error)?;
         let password: Option<String> = row.try_get("password").map_err(postgres::map_sqlx_error)?;
         let email: String = row.try_get("email").map_err(postgres::map_sqlx_error)?;
-        let activation_code: Option<i32> =
+        let activation_code: Option<i64> =
             row.try_get("activation_code").map_err(postgres::map_sqlx_error)?;
         let last_login: Option<OffsetDateTime> =
             row.try_get("last_login").map_err(postgres::map_sqlx_error)?;
 
-        let activation_code = match activation_code {
-            Some(code) => Some(i32_to_u32("activation_code", code)?),
-            None => None,
-        };
-
         let mut user = User::new(Username::new(username)?, EmailAddress::new(email)?)
-            .with_activation_code(activation_code);
+            .with_activation_code(activation_code.map(|i| i as u64));
         if let Some(password) = password {
             user = user.with_password(HashedPassword::new(password));
         }
@@ -142,7 +118,7 @@ impl TryFrom<SqliteRow> for User {
         let username: String = row.try_get("username").map_err(sqlite::map_sqlx_error)?;
         let password: Option<String> = row.try_get("password").map_err(sqlite::map_sqlx_error)?;
         let email: String = row.try_get("email").map_err(sqlite::map_sqlx_error)?;
-        let activation_code: Option<u32> =
+        let activation_code: Option<i64> =
             row.try_get("activation_code").map_err(sqlite::map_sqlx_error)?;
         let last_login_secs: Option<i64> =
             row.try_get("last_login_secs").map_err(sqlite::map_sqlx_error)?;
@@ -150,7 +126,7 @@ impl TryFrom<SqliteRow> for User {
             row.try_get("last_login_nsecs").map_err(sqlite::map_sqlx_error)?;
 
         let mut user = User::new(Username::new(username)?, EmailAddress::new(email)?)
-            .with_activation_code(activation_code);
+            .with_activation_code(activation_code.map(|i| i as u64));
         if let Some(password) = password {
             user = user.with_password(HashedPassword::new(password));
         }
@@ -298,18 +274,16 @@ pub(crate) async fn update_user(
 pub(crate) async fn set_user_activation_code(
     ex: &mut Executor,
     user: User,
-    code: Option<u32>,
+    code: Option<u64>,
 ) -> DbResult<User> {
+    let i64_code = code.map(|i| i as i64); // Sign is irrelevant for storage purposes.
+
     let rows_affected = match ex {
         #[cfg(feature = "postgres")]
         Executor::Postgres(ref mut ex) => {
-            let i32_code = match code {
-                Some(code) => Some(u32_to_i32("activation_code", code)?),
-                None => None,
-            };
             let query_str = "UPDATE users SET activation_code = $1 WHERE username = $2";
             let done = sqlx::query(query_str)
-                .bind(i32_code)
+                .bind(i64_code)
                 .bind(user.username().as_str())
                 .execute(ex)
                 .await
@@ -321,7 +295,7 @@ pub(crate) async fn set_user_activation_code(
         Executor::Sqlite(ref mut ex) => {
             let query_str = "UPDATE users SET activation_code = ? WHERE username = ?";
             let done = sqlx::query(query_str)
-                .bind(code)
+                .bind(i64_code)
                 .bind(user.username().as_str())
                 .execute(ex)
                 .await

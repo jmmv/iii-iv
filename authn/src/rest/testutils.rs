@@ -72,7 +72,7 @@ impl TestContext {
 
     /// Creates the `whoami` user by directly modifying the backing database. The user is marked
     /// as inactive with a pending activation `code`.
-    pub(crate) async fn create_inactive_whoami_user(&mut self, code: u32) -> User {
+    pub(crate) async fn create_inactive_whoami_user(&mut self, code: u64) -> User {
         let user = self.create_whoami_user().await;
         assert!(user.activation_code().is_none());
 
@@ -132,7 +132,7 @@ impl TestContext {
         &self,
         email: &EmailAddress,
         exp_username: &Username,
-    ) -> Option<u32> {
+    ) -> Option<u64> {
         get_latest_activation_code(&self.mailer, email, exp_username).await
     }
 }

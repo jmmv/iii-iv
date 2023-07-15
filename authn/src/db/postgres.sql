@@ -25,7 +25,10 @@ CREATE TABLE IF NOT EXISTS users (
     email VARCHAR(64) UNIQUE NOT NULL,
 
     -- Activation code.  If present, the account has not been activated yet.
-    activation_code INT,
+    --
+    -- Note that this is supposed to be an u64 so it can show up as negative when persisted
+    -- in the database.
+    activation_code BIGINT,
 
     -- The user's last successful login timestamp.
     last_login TIMESTAMPTZ
