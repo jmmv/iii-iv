@@ -30,7 +30,7 @@ pub(super) async fn send_activation_code<M>(
     base_urls: &BaseUrls,
     username: &Username,
     email: &EmailAddress,
-    code: u32,
+    code: u64,
 ) -> DriverResult<()>
 where
     M: SmtpMailer,
@@ -88,7 +88,7 @@ pub(crate) mod testutils {
         mailer: &RecorderSmtpMailer,
         to: &EmailAddress,
         exp_username: &Username,
-    ) -> Option<u32> {
+    ) -> Option<u64> {
         let activation_url = get_latest_activation_url(mailer, to, exp_username).await;
         activation_url.map(|url| {
             url.as_str()

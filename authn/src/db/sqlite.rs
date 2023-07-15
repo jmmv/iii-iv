@@ -53,7 +53,7 @@ impl TryFrom<SqliteRow> for User {
         let username: String = row.try_get("username").map_err(map_sqlx_error)?;
         let password: Option<String> = row.try_get("password").map_err(map_sqlx_error)?;
         let email: String = row.try_get("email").map_err(map_sqlx_error)?;
-        let activation_code: Option<u32> =
+        let activation_code: Option<i64> =
             row.try_get("activation_code").map_err(map_sqlx_error)?;
         let last_login_secs: Option<i64> =
             row.try_get("last_login_secs").map_err(map_sqlx_error)?;
@@ -61,7 +61,7 @@ impl TryFrom<SqliteRow> for User {
             row.try_get("last_login_nsecs").map_err(map_sqlx_error)?;
 
         let mut user = User::new(Username::new(username)?, EmailAddress::new(email)?)
-            .with_activation_code(activation_code);
+            .with_activation_code(activation_code.map(|i| i as u64));
         if let Some(password) = password {
             user = user.with_password(HashedPassword::new(password));
         }
@@ -168,12 +168,12 @@ impl AuthnTx for SqliteAuthnTx {
         }
     }
 
-    async fn set_user_activation_code(&mut self, user: User, code: Option<u32>) -> DbResult<User> {
+    async fn set_user_activation_code(&mut self, user: User, code: Option<u64>) -> DbResult<User> {
         let mut tx = self.tx.lock().await;
 
         let query_str = "UPDATE users SET activation_code = ? WHERE username = ?";
         let done = sqlx::query(query_str)
-            .bind(code)
+            .bind(code.map(|i| i as i64)) // Sign is irrelevant for storage purposes.
             .bind(user.username().as_str())
             .execute(&mut *tx)
             .await

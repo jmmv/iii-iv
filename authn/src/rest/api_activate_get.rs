@@ -47,7 +47,7 @@ const DEFAULT_ACTIVATED_TEMPLATE: &str = r#"<html>
 #[cfg_attr(test, derive(Serialize))]
 pub struct ActivateRequest {
     /// Activation code.
-    pub code: u32,
+    pub code: u64,
 }
 
 /// GET handler for this API.

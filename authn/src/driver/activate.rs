@@ -31,7 +31,7 @@ where
     M: SmtpMailer + Clone + Send + Sync + 'static,
 {
     /// Marks a used as active based on a confirmation code.
-    pub(crate) async fn activate(self, username: Username, code: u32) -> DriverResult<()> {
+    pub(crate) async fn activate(self, username: Username, code: u64) -> DriverResult<()> {
         let mut tx = self.db.begin().await?;
 
         let user = tx.get_user_by_username(username).await?;
@@ -58,7 +58,7 @@ mod tests {
     use iii_iv_core::model::EmailAddress;
 
     /// Creates a test user with an optional activation `code` and returns its username.
-    async fn create_test_user(context: &TestContext, code: Option<u32>) -> Username {
+    async fn create_test_user(context: &TestContext, code: Option<u64>) -> Username {
         let username = Username::from("some-username");
 
         let mut tx = context.tx().await;

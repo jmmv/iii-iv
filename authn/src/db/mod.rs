@@ -51,7 +51,7 @@ pub trait AuthnTx: BareTx {
 
     /// Updates the activation code of an existing user, either to a new code or to nothing to
     /// indicate that the user is active.
-    async fn set_user_activation_code(&mut self, user: User, code: Option<u32>) -> DbResult<User>;
+    async fn set_user_activation_code(&mut self, user: User, code: Option<u64>) -> DbResult<User>;
 
     /// Gets information about an existing user named `username`.
     async fn get_user_by_username(&mut self, username: Username) -> DbResult<User>;
