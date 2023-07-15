@@ -24,6 +24,10 @@ use async_trait::async_trait;
 use derivative::Derivative;
 use iii_iv_core::driver::{DriverError, DriverResult};
 use iii_iv_core::env::get_required_var;
+use iii_iv_core::model::EmailAddress;
+use iii_iv_core::template;
+use lettre::message::header::ContentTransferEncoding;
+use lettre::message::Body;
 pub use lettre::message::{Mailbox, Message};
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Tokio1Executor};
@@ -93,12 +97,57 @@ impl SmtpMailer for LettreSmtpMailer {
     }
 }
 
+/// A template for an email message.
+pub struct EmailTemplate {
+    /// Who the message comes from.
+    pub from: Mailbox,
+
+    /// Subject of the message.
+    pub subject_template: &'static str,
+
+    /// Body of the message.
+    pub body_template: &'static str,
+}
+
+impl EmailTemplate {
+    /// Creates a message sent to `to` based on the template by applying the collection of
+    /// `replacements` to it.
+    ///
+    /// The subject and body of the template are subject to string replacements per the rules
+    /// described in `iii_iv_core::template::apply`.
+    pub fn apply(
+        &self,
+        to: &EmailAddress,
+        replacements: &[(&'static str, &str)],
+    ) -> DriverResult<Message> {
+        let to = to.as_str().parse().map_err(|e| {
+            // TODO(jmmv): This should never happen... but there is no guarantee right now that we can
+            // convert III-IV's `EmailAddress` into whatever Lettre expects.  It'd be nice if we didn't
+            // need this though.
+            DriverError::InvalidInput(format!("Cannot parse email address {}: {}", to.as_str(), e))
+        })?;
+
+        let subject = template::apply(self.subject_template, replacements);
+
+        let body = Body::new_with_encoding(
+            template::apply(self.body_template, replacements),
+            ContentTransferEncoding::QuotedPrintable,
+        )
+        .map_err(|e| DriverError::BackendError(format!("Failed to encode message: {:?}", e)))?;
+
+        let message =
+            Message::builder().from(self.from.clone()).to(to).subject(subject).body(body).map_err(
+                |e| DriverError::BackendError(format!("Failed to encode message: {:?}", e)),
+            )?;
+        Ok(message)
+    }
+}
+
 /// Test utilities for email handling.
 #[cfg(any(test, feature = "testutils"))]
 pub mod testutils {
     use super::*;
     use futures::lock::Mutex;
-    use iii_iv_core::model::EmailAddress;
     use std::collections::{HashMap, HashSet};
     use std::sync::Arc;
 
@@ -366,5 +415,39 @@ There is also a second paragraph with = quoted printable characters.
             let _ = mailer.expect_one_message(&to).await; // Will panic.
         }
         assert!(catch_unwind(do_test).is_err());
+    }
+
+    #[test]
+    fn test_email_template() {
+        let template = EmailTemplate {
+            from: "Sender <sender@example.com>".parse().unwrap(),
+            subject_template: "The %s%",
+            body_template: "The %b% with quoted printable =50 characters",
+        };
+
+        let message = template
+            .apply(
+                &EmailAddress::from("recipient@example.com"),
+                &[("s", "replaced subject"), ("b", "replaced body")],
+            )
+            .unwrap();
+        let (headers, body) = parse_message(&message);
+
+        let exp_message = Message::builder()
+            .from(template.from)
+            .to("recipient@example.com".parse().unwrap())
+            .subject("The replaced subject")
+            .body(
+                Body::new_with_encoding(
+                    "The replaced body with quoted printable =50 characters".to_owned(),
+                    ContentTransferEncoding::QuotedPrintable,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let (exp_headers, exp_body) = parse_message(&exp_message);
+
+        assert_eq!(exp_headers, headers);
+        assert_eq!(exp_body, body);
     }
 }
