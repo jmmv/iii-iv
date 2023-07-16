@@ -20,8 +20,8 @@
 #![warn(unused, unused_extern_crates, unused_import_braces, unused_qualifications)]
 #![warn(unsafe_code)]
 
+use iii_iv_core::db::postgres::PostgresOptions;
 use iii_iv_example::serve;
-use iii_iv_postgres::PostgresOptions;
 use std::env;
 use std::net::Ipv4Addr;
 

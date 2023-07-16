@@ -6,6 +6,4 @@ members = [
     "geo",
     "lettre",
     "queue",
-    "postgres",
-    "sqlite",
 ]

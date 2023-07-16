@@ -23,6 +23,8 @@ TEST_ENV += PGSQL_TEST_USERNAME="$(PGSQL_TEST_USERNAME)"
 TEST_ENV += PGSQL_TEST_PASSWORD="$(PGSQL_TEST_PASSWORD)"
 TEST_ENV += RUST_LOG=debug
 
+TEST_FEATURES = postgres sqlite testutils
+
 .PHONY: build
 build:
 	cargo build
@@ -40,10 +42,12 @@ test-individually:
 	    cd $$crate; \
 	    echo "cd $${crate} && cargo test $(TEST_ARGS) -- --include-ignored"; \
 	    $(TEST_ENV) cargo test $(TEST_ARGS) -- --include-ignored; \
-	    if grep -q ^testutils Cargo.toml; then \
-	        echo "cd $${crate} && cargo test $(TEST_ARGS) --features=testutils -- --include-ignored"; \
-	        $(TEST_ENV) cargo test --features=testutils $(TEST_ARGS) -- --include-ignored; \
-	    fi; \
+	    for feature in $(TEST_FEATURES); do \
+	        if grep -q ^$${feature} Cargo.toml; then \
+	            echo "cd $${crate} && cargo test $(TEST_ARGS) --features=$${feature} -- --include-ignored"; \
+	            $(TEST_ENV) cargo test --features=$${feature} $(TEST_ARGS) -- --include-ignored; \
+	        fi; \
+	    done; \
 	    cd -; \
 	done
 
@@ -51,8 +55,10 @@ test-individually:
 test-workspace:
 	@echo cargo test -- --include-ignored
 	@$(TEST_ENV) cargo test $(TEST_ARGS) -- --include-ignored
-	@echo cargo test --features=testutils -- --include-ignored
-	@$(TEST_ENV) cargo test --features=testutils $(TEST_ARGS) -- --include-ignored
+	@for feature in $(TEST_FEATURES); do \
+	    echo cargo test --features=$${feature} -- --include-ignored; \
+	    $(TEST_ENV) cargo test --features=$${feature} $(TEST_ARGS) -- --include-ignored; \
+	done
 
 .PHONY: lint
 lint:

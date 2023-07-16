@@ -25,9 +25,7 @@ url = { version = "2.3", features = ["serde"] }
 
 [dependencies.iii-iv-core]
 path = "../core"
-
-[dependencies.iii-iv-postgres]
-path = "../postgres"
+features = ["postgres"]
 
 [dependencies.derive_more]
 version = "0.99.0"
@@ -36,12 +34,4 @@ features = ["as_ref", "constructor"]
 
 [dev-dependencies.iii-iv-core]
 path = "../core"
-features = ["testutils"]
-
-[dev-dependencies.iii-iv-postgres]
-path = "../postgres"
-features = ["testutils"]
-
-[dev-dependencies.iii-iv-sqlite]
-path = "../sqlite"
-features = ["testutils"]
+features = ["sqlite", "testutils"]

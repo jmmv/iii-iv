@@ -32,6 +32,11 @@
 use crate::model::ModelError;
 use async_trait::async_trait;
 
+#[cfg(feature = "postgres")]
+pub mod postgres;
+#[cfg(feature = "sqlite")]
+pub mod sqlite;
+
 /// Database errors.  Any unexpected errors that come from the database are classified as
 /// `BackendError`, but errors we know about have more specific types.
 #[derive(Debug, thiserror::Error, PartialEq)]
@@ -96,13 +101,11 @@ pub trait BareTx {
 }
 
 /// Common tests for the database implementations in the framework and helper macros.
-#[cfg(feature = "testutils")]
+#[cfg(any(test, feature = "testutils"))]
 pub mod testutils {
-    #[cfg(feature = "internal")]
     use super::{BareTx, Db};
     pub use paste::paste;
 
-    #[cfg(feature = "internal")]
     #[allow(missing_docs, clippy::missing_docs_in_private_items)]
     pub async fn test_uncommitted_tx<D>(db: D)
     where
@@ -112,7 +115,6 @@ pub mod testutils {
         let _unused = db.begin().await.unwrap();
     }
 
-    #[cfg(feature = "internal")]
     #[allow(missing_docs, clippy::missing_docs_in_private_items)]
     pub async fn test_multiple_txs<D>(db: D)
     where
@@ -125,7 +127,6 @@ pub mod testutils {
         tx2.commit().await.unwrap();
     }
 
-    #[cfg(feature = "internal")]
     #[allow(missing_docs, clippy::missing_docs_in_private_items)]
     pub async fn test_begin_tx_after_drop<D>(db: D)
     where
@@ -183,7 +184,6 @@ pub mod testutils {
     /// Instantiates the collection of tests that validate the database crates of iii-iv.
     /// This should never be called in client code, but client code needs to define a similar macro
     /// to instantiate its own tets.
-    #[cfg(feature = "internal")]
     #[macro_export]
     macro_rules! generate_core_db_tests [
         ( $setup:expr $(, #[$extra:meta])? ) => {
@@ -198,6 +198,5 @@ pub mod testutils {
         }
     ];
 
-    #[cfg(feature = "internal")]
     pub use generate_core_db_tests;
 }

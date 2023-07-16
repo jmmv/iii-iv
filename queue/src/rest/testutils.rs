@@ -20,7 +20,7 @@ use crate::rest::worker_cron_app;
 use axum::Router;
 use futures::lock::Mutex;
 use iii_iv_core::clocks::testutils::MonotonicClock;
-use iii_iv_sqlite::SqliteDb;
+use iii_iv_core::db::sqlite::SqliteDb;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -52,9 +52,9 @@ impl TestContext {
     /// Initializes a REST app using an in-memory datababase with an in-process worker and a
     /// client that is **not** connected to the worker.
     pub(super) async fn setup() -> TestContext {
-        let client_db = iii_iv_sqlite::testutils::setup().await;
+        let client_db = iii_iv_core::db::sqlite::testutils::setup().await;
         let worker_db: SqliteDb<SqliteWorkerTx<MockTask>> =
-            iii_iv_sqlite::testutils::setup_attach(client_db.clone()).await;
+            iii_iv_core::db::sqlite::testutils::setup_attach(client_db.clone()).await;
         let clock = MonotonicClock::new(100000);
 
         let worker = {

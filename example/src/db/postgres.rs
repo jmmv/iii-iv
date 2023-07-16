@@ -18,8 +18,8 @@
 use crate::db::Tx;
 use crate::model::*;
 use futures::TryStreamExt;
+use iii_iv_core::db::postgres::{map_sqlx_error, run_schema};
 use iii_iv_core::db::{BareTx, DbError, DbResult};
-use iii_iv_postgres::{map_sqlx_error, run_schema};
 use sqlx::{Postgres, Row, Transaction};
 use std::collections::BTreeSet;
 
@@ -133,6 +133,6 @@ mod tests {
     use crate::db::tests::generate_db_tests;
 
     generate_db_tests!(
-        iii_iv_postgres::testutils::setup::<PostgresTx>().await,
+        iii_iv_core::db::postgres::testutils::setup::<PostgresTx>().await,
         #[ignore = "Requires environment configuration and is expensive"]);
 }
