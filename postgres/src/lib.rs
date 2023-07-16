@@ -216,7 +216,7 @@ pub async fn run_schema(tx: &mut Transaction<'static, Postgres>, schema: &str) -
         regex::RegexBuilder::new("--.*$").multi_line(true).build().unwrap().replace_all(schema, "");
 
     for query_str in schema.split(';') {
-        sqlx::query(query_str).execute(&mut *tx).await.map_err(map_sqlx_error).unwrap();
+        sqlx::query(query_str).execute(&mut **tx).await.map_err(map_sqlx_error).unwrap();
     }
     Ok(())
 }
@@ -284,7 +284,7 @@ pub mod testutils {
             }
         }
         sqlx::query("SET search_path TO pg_temp")
-            .execute(&mut tx)
+            .execute(&mut *tx)
             .await
             .map_err(map_sqlx_error)
             .unwrap();

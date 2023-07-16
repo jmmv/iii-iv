@@ -119,7 +119,7 @@ impl<T: Send + Sync + Serialize> ClientTx for SqliteClientTx<T> {
             .bind(created_nsec) // updated_nsec
             .bind(only_after.map(|(sec, _nsec)| sec))
             .bind(only_after.map(|(_sec, nsec)| nsec))
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(map_sqlx_error)?;
         if done.rows_affected() != 1 {
@@ -142,7 +142,7 @@ impl<T: Send + Sync + Serialize> ClientTx for SqliteClientTx<T> {
         match sqlx::query(query_str)
             .bind(id)
             .bind(TaskStatus::Runnable as i8)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await
             .map_err(map_sqlx_error)?
         {
@@ -180,7 +180,7 @@ impl<T: Send + Sync + Serialize> ClientTx for SqliteClientTx<T> {
             .bind(since_sec)
             .bind(since_sec)
             .bind(since_nsec)
-            .fetch(&mut *tx);
+            .fetch(&mut **tx);
 
         let mut results = vec![];
         while let Some(row) = rows.try_next().await.map_err(map_sqlx_error)? {
@@ -266,7 +266,7 @@ impl<T: Send + Sync + DeserializeOwned> WorkerTx for SqliteWorkerTx<T> {
             .bind(now_msec)
             .bind(now_msec)
             .bind(i32::from(limit))
-            .fetch(&mut *tx);
+            .fetch(&mut **tx);
 
         let mut tasks = vec![];
         while let Some(row) = rows.try_next().await.map_err(map_sqlx_error)? {
@@ -320,7 +320,7 @@ impl<T: Send + Sync + DeserializeOwned> WorkerTx for SqliteWorkerTx<T> {
             .bind(TaskStatus::Runnable as i8)
             .bind(max_runtime_msec)
             .bind(updated_msec)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(map_sqlx_error)?;
         ensure_one_update(task.id(), done.rows_affected())?;
@@ -356,7 +356,7 @@ impl<T: Send + Sync + DeserializeOwned> WorkerTx for SqliteWorkerTx<T> {
             .bind(only_after.map(|(sec, _nsec)| sec))
             .bind(only_after.map(|(_sec, nsec)| nsec))
             .bind(id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(map_sqlx_error)?;
         ensure_one_update(id, done.rows_affected())?;

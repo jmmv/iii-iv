@@ -55,7 +55,7 @@ impl Tx for PostgresTx {
         let query_str = "DELETE FROM store WHERE key = $1";
         let done = sqlx::query(query_str)
             .bind(key.as_ref())
-            .execute(&mut self.tx)
+            .execute(&mut *self.tx)
             .await
             .map_err(map_sqlx_error)?;
         if done.rows_affected() == 0 {
@@ -70,7 +70,7 @@ impl Tx for PostgresTx {
         let query_str = "SELECT value, version FROM store WHERE key = $1";
         let row = sqlx::query(query_str)
             .bind(key.as_ref())
-            .fetch_one(&mut self.tx)
+            .fetch_one(&mut *self.tx)
             .await
             .map_err(map_sqlx_error)?;
         let value: String = row.try_get("value").map_err(map_sqlx_error)?;
@@ -83,7 +83,7 @@ impl Tx for PostgresTx {
         let query_str = "SELECT version FROM store WHERE key = $1";
         let maybe_row = sqlx::query(query_str)
             .bind(key.as_ref())
-            .fetch_optional(&mut self.tx)
+            .fetch_optional(&mut *self.tx)
             .await
             .map_err(map_sqlx_error)?;
         match maybe_row {
@@ -97,7 +97,7 @@ impl Tx for PostgresTx {
 
     async fn get_keys(&mut self) -> DbResult<BTreeSet<Key>> {
         let query_str = "SELECT key FROM store ORDER BY key";
-        let mut rows = sqlx::query(query_str).fetch(&mut self.tx);
+        let mut rows = sqlx::query(query_str).fetch(&mut *self.tx);
 
         let mut keys = BTreeSet::default();
         while let Some(row) = rows.try_next().await.map_err(map_sqlx_error)? {
@@ -117,7 +117,7 @@ impl Tx for PostgresTx {
             .bind(key.as_ref())
             .bind(entry.value())
             .bind(entry.version().as_i32())
-            .execute(&mut self.tx)
+            .execute(&mut *self.tx)
             .await
             .map_err(map_sqlx_error)?;
         if done.rows_affected() != 1 {
