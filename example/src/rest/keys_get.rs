@@ -30,7 +30,7 @@ pub(crate) async fn handler<D>(
 ) -> Result<impl IntoResponse, RestError>
 where
     D: Db + Clone + Send + Sync + 'static,
-    D::Tx: Tx + From<D::SqlxTx> + Send + Sync + 'static,
+    D::Tx: Tx + Send + Sync + 'static,
 {
     let keys = driver.get_keys().await?;
 

@@ -70,11 +70,8 @@ pub type DbResult<T> = Result<T, DbError>;
 /// Abstraction over the database connection.
 #[async_trait]
 pub trait Db {
-    /// Type of the wrapped `sqlx` transaction.
-    type SqlxTx;
-
     /// Type of the transaction wrapper type to generate.
-    type Tx: BareTx + From<Self::SqlxTx> + Send + Sync + 'static;
+    type Tx: BareTx + Send + Sync + 'static;
 
     /// Begins a transaction.
     async fn begin(&self) -> DbResult<Self::Tx>;

@@ -33,7 +33,7 @@ mod testutils;
 pub(crate) struct Driver<D>
 where
     D: Db + Clone + Send + Sync + 'static,
-    D::Tx: Tx + From<D::SqlxTx> + Send + Sync + 'static,
+    D::Tx: Tx + Send + Sync + 'static,
 {
     /// The database that the driver uses for persistence.
     db: D,
@@ -42,7 +42,7 @@ where
 impl<D> Driver<D>
 where
     D: Db + Clone + Send + Sync + 'static,
-    D::Tx: Tx + From<D::SqlxTx> + Send + Sync + 'static,
+    D::Tx: Tx + Send + Sync + 'static,
 {
     /// Creates a new driver backed by the given injected components.
     pub(crate) fn new(db: D) -> Self {

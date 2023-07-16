@@ -40,7 +40,7 @@ pub struct Client<T, C, D>
 where
     C: Clock + Clone + Send + Sync + 'static,
     D: Db + Clone + Send + Sync + 'static,
-    D::Tx: ClientTx<T = T> + From<D::SqlxTx> + Send + Sync + 'static,
+    D::Tx: ClientTx<T = T> + Send + Sync + 'static,
     T: Send + Sync,
 {
     /// The database that the driver uses for persistence.
@@ -58,7 +58,7 @@ impl<T, C, D> Client<T, C, D>
 where
     C: Clock + Clone + Send + Sync + 'static,
     D: Db + Clone + Send + Sync + 'static,
-    D::Tx: ClientTx<T = T> + From<D::SqlxTx> + Send + Sync + 'static,
+    D::Tx: ClientTx<T = T> + Send + Sync + 'static,
     T: Send + Sync,
 {
     /// Creates a new driver backed by `db` and a `clock`.

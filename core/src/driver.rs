@@ -26,7 +26,7 @@
 //! pub(crate) struct Driver<D>
 //! where
 //!     D: Db + Clone + Send + Sync + 'static,
-//!     D::Tx: Tx + From<D::SqlxTx> + Send + Sync + 'static,
+//!     D::Tx: Tx + Send + Sync + 'static,
 //! {
 //!     /// The database that the driver uses for persistence.
 //!     db: D,
