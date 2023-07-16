@@ -17,7 +17,7 @@
 
 use crate::db::sqlite::SqliteTx;
 use crate::driver::Driver;
-use iii_iv_sqlite::{self, SqliteDb};
+use iii_iv_core::db::sqlite::SqliteDb;
 
 pub(crate) struct TestContext {
     db: SqliteDb<SqliteTx>,
@@ -26,7 +26,7 @@ pub(crate) struct TestContext {
 
 impl TestContext {
     pub(crate) async fn setup() -> Self {
-        let pool = iii_iv_sqlite::connect(":memory:").await.unwrap();
+        let pool = iii_iv_core::db::sqlite::connect(":memory:").await.unwrap();
         let db = SqliteDb::<SqliteTx>::attach(pool).await.unwrap();
         let driver = Driver::new(db.clone());
         Self { db, driver }

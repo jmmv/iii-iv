@@ -20,8 +20,8 @@ use crate::db::{ensure_one_update, ClientTx, WorkerTx};
 use crate::model::{RunnableTask, RunningTask, TaskResult};
 use futures::lock::Mutex;
 use futures::TryStreamExt;
+use iii_iv_core::db::sqlite::{map_sqlx_error, run_schema, unpack_duration, unpack_timestamp};
 use iii_iv_core::db::{BareTx, DbError, DbResult};
-use iii_iv_sqlite::{map_sqlx_error, run_schema, unpack_duration, unpack_timestamp};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use sqlx::{Row, Sqlite, Transaction};
@@ -369,11 +369,11 @@ impl<T: Send + Sync + DeserializeOwned> WorkerTx for SqliteWorkerTx<T> {
 mod tests {
     use super::*;
     use crate::db::tests::{generate_db_tests, MockTask};
-    use iii_iv_sqlite::SqliteDb;
+    use iii_iv_core::db::sqlite::SqliteDb;
 
     async fn setup() -> (SqliteDb<SqliteClientTx<MockTask>>, SqliteDb<SqliteWorkerTx<MockTask>>) {
-        let client_db = iii_iv_sqlite::testutils::setup().await;
-        let worker_db = iii_iv_sqlite::testutils::setup_attach(client_db.clone()).await;
+        let client_db = iii_iv_core::db::sqlite::testutils::setup().await;
+        let worker_db = iii_iv_core::db::sqlite::testutils::setup_attach(client_db.clone()).await;
         (client_db, worker_db)
     }
 

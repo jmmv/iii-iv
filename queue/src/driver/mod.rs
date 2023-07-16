@@ -29,7 +29,7 @@ mod testutils {
     use futures::lock::Mutex;
     use iii_iv_core::clocks::testutils::MonotonicClock;
     use iii_iv_core::clocks::Clock;
-    use iii_iv_sqlite::SqliteDb;
+    use iii_iv_core::db::sqlite::SqliteDb;
     use serde::{Deserialize, Serialize};
     use std::collections::HashMap;
     use std::sync::Arc;
@@ -146,9 +146,9 @@ mod testutils {
         /// Initializes an in-memory queue with one in-process worker and a client that is
         /// configured to poke the worker when new tasks are enqueued.
         pub(super) async fn setup_one_connected(opts: WorkerOptions) -> Self {
-            let client_db = iii_iv_sqlite::testutils::setup().await;
+            let client_db = iii_iv_core::db::sqlite::testutils::setup().await;
             let worker_db: SqliteDb<SqliteWorkerTx<MockTask>> =
-                iii_iv_sqlite::testutils::setup_attach(client_db.clone()).await;
+                iii_iv_core::db::sqlite::testutils::setup_attach(client_db.clone()).await;
             let clock = MonotonicClock::new(100000);
 
             let state = TaskStateById::default();
@@ -174,9 +174,9 @@ mod testutils {
             opts: WorkerOptions,
             num_workers: usize,
         ) -> Self {
-            let client_db = iii_iv_sqlite::testutils::setup().await;
+            let client_db = iii_iv_core::db::sqlite::testutils::setup().await;
             let worker_db: SqliteDb<SqliteWorkerTx<MockTask>> =
-                iii_iv_sqlite::testutils::setup_attach(client_db.clone()).await;
+                iii_iv_core::db::sqlite::testutils::setup_attach(client_db.clone()).await;
             let clock = MonotonicClock::new(100000);
 
             let state = TaskStateById::default();

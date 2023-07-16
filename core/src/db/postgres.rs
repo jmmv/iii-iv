@@ -15,14 +15,9 @@
 
 //! Common utilities to interact with a PostgreSQL database.
 
-// Keep these in sync with other top-level files.
-#![warn(anonymous_parameters, bad_style, clippy::missing_docs_in_private_items, missing_docs)]
-#![warn(unused, unused_extern_crates, unused_import_braces, unused_qualifications)]
-#![warn(unsafe_code)]
-
+use crate::db::{BareTx, Db, DbError, DbResult};
+use crate::env::{get_optional_var, get_required_var};
 use derivative::Derivative;
-use iii_iv_core::db::{BareTx, Db, DbError, DbResult};
-use iii_iv_core::env::{get_optional_var, get_required_var};
 use sqlx::postgres::{PgConnectOptions, PgDatabaseError, PgPool, PgPoolOptions, Postgres};
 use sqlx::Transaction;
 use std::marker::PhantomData;
@@ -325,7 +320,7 @@ pub mod testutils {
 mod tests {
     use super::testutils::*;
     use super::*;
-    use iii_iv_core::db::testutils::generate_core_db_tests;
+    use crate::db::testutils::generate_core_db_tests;
     use std::env;
     use std::sync::atomic::{AtomicBool, Ordering};
 

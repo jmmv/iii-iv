@@ -53,25 +53,12 @@ the `main` branch.
 [dependencies.iii-iv-core]
 git = "https://github.com/jmmv/iii-iv.git"
 rev = "git commit you based your work off"
-
-[dependencies.iii-iv-postgres]
-git = "https://github.com/jmmv/iii-iv.git"
-rev = "git commit you based your work off"
+features = ["postgres"]
 
 [dev-dependencies.iii-iv-core]
 git = "https://github.com/jmmv/iii-iv.git"
 rev = "git commit you based your work off"
-features = ["testutils"]
-
-[dev-dependencies.iii-iv-postgres]
-git = "https://github.com/jmmv/iii-iv.git"
-rev = "git commit you based your work off"
-features = ["testutils"]
-
-[dev-dependencies.iii-iv-sqlite]
-git = "https://github.com/jmmv/iii-iv.git"
-rev = "git commit you based your work off"
-features = ["testutils"]
+features = ["sqlite", "testutils"]
 ```
 
 ## Example

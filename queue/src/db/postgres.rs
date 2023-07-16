@@ -19,8 +19,8 @@ use crate::db::status::{result_to_status, status_to_result, TaskStatus};
 use crate::db::{ensure_one_update, ClientTx, WorkerTx};
 use crate::model::{RunnableTask, RunningTask, TaskResult};
 use futures::TryStreamExt;
+use iii_iv_core::db::postgres::{map_sqlx_error, run_schema};
 use iii_iv_core::db::{BareTx, DbError, DbResult};
-use iii_iv_postgres::{map_sqlx_error, run_schema};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use sqlx::{Postgres, Row, Transaction};
@@ -316,12 +316,12 @@ impl<T: Send + Sync + DeserializeOwned> WorkerTx for PostgresWorkerTx<T> {
 mod tests {
     use super::*;
     use crate::db::tests::{generate_db_tests, MockTask};
-    use iii_iv_postgres::PostgresDb;
+    use iii_iv_core::db::postgres::PostgresDb;
 
     async fn setup(
     ) -> (PostgresDb<PostgresClientTx<MockTask>>, PostgresDb<PostgresWorkerTx<MockTask>>) {
-        let client_db = iii_iv_postgres::testutils::setup().await;
-        let worker_db = iii_iv_postgres::testutils::setup_attach(client_db.clone()).await;
+        let client_db = iii_iv_core::db::postgres::testutils::setup().await;
+        let worker_db = iii_iv_core::db::postgres::testutils::setup_attach(client_db.clone()).await;
         (client_db, worker_db)
     }
 

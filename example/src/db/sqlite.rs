@@ -19,8 +19,8 @@ use crate::db::Tx;
 use crate::model::*;
 use futures::lock::Mutex;
 use futures::TryStreamExt;
+use iii_iv_core::db::sqlite::{map_sqlx_error, run_schema};
 use iii_iv_core::db::{BareTx, DbError, DbResult};
-use iii_iv_sqlite::{map_sqlx_error, run_schema};
 use sqlx::{Row, Sqlite, Transaction};
 use std::collections::BTreeSet;
 
@@ -147,5 +147,5 @@ mod tests {
     use super::*;
     use crate::db::tests::generate_db_tests;
 
-    generate_db_tests!(iii_iv_sqlite::testutils::setup::<SqliteTx>().await);
+    generate_db_tests!(iii_iv_core::db::sqlite::testutils::setup::<SqliteTx>().await);
 }

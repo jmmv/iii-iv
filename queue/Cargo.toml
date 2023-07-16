@@ -8,8 +8,8 @@ publish = false
 
 [features]
 default = ["postgres"]
-postgres = ["dep:iii-iv-postgres", "sqlx/postgres", "sqlx/time", "sqlx/uuid"]
-sqlite = ["dep:iii-iv-sqlite", "sqlx/sqlite", "sqlx/time", "sqlx/uuid"]
+postgres = ["iii-iv-core/postgres", "sqlx/postgres", "sqlx/time", "sqlx/uuid"]
+sqlite = ["iii-iv-core/sqlite", "sqlx/sqlite", "sqlx/time", "sqlx/uuid"]
 testutils = []
 
 [dependencies]
@@ -25,33 +25,17 @@ time = "0.3"
 tokio = "1"
 uuid = { version = "1.0", default-features = false, features = ["serde", "std", "v4"] }
 
-[dependencies.iii-iv-postgres]
-path = "../postgres"
-optional = true
-
-[dependencies.iii-iv-sqlite]
-path = "../sqlite"
-optional = true
-
 [dependencies.sqlx]
 version = "0.7"
 optional = true
 features = ["runtime-tokio-rustls", "time"]
 
 [dev-dependencies]
-iii-iv-core = { path = "../core", features = ["testutils"] }
+iii-iv-core = { path = "../core", features = ["sqlite", "testutils"] }
 rand = "0.8"
 serde = { version = "1", features = ["derive"] }
 time = { version = "0.3", features = ["formatting"] }
 tokio = { version = "1", features = ["rt", "macros", "rt-multi-thread"] }
-
-[dev-dependencies.iii-iv-postgres]
-path = "../postgres"
-features = ["testutils"]
-
-[dev-dependencies.iii-iv-sqlite]
-path = "../sqlite"
-features = ["testutils"]
 
 [dev-dependencies.sqlx]
 version = "0.7"

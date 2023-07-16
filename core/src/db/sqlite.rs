@@ -15,15 +15,10 @@
 
 //! Common utilities to interact with an SQLite database.
 
-// Keep these in sync with other top-level files.
-#![warn(anonymous_parameters, bad_style, clippy::missing_docs_in_private_items, missing_docs)]
-#![warn(unused, unused_extern_crates, unused_import_braces, unused_qualifications)]
-#![warn(unsafe_code)]
-
+use crate::db::{BareTx, Db, DbError, DbResult};
 use derivative::Derivative;
 use futures::lock::Mutex;
 use futures::TryStreamExt;
-use iii_iv_core::db::{BareTx, Db, DbError, DbResult};
 use sqlx::sqlite::{Sqlite, SqlitePool};
 use sqlx::Transaction;
 use std::marker::PhantomData;
@@ -246,7 +241,7 @@ pub mod testutils {
 mod tests {
     use super::testutils::*;
     use super::*;
-    use iii_iv_core::db::testutils::generate_core_db_tests;
+    use crate::db::testutils::generate_core_db_tests;
     use std::sync::atomic::{AtomicBool, Ordering};
 
     generate_core_db_tests!(setup::<SqliteTestTx>().await);
