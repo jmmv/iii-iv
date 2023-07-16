@@ -184,7 +184,7 @@ where
     /// This takes care of running the migration process for the type `T`, which in turn results
     /// in the database connection being established.
     pub async fn attach(pool: PostgresPool) -> DbResult<PostgresDb<T>> {
-        let db = Self { pool, _phantom_tx: PhantomData::default() };
+        let db = Self { pool, _phantom_tx: PhantomData };
 
         let mut tx: T = db.begin().await?;
         tx.migrate().await?;
@@ -264,7 +264,7 @@ pub mod testutils {
         opts.max_connections = Some(1);
         let pool = PostgresPool::connect(opts).unwrap();
         // We don't use attach because we don't want to run the DB migration code.
-        let db = PostgresDb { pool, _phantom_tx: PhantomData::default() };
+        let db = PostgresDb { pool, _phantom_tx: PhantomData };
 
         let mut tx;
         let mut delay = Duration::from_millis(100 + rand::random::<u64>() % 100);
@@ -306,7 +306,7 @@ pub mod testutils {
         O: BareTx + From<Transaction<'static, Postgres>> + Send + Sync + 'static,
     {
         // We don't use attach because we don't want to run the DB migration code.
-        let db = PostgresDb { pool: other.pool, _phantom_tx: PhantomData::default() };
+        let db = PostgresDb { pool: other.pool, _phantom_tx: PhantomData };
 
         // Unlike attach, we do not set up the `pg_temp` schema here because we assume this already
         // happened while setting up `other`.
