@@ -59,7 +59,7 @@ impl Tx for SqliteTx {
         let query_str = "DELETE FROM store WHERE key = ?";
         let done = sqlx::query(query_str)
             .bind(key.as_ref())
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(map_sqlx_error)?;
         if done.rows_affected() == 0 {
@@ -76,7 +76,7 @@ impl Tx for SqliteTx {
         let query_str = "SELECT value, version FROM store WHERE key = ?";
         let row = sqlx::query(query_str)
             .bind(key.as_ref())
-            .fetch_one(&mut *tx)
+            .fetch_one(&mut **tx)
             .await
             .map_err(map_sqlx_error)?;
         let value: String = row.try_get("value").map_err(map_sqlx_error)?;
@@ -91,7 +91,7 @@ impl Tx for SqliteTx {
         let query_str = "SELECT version FROM store WHERE key = ?";
         let maybe_row = sqlx::query(query_str)
             .bind(key.as_ref())
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await
             .map_err(map_sqlx_error)?;
         match maybe_row {
@@ -107,7 +107,7 @@ impl Tx for SqliteTx {
         let mut tx = self.tx.lock().await;
 
         let query_str = "SELECT key FROM store ORDER BY key";
-        let mut rows = sqlx::query(query_str).fetch(&mut *tx);
+        let mut rows = sqlx::query(query_str).fetch(&mut **tx);
 
         let mut keys = BTreeSet::default();
         while let Some(row) = rows.try_next().await.map_err(map_sqlx_error)? {
@@ -132,7 +132,7 @@ impl Tx for SqliteTx {
             .bind(entry.value())
             .bind(entry.version().as_u32())
             .bind(key.as_ref())
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(map_sqlx_error)?;
         if done.rows_affected() != 1 {

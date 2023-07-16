@@ -34,7 +34,7 @@ path = "../sqlite"
 optional = true
 
 [dependencies.sqlx]
-version = "0.6"
+version = "0.7"
 optional = true
 features = ["runtime-tokio-rustls", "time"]
 
@@ -54,5 +54,5 @@ path = "../sqlite"
 features = ["testutils"]
 
 [dev-dependencies.sqlx]
-version = "0.6"
+version = "0.7"
 features = ["runtime-tokio-rustls", "sqlite", "time", "uuid"]

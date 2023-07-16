@@ -90,7 +90,7 @@ impl<T: Send + Sync + Serialize> ClientTx for PostgresClientTx<T> {
             .bind(TaskStatus::Runnable as i16)
             .bind(created)
             .bind(only_after)
-            .execute(&mut self.tx)
+            .execute(&mut *self.tx)
             .await
             .map_err(map_sqlx_error)?;
         if done.rows_affected() != 1 {
@@ -111,7 +111,7 @@ impl<T: Send + Sync + Serialize> ClientTx for PostgresClientTx<T> {
         match sqlx::query(query_str)
             .bind(id)
             .bind(TaskStatus::Runnable as i16)
-            .fetch_optional(&mut self.tx)
+            .fetch_optional(&mut *self.tx)
             .await
             .map_err(map_sqlx_error)?
         {
@@ -151,7 +151,7 @@ impl<T: Send + Sync + Serialize> ClientTx for PostgresClientTx<T> {
         let mut rows = sqlx::query(query_str)
             .bind(TaskStatus::Runnable as i16)
             .bind(since)
-            .fetch(&mut self.tx);
+            .fetch(&mut *self.tx);
 
         let mut results = vec![];
         while let Some(row) = rows.try_next().await.map_err(map_sqlx_error)? {
@@ -230,7 +230,7 @@ impl<T: Send + Sync + DeserializeOwned> WorkerTx for PostgresWorkerTx<T> {
             .bind(max_runtime)
             .bind(now)
             .bind(i32::from(limit))
-            .fetch(&mut self.tx);
+            .fetch(&mut *self.tx);
 
         let mut tasks = vec![];
         while let Some(row) = rows.try_next().await.map_err(map_sqlx_error)? {
@@ -276,7 +276,7 @@ impl<T: Send + Sync + DeserializeOwned> WorkerTx for PostgresWorkerTx<T> {
             .bind(i16::from(task.runs()))
             .bind(task.id())
             .bind(max_runtime)
-            .execute(&mut self.tx)
+            .execute(&mut *self.tx)
             .await
             .map_err(map_sqlx_error)?;
         ensure_one_update(task.id(), done.rows_affected())?;
@@ -303,7 +303,7 @@ impl<T: Send + Sync + DeserializeOwned> WorkerTx for PostgresWorkerTx<T> {
             .bind(updated)
             .bind(only_after)
             .bind(id)
-            .execute(&mut self.tx)
+            .execute(&mut *self.tx)
             .await
             .map_err(map_sqlx_error)?;
         ensure_one_update(id, done.rows_affected())?;

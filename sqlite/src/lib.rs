@@ -105,7 +105,7 @@ pub async fn run_schema(
     schema: &str,
 ) -> DbResult<()> {
     let mut tx = tx.lock().await;
-    let mut results = sqlx::query(schema).execute_many(&mut *tx).await;
+    let mut results = sqlx::query(schema).execute_many(&mut **tx).await;
     while results.try_next().await.map_err(map_sqlx_error)?.is_some() {
         // Nothing to do.
     }
