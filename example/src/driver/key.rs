@@ -24,7 +24,7 @@ use iii_iv_core::driver::DriverResult;
 impl<D> Driver<D>
 where
     D: Db + Clone + Send + Sync + 'static,
-    D::Tx: Tx + From<D::SqlxTx> + Send + Sync + 'static,
+    D::Tx: Tx + Send + Sync + 'static,
 {
     /// Deletes an existing `key`.
     pub(crate) async fn delete_key(self, key: &Key) -> DriverResult<()> {

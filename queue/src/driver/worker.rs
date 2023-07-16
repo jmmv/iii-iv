@@ -134,7 +134,7 @@ async fn run_task<C, D, Exec, ExecFut, T>(
 where
     C: Clock + Clone + Send + Sync,
     D: Db + Clone + Send + Sync,
-    D::Tx: WorkerTx<T = T> + From<D::SqlxTx> + Send + Sync,
+    D::Tx: WorkerTx<T = T> + Send + Sync,
     Exec: Fn(T) -> ExecFut,
     ExecFut: Future<Output = ExecResult>,
     T: Send + Sync,
@@ -213,7 +213,7 @@ pub(super) async fn loop_once<C, D, T, Exec, ExecFut>(
 where
     C: Clock + Clone + Send + Sync,
     D: Db + Clone + Send + Sync,
-    D::Tx: WorkerTx<T = T> + From<D::SqlxTx> + Send + Sync,
+    D::Tx: WorkerTx<T = T> + Send + Sync,
     Exec: Fn(T) -> ExecFut + Clone,
     ExecFut: Future<Output = ExecResult>,
     T: Send + Sync,
@@ -325,7 +325,7 @@ where
     where
         C: Clock + Clone + Send + Sync + 'static,
         D: Db + Clone + Send + Sync + 'static,
-        D::Tx: WorkerTx<T = T> + From<D::SqlxTx> + Send + Sync + 'static,
+        D::Tx: WorkerTx<T = T> + Send + Sync + 'static,
         Exec: Fn(T) -> ExecFut + Clone + Send + Sync + 'static,
         ExecFut: Future<Output = ExecResult> + Send + 'static,
     {

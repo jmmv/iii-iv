@@ -199,7 +199,6 @@ impl<T> Db for PostgresDb<T>
 where
     T: BareTx + From<Transaction<'static, Postgres>> + Send + Sync + 'static,
 {
-    type SqlxTx = Transaction<'static, Postgres>;
     type Tx = T;
 
     async fn begin(&self) -> DbResult<Self::Tx> {

@@ -25,7 +25,7 @@ use std::collections::BTreeSet;
 impl<D> Driver<D>
 where
     D: Db + Clone + Send + Sync + 'static,
-    D::Tx: Tx + From<D::SqlxTx> + Send + Sync + 'static,
+    D::Tx: Tx + Send + Sync + 'static,
 {
     /// Gets a list of all existing keys.
     pub(crate) async fn get_keys(self) -> DriverResult<BTreeSet<Key>> {

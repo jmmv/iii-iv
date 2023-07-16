@@ -90,7 +90,6 @@ impl<T> Db for SqliteDb<T>
 where
     T: BareTx + From<Mutex<Transaction<'static, Sqlite>>> + Send + Sync + 'static,
 {
-    type SqlxTx = Mutex<Transaction<'static, Sqlite>>;
     type Tx = T;
 
     async fn begin(&self) -> DbResult<Self::Tx> {
