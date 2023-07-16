@@ -75,7 +75,7 @@ where
     /// This takes care of running the migration process for the type `T`, which in turn results
     /// in the database connection being established.
     pub async fn attach(pool: SqlitePool) -> DbResult<Self> {
-        let db = Self { pool, _phantom_tx: PhantomData::default() };
+        let db = Self { pool, _phantom_tx: PhantomData };
 
         let mut tx: T = db.begin().await?;
         tx.migrate().await?;
@@ -216,7 +216,7 @@ pub mod testutils {
         let _can_fail = env_logger::builder().is_test(true).try_init();
         let pool = connect_internal(":memory:").await.unwrap();
         // We don't use attach because we don't want to run the DB migration code.
-        let db = SqliteDb { pool, _phantom_tx: PhantomData::default() };
+        let db = SqliteDb { pool, _phantom_tx: PhantomData };
 
         let mut tx: T = db.begin().await.unwrap();
         tx.migrate_test().await.unwrap();
@@ -232,7 +232,7 @@ pub mod testutils {
         O: BareTx + From<Mutex<Transaction<'static, Sqlite>>> + Send + Sync + 'static,
     {
         // We don't use attach because we don't want to run the DB migration code.
-        let db = SqliteDb { pool: other.pool, _phantom_tx: PhantomData::default() };
+        let db = SqliteDb { pool: other.pool, _phantom_tx: PhantomData };
 
         let mut tx: T = db.begin().await.unwrap();
         tx.migrate_test().await.unwrap();

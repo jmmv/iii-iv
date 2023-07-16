@@ -87,7 +87,7 @@ mod testutils {
         clock: MonotonicClock,
     ) -> ExecResult {
         let mut state_by_id = state_by_id.lock().await;
-        let mut state = state_by_id.entry(task.id).or_insert_with(TaskState::default);
+        let state = state_by_id.entry(task.id).or_insert_with(TaskState::default);
 
         state.runs += 1;
 
