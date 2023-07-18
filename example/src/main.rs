@@ -20,7 +20,9 @@
 #![warn(unused, unused_extern_crates, unused_import_braces, unused_qualifications)]
 #![warn(unsafe_code)]
 
-use iii_iv_core::db::postgres::PostgresOptions;
+use iii_iv_core::db::postgres::{PostgresDb, PostgresOptions};
+use iii_iv_core::db::Db;
+use iii_iv_example::db::init_schema;
 use iii_iv_example::serve;
 use std::env;
 use std::net::Ipv4Addr;
@@ -36,6 +38,8 @@ async fn main() {
     let addr = (Ipv4Addr::LOCALHOST, port);
 
     let db_opts = PostgresOptions::from_env("PGSQL_PROD").unwrap();
+    let db = Box::from(PostgresDb::connect(db_opts).unwrap());
+    init_schema(&mut db.ex()).await.unwrap();
 
-    serve(addr, db_opts).await.unwrap()
+    serve(addr, db).await.unwrap()
 }

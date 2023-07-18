@@ -20,12 +20,11 @@
 #![warn(unused, unused_extern_crates, unused_import_braces, unused_qualifications)]
 #![warn(unsafe_code)]
 
-use iii_iv_core::db::postgres::{PostgresDb, PostgresOptions, PostgresPool};
+use iii_iv_core::db::Db;
 use std::error::Error;
 use std::net::SocketAddr;
 
 pub mod db;
-use db::postgres::PostgresTx;
 pub mod driver;
 use driver::Driver;
 pub(crate) mod model;
@@ -38,10 +37,8 @@ use rest::app;
 /// crate-internal types to the public, which in turn would make dead code detection harder.
 pub async fn serve(
     bind_addr: impl Into<SocketAddr>,
-    db_opts: PostgresOptions,
+    db: Box<dyn Db + Send + Sync>,
 ) -> Result<(), Box<dyn Error>> {
-    let pool = PostgresPool::connect(db_opts)?;
-    let db = PostgresDb::<PostgresTx>::attach(pool).await?;
     let driver = Driver::new(db);
     let app = app(driver);
 

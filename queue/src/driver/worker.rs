@@ -15,7 +15,7 @@
 
 //! Background task to extract tasks from the queue and run them.
 
-use crate::db::WorkerTx;
+use crate::db;
 use crate::model::{ExecError, ExecResult, RunnableTask, TaskResult};
 use derivative::Derivative;
 use futures::channel::mpsc::{self, Sender};
@@ -23,10 +23,11 @@ use futures::future::join_all;
 use futures::stream::StreamExt;
 use futures::{Future, SinkExt};
 use iii_iv_core::clocks::Clock;
-use iii_iv_core::db::{BareTx, Db};
+use iii_iv_core::db::Db;
 use iii_iv_core::driver::{DriverError, DriverResult};
 use iii_iv_core::env::get_optional_var;
 use log::{info, warn};
+use serde::de::DeserializeOwned;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
@@ -122,18 +123,16 @@ impl WorkerOptions {
 ///
 /// Task errors are recorded within the task's result.  Therefore, this function only returns
 /// errors if it encounters problems persisting state to the database.
-async fn run_task<D, Exec, ExecFut, T>(
+async fn run_task<Exec, ExecFut, T>(
     task: RunnableTask<T>,
     exec: Exec,
     max_runs: u8,
     max_runtime: Duration,
     retry_on_error_delay: Duration,
-    db: D,
+    db: Arc<dyn Db + Send + Sync>,
     clock: Arc<dyn Clock + Send + Sync>,
 ) -> DriverResult<Option<TaskResult>>
 where
-    D: Db + Clone + Send + Sync,
-    D::Tx: WorkerTx<T = T> + Send + Sync,
     Exec: Fn(T) -> ExecFut,
     ExecFut: Future<Output = ExecResult>,
     T: Send + Sync,
@@ -142,9 +141,7 @@ where
 
     // This protects against running the same task concurrently more than once if we think it is
     // still running.
-    let mut tx = db.begin().await?;
-    let task = tx.set_task_running(task, max_runtime, clock.now_utc()).await?;
-    tx.commit().await?;
+    let task = db::set_task_running(&mut db.ex(), task, max_runtime, clock.now_utc()).await?;
 
     let result = if task.runs() >= max_runs {
         TaskResult::Abandoned(format!(
@@ -190,9 +187,7 @@ where
     // TODO(jmmv): Consider adding some form of retries here given the criticality of the situation
     // to minimize the chances of this being a problem.  And also expose the `runs` counter to the
     // task so that it can decide whether it actually wants to retry non-idempotent steps.
-    let mut tx = db.begin().await?;
-    tx.set_task_result(id, &result, clock.now_utc()).await?;
-    tx.commit().await?;
+    db::set_task_result(&mut db.ex(), id, &result, clock.now_utc()).await?;
 
     Ok(Some(result))
 }
@@ -203,27 +198,25 @@ where
 ///
 /// This returns an error only if there are problems talking to the database.  The caller has to
 /// decide if it's worth retrying the cycle or not.
-pub(super) async fn loop_once<D, T, Exec, ExecFut>(
-    db: D,
+pub(super) async fn loop_once<T, Exec, ExecFut>(
+    db: Arc<dyn Db + Send + Sync>,
     clock: Arc<dyn Clock + Send + Sync>,
     opts: &WorkerOptions,
     exec: Exec,
 ) -> DriverResult<()>
 where
-    D: Db + Clone + Send + Sync,
-    D::Tx: WorkerTx<T = T> + Send + Sync,
     Exec: Fn(T) -> ExecFut + Clone,
     ExecFut: Future<Output = ExecResult>,
-    T: Send + Sync,
+    T: DeserializeOwned + Send + Sync,
 {
     loop {
-        let tasks = {
-            let mut tx = db.begin().await?;
-            let tasks =
-                tx.get_runnable_tasks(opts.batch_size, opts.max_runtime, clock.now_utc()).await?;
-            tx.commit().await?;
-            tasks
-        };
+        let tasks = db::get_runnable_tasks::<T>(
+            &mut db.ex(),
+            opts.batch_size,
+            opts.max_runtime,
+            clock.now_utc(),
+        )
+        .await?;
 
         if tasks.is_empty() {
             // No more tasks at this point.  Terminate cycle.
@@ -315,19 +308,17 @@ where
 
 impl<T> Worker<T>
 where
-    T: Send + Sync,
+    T: DeserializeOwned + Send + Sync,
 {
     /// Creates a new driver backed by `db` and a `clock`, configured to handle tasks according
     /// to `opts` and using `exec` to run the tasks.
-    pub fn new<D, Exec, ExecFut>(
-        db: D,
+    pub fn new<Exec, ExecFut>(
+        db: Arc<dyn Db + Send + Sync>,
         clock: Arc<dyn Clock + Send + Sync>,
         opts: WorkerOptions,
         exec: Exec,
     ) -> Self
     where
-        D: Db + Clone + Send + Sync + 'static,
-        D::Tx: WorkerTx<T = T> + Send + Sync + 'static,
         Exec: Fn(T) -> ExecFut + Clone + Send + Sync + 'static,
         ExecFut: Future<Output = ExecResult> + Send + 'static,
     {
@@ -342,7 +333,12 @@ where
         });
         Self { _worker: Arc::from(worker), control_tx, _data: PhantomData }
     }
+}
 
+impl<T> Worker<T>
+where
+    T: Send + Sync,
+{
     /// Triggers execution of a processing cycle in the background.
     pub async fn notify(&mut self) -> DriverResult<()> {
         match self.control_tx.send(()).await {

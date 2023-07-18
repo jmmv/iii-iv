@@ -15,13 +15,13 @@
 
 //! Common utilities to interact with an SQLite database.
 
-use crate::db::{BareTx, Db, DbError, DbResult};
+use crate::db::{Db, DbError, DbResult, Executor, TxExecutor};
+use async_trait::async_trait;
 use derivative::Derivative;
-use futures::lock::Mutex;
+use futures::future::BoxFuture;
 use futures::TryStreamExt;
 use sqlx::sqlite::{Sqlite, SqlitePool};
 use sqlx::Transaction;
-use std::marker::PhantomData;
 use std::time::Duration;
 use time::OffsetDateTime;
 
@@ -36,71 +36,226 @@ pub fn map_sqlx_error(e: sqlx::Error) -> DbError {
     }
 }
 
-/// Creates a new connection.
-async fn connect_internal(conn_str: &str) -> DbResult<SqlitePool> {
-    SqlitePool::connect(conn_str).await.map_err(map_sqlx_error)
+/// Creates a new connection and sets the database schema.
+pub async fn connect(conn_str: &str) -> DbResult<SqliteDb> {
+    let pool = SqlitePool::connect(conn_str).await.map_err(map_sqlx_error)?;
+    Ok(SqliteDb { pool })
 }
 
-/// Creates a new connection and sets the database schema.
-pub async fn connect(conn_str: &str) -> DbResult<SqlitePool> {
-    connect_internal(conn_str).await
+/// A generic database executor implementation for SQLite.
+#[derive(Debug)]
+pub enum SqliteExecutor {
+    /// An executor backed by a pool.  Operations issued via this executor aren't guaranteed to
+    /// happen on the same connection.
+    PoolExec(SqlitePool),
+
+    /// An executor backed by a transaction.
+    TxExec(Transaction<'static, Sqlite>),
+}
+
+impl SqliteExecutor {
+    /// Commits the transaction if this executor is backed by one.
+    ///
+    /// Calling this on a non-transaction-based executor results in a panic.
+    pub(super) async fn commit(self) -> DbResult<()> {
+        match self {
+            SqliteExecutor::PoolExec(_) => unreachable!("Do not call commit on direct executors"),
+            SqliteExecutor::TxExec(tx) => tx.commit().await.map_err(map_sqlx_error),
+        }
+    }
+}
+
+impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
+    type Database = Sqlite;
+
+    fn describe<'e, 'q: 'e>(
+        self,
+        sql: &'q str,
+    ) -> BoxFuture<'e, Result<sqlx::Describe<Self::Database>, sqlx::Error>>
+    where
+        'c: 'e,
+    {
+        match self {
+            SqliteExecutor::PoolExec(pool) => pool.describe(sql),
+            SqliteExecutor::TxExec(ref mut tx) => tx.describe(sql),
+        }
+    }
+
+    fn execute<'e, 'q: 'e, E: 'q>(
+        self,
+        query: E,
+    ) -> BoxFuture<'e, Result<<Self::Database as sqlx::Database>::QueryResult, sqlx::Error>>
+    where
+        'c: 'e,
+        E: sqlx::Execute<'q, Self::Database>,
+    {
+        match self {
+            SqliteExecutor::PoolExec(pool) => pool.execute(query),
+            SqliteExecutor::TxExec(ref mut tx) => tx.execute(query),
+        }
+    }
+
+    fn execute_many<'e, 'q: 'e, E: 'q>(
+        self,
+        query: E,
+    ) -> futures::stream::BoxStream<
+        'e,
+        Result<<Self::Database as sqlx::Database>::QueryResult, sqlx::Error>,
+    >
+    where
+        'c: 'e,
+        E: sqlx::Execute<'q, Self::Database>,
+    {
+        match self {
+            SqliteExecutor::PoolExec(pool) => pool.execute_many(query),
+            SqliteExecutor::TxExec(ref mut tx) => tx.execute_many(query),
+        }
+    }
+
+    fn fetch<'e, 'q: 'e, E: 'q>(
+        self,
+        query: E,
+    ) -> futures::stream::BoxStream<'e, Result<<Self::Database as sqlx::Database>::Row, sqlx::Error>>
+    where
+        'c: 'e,
+        E: sqlx::Execute<'q, Self::Database>,
+    {
+        match self {
+            SqliteExecutor::PoolExec(pool) => pool.fetch(query),
+            SqliteExecutor::TxExec(ref mut tx) => tx.fetch(query),
+        }
+    }
+
+    fn fetch_all<'e, 'q: 'e, E: 'q>(
+        self,
+        query: E,
+    ) -> BoxFuture<'e, Result<Vec<<Self::Database as sqlx::Database>::Row>, sqlx::Error>>
+    where
+        'c: 'e,
+        E: sqlx::Execute<'q, Self::Database>,
+    {
+        match self {
+            SqliteExecutor::PoolExec(pool) => pool.fetch_all(query),
+            SqliteExecutor::TxExec(ref mut tx) => tx.fetch_all(query),
+        }
+    }
+
+    fn fetch_many<'e, 'q: 'e, E: 'q>(
+        self,
+        query: E,
+    ) -> futures::stream::BoxStream<
+        'e,
+        Result<
+            sqlx::Either<
+                <Self::Database as sqlx::Database>::QueryResult,
+                <Self::Database as sqlx::Database>::Row,
+            >,
+            sqlx::Error,
+        >,
+    >
+    where
+        'c: 'e,
+        E: sqlx::Execute<'q, Self::Database>,
+    {
+        match self {
+            SqliteExecutor::PoolExec(pool) => pool.fetch_many(query),
+            SqliteExecutor::TxExec(ref mut tx) => tx.fetch_many(query),
+        }
+    }
+
+    fn fetch_one<'e, 'q: 'e, E: 'q>(
+        self,
+        query: E,
+    ) -> BoxFuture<'e, Result<<Self::Database as sqlx::Database>::Row, sqlx::Error>>
+    where
+        'c: 'e,
+        E: sqlx::Execute<'q, Self::Database>,
+    {
+        match self {
+            SqliteExecutor::PoolExec(pool) => pool.fetch_one(query),
+            SqliteExecutor::TxExec(ref mut tx) => tx.fetch_one(query),
+        }
+    }
+
+    fn fetch_optional<'e, 'q: 'e, E: 'q>(
+        self,
+        query: E,
+    ) -> BoxFuture<'e, Result<Option<<Self::Database as sqlx::Database>::Row>, sqlx::Error>>
+    where
+        'c: 'e,
+        E: sqlx::Execute<'q, Self::Database>,
+    {
+        match self {
+            SqliteExecutor::PoolExec(pool) => pool.fetch_optional(query),
+            SqliteExecutor::TxExec(ref mut tx) => tx.fetch_optional(query),
+        }
+    }
+
+    fn prepare<'e, 'q: 'e>(
+        self,
+        query: &'q str,
+    ) -> BoxFuture<
+        'e,
+        Result<<Self::Database as sqlx::database::HasStatement<'q>>::Statement, sqlx::Error>,
+    >
+    where
+        'c: 'e,
+    {
+        match self {
+            SqliteExecutor::PoolExec(pool) => pool.prepare(query),
+            SqliteExecutor::TxExec(ref mut tx) => tx.prepare(query),
+        }
+    }
+
+    fn prepare_with<'e, 'q: 'e>(
+        self,
+        sql: &'q str,
+        parameters: &'e [<Self::Database as sqlx::Database>::TypeInfo],
+    ) -> BoxFuture<
+        'e,
+        Result<<Self::Database as sqlx::database::HasStatement<'q>>::Statement, sqlx::Error>,
+    >
+    where
+        'c: 'e,
+    {
+        match self {
+            SqliteExecutor::PoolExec(pool) => pool.prepare_with(sql, parameters),
+            SqliteExecutor::TxExec(ref mut tx) => tx.prepare_with(sql, parameters),
+        }
+    }
 }
 
 /// A database instance backed by an in-memory SQLite database.
 #[derive(Derivative)]
-#[derivative(Clone(bound = ""))]
-pub struct SqliteDb<T>
-where
-    T: BareTx + From<Mutex<Transaction<'static, Sqlite>>> + Send + Sync + 'static,
-{
+#[derivative(Clone)]
+pub struct SqliteDb {
     /// Shared SQLite connection pool.  This is a cloneable type that all concurrent
     /// transactions can use it concurrently.
     pool: SqlitePool,
-
-    /// Marker for the unused type `T`.
-    _phantom_tx: PhantomData<T>,
 }
 
-impl<T> SqliteDb<T>
-where
-    T: BareTx + From<Mutex<Transaction<'static, Sqlite>>> + Send + Sync + 'static,
-{
-    /// Attaches a new database of type `T` to an existing pool.
-    ///
-    /// This takes care of running the migration process for the type `T`, which in turn results
-    /// in the database connection being established.
-    pub async fn attach(pool: SqlitePool) -> DbResult<Self> {
-        let db = Self { pool, _phantom_tx: PhantomData };
-
-        let mut tx: T = db.begin().await?;
-        tx.migrate().await?;
-        tx.commit().await?;
-
-        Ok(db)
+impl SqliteDb {
+    /// Returns an executor of the specific type used by this database.
+    pub fn typed_ex(&self) -> SqliteExecutor {
+        SqliteExecutor::PoolExec(self.pool.clone())
     }
 }
 
-#[async_trait::async_trait]
-impl<T> Db for SqliteDb<T>
-where
-    T: BareTx + From<Mutex<Transaction<'static, Sqlite>>> + Send + Sync + 'static,
-{
-    type Tx = T;
+#[async_trait]
+impl Db for SqliteDb {
+    fn ex(&self) -> Executor {
+        Executor::Sqlite(SqliteExecutor::PoolExec(self.pool.clone()))
+    }
 
-    async fn begin(&self) -> DbResult<Self::Tx> {
+    async fn begin(&self) -> DbResult<TxExecutor> {
         let tx = self.pool.begin().await.map_err(map_sqlx_error)?;
-        Ok(Self::Tx::from(Mutex::from(tx)))
+        Ok(TxExecutor(Executor::Sqlite(SqliteExecutor::TxExec(tx))))
     }
 }
 
-/// Helper function to initialize the database with a schema.  Use in implementations of
-/// `BareTx::migrate`.
-pub async fn run_schema(
-    tx: &mut Mutex<Transaction<'static, Sqlite>>,
-    schema: &str,
-) -> DbResult<()> {
-    let mut tx = tx.lock().await;
-    let mut results = sqlx::query(schema).execute_many(&mut **tx).await;
+/// Helper function to initialize the database with a schema.
+pub async fn run_schema(e: &mut SqliteExecutor, schema: &str) -> DbResult<()> {
+    let mut results = sqlx::query(schema).execute_many(e).await;
     while results.try_next().await.map_err(map_sqlx_error)?.is_some() {
         // Nothing to do.
     }
@@ -175,65 +330,10 @@ pub fn unpack_timestamp(ts: OffsetDateTime) -> (i64, i64) {
 pub mod testutils {
     use super::*;
 
-    /// A transaction backed by a SQLite database.
-    pub(crate) struct SqliteTestTx {
-        /// Inner transaction type to obtain access to the raw sqlx transaction.
-        tx: Mutex<Transaction<'static, Sqlite>>,
-    }
-
-    impl From<Mutex<Transaction<'static, Sqlite>>> for SqliteTestTx {
-        fn from(tx: Mutex<Transaction<'static, Sqlite>>) -> Self {
-            Self { tx }
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl BareTx for SqliteTestTx {
-        async fn commit(mut self) -> DbResult<()> {
-            let tx = self.tx.into_inner();
-            tx.commit().await.map_err(map_sqlx_error)
-        }
-
-        async fn migrate(&mut self) -> DbResult<()> {
-            unreachable!("Should not be called during tests");
-        }
-
-        async fn migrate_test(&mut self) -> DbResult<()> {
-            Ok(())
-        }
-    }
-
     /// Initializes the test database.
-    pub async fn setup<T>() -> SqliteDb<T>
-    where
-        T: BareTx + From<Mutex<Transaction<'static, Sqlite>>> + Send + Sync + 'static,
-    {
+    pub async fn setup() -> SqliteDb {
         let _can_fail = env_logger::builder().is_test(true).try_init();
-        let pool = connect_internal(":memory:").await.unwrap();
-        // We don't use attach because we don't want to run the DB migration code.
-        let db = SqliteDb { pool, _phantom_tx: PhantomData };
-
-        let mut tx: T = db.begin().await.unwrap();
-        tx.migrate_test().await.unwrap();
-        tx.commit().await.unwrap();
-
-        db
-    }
-
-    /// Initializes another test database sharing the connection of `other`.
-    pub async fn setup_attach<T, O>(other: SqliteDb<O>) -> SqliteDb<T>
-    where
-        T: BareTx + From<Mutex<Transaction<'static, Sqlite>>> + Send + Sync + 'static,
-        O: BareTx + From<Mutex<Transaction<'static, Sqlite>>> + Send + Sync + 'static,
-    {
-        // We don't use attach because we don't want to run the DB migration code.
-        let db = SqliteDb { pool: other.pool, _phantom_tx: PhantomData };
-
-        let mut tx: T = db.begin().await.unwrap();
-        tx.migrate_test().await.unwrap();
-        tx.commit().await.unwrap();
-
-        db
+        connect(":memory:").await.unwrap()
     }
 }
 
@@ -241,59 +341,11 @@ pub mod testutils {
 mod tests {
     use super::testutils::*;
     use super::*;
-    use crate::db::testutils::generate_core_db_tests;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use crate::db::tests::{generate_db_ro_concurrent_tests, generate_db_rw_tests};
 
-    generate_core_db_tests!(setup::<SqliteTestTx>().await);
+    generate_db_ro_concurrent_tests!(Box::from(setup().await));
 
-    /// Tracks whether `AttachTx::migrate_test` has been called.  Only one test can exercise
-    /// this due to the process-wide nature of the static value.
-    static ATTACH_TX_MIGRATE_TEST_CALLED: AtomicBool = AtomicBool::new(false);
-
-    /// A transaction backed by a SQLite database used to verify the behavior of the
-    /// `setup_attach` method.
-    struct AttachTx {
-        /// Inner transaction type to obtain access to the raw sqlx transaction.
-        tx: Mutex<Transaction<'static, Sqlite>>,
-    }
-
-    impl From<Mutex<Transaction<'static, Sqlite>>> for AttachTx {
-        fn from(tx: Mutex<Transaction<'static, Sqlite>>) -> Self {
-            Self { tx }
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl BareTx for AttachTx {
-        async fn commit(mut self) -> DbResult<()> {
-            let tx = self.tx.into_inner();
-            tx.commit().await.map_err(map_sqlx_error)
-        }
-
-        async fn migrate(&mut self) -> DbResult<()> {
-            unreachable!("Should not be called during tests");
-        }
-
-        async fn migrate_test(&mut self) -> DbResult<()> {
-            let called = ATTACH_TX_MIGRATE_TEST_CALLED
-                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-                .unwrap();
-            assert!(!called);
-            Ok(())
-        }
-    }
-
-    #[tokio::test]
-    async fn test_setup_attach() {
-        let db1: SqliteDb<SqliteTestTx> = setup().await;
-
-        assert!(!ATTACH_TX_MIGRATE_TEST_CALLED.load(Ordering::SeqCst));
-        let db2: SqliteDb<AttachTx> = setup_attach(db1).await;
-        assert!(ATTACH_TX_MIGRATE_TEST_CALLED.load(Ordering::SeqCst));
-
-        let tx = db2.begin().await.unwrap();
-        tx.commit().await.unwrap();
-    }
+    generate_db_rw_tests!(Box::from(setup().await));
 
     #[test]
     fn test_build_unpack_duration_zero() {

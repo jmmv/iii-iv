@@ -15,25 +15,24 @@
 
 //! Test utilities for the REST API.
 
-use crate::db::sqlite::SqliteTx;
-use crate::db::Tx;
+use crate::db;
 use crate::driver::Driver;
 use crate::model::*;
 use crate::rest::app;
 use axum::Router;
 use iii_iv_core::db::sqlite::SqliteDb;
-use iii_iv_core::db::{BareTx, Db};
+use iii_iv_core::db::Db;
 
 pub(crate) struct TestContext {
-    db: SqliteDb<SqliteTx>,
+    db: SqliteDb,
     app: Router,
 }
 
 impl TestContext {
     pub(crate) async fn setup() -> Self {
-        let pool = iii_iv_core::db::sqlite::connect(":memory:").await.unwrap();
-        let db = SqliteDb::<SqliteTx>::attach(pool).await.unwrap();
-        let driver = Driver::new(db.clone());
+        let db = iii_iv_core::db::sqlite::connect(":memory:").await.unwrap();
+        db::init_schema(&mut db.ex()).await.unwrap();
+        let driver = Driver::new(Box::from(db.clone()));
         let app = app(driver);
         Self { db, app }
     }
@@ -52,27 +51,20 @@ impl TestContext {
         value: V,
         version: u32,
     ) {
-        let mut tx = self.db.begin().await.unwrap();
-        tx.set_key(
+        db::set_key(
+            &mut self.db.ex(),
             &Key::new(key.into()),
             &Entry::new(value.into(), Version::from_u32(version).unwrap()),
         )
         .await
         .unwrap();
-        tx.commit().await.unwrap();
     }
 
     pub(crate) async fn has_key<K: Into<String>>(&self, key: K) -> bool {
-        let mut tx = self.db.begin().await.unwrap();
-        let found = tx.get_key_version(&Key::new(key.into())).await.unwrap().is_some();
-        tx.commit().await.unwrap();
-        found
+        db::get_key_version(&mut self.db.ex(), &Key::new(key.into())).await.unwrap().is_some()
     }
 
     pub(crate) async fn get_key<K: Into<String>>(&self, key: K) -> Entry {
-        let mut tx = self.db.begin().await.unwrap();
-        let entry = tx.get_key(&Key::new(key.into())).await.unwrap();
-        tx.commit().await.unwrap();
-        entry
+        db::get_key(&mut self.db.ex(), &Key::new(key.into())).await.unwrap()
     }
 }

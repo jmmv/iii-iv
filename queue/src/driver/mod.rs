@@ -24,19 +24,19 @@ pub use worker::{Worker, WorkerOptions};
 #[cfg(test)]
 mod testutils {
     use super::*;
-    use crate::db::{SqliteClientTx, SqliteWorkerTx};
+    use crate::db;
     use crate::model::{ExecError, ExecResult};
     use futures::lock::Mutex;
     use iii_iv_core::clocks::testutils::MonotonicClock;
     use iii_iv_core::clocks::Clock;
-    use iii_iv_core::db::sqlite::SqliteDb;
+    use iii_iv_core::db::Db;
     use serde::{Deserialize, Serialize};
     use std::collections::HashMap;
     use std::sync::Arc;
     use std::time::Duration;
 
     /// A queue client backed by mock entities.
-    type MockClient = Client<MockTask, SqliteDb<SqliteClientTx<MockTask>>>;
+    type MockClient = Client<MockTask>;
 
     /// A task definition for testing purposes.
     #[derive(Deserialize, Serialize)]
@@ -146,18 +146,17 @@ mod testutils {
         /// Initializes an in-memory queue with one in-process worker and a client that is
         /// configured to poke the worker when new tasks are enqueued.
         pub(super) async fn setup_one_connected(opts: WorkerOptions) -> Self {
-            let client_db = iii_iv_core::db::sqlite::testutils::setup().await;
-            let worker_db: SqliteDb<SqliteWorkerTx<MockTask>> =
-                iii_iv_core::db::sqlite::testutils::setup_attach(client_db.clone()).await;
+            let db = Arc::from(iii_iv_core::db::sqlite::testutils::setup().await);
+            db::init_schema(&mut db.ex()).await.unwrap();
             let clock = Arc::from(MonotonicClock::new(100000));
 
             let state = TaskStateById::default();
-            let client = Client::new(client_db, clock.clone());
+            let client = Client::new(db.clone(), clock.clone());
             let worker = {
                 let state = state.clone();
                 let client = client.clone();
                 let clock = clock.clone();
-                let worker = Worker::new(worker_db, clock.clone(), opts, move |task| {
+                let worker = Worker::new(db, clock.clone(), opts, move |task| {
                     run_task(task, state.clone(), client.clone(), clock.clone())
                 });
                 Arc::from(Mutex::from(worker))
@@ -174,13 +173,12 @@ mod testutils {
             opts: WorkerOptions,
             num_workers: usize,
         ) -> Self {
-            let client_db = iii_iv_core::db::sqlite::testutils::setup().await;
-            let worker_db: SqliteDb<SqliteWorkerTx<MockTask>> =
-                iii_iv_core::db::sqlite::testutils::setup_attach(client_db.clone()).await;
+            let db = Arc::from(iii_iv_core::db::sqlite::testutils::setup().await);
+            db::init_schema(&mut db.ex()).await.unwrap();
             let clock = Arc::from(MonotonicClock::new(100000));
 
             let state = TaskStateById::default();
-            let client = Client::new(client_db, clock.clone());
+            let client = Client::new(db.clone(), clock.clone());
             let mut workers = Vec::with_capacity(num_workers);
             for _ in 0..num_workers {
                 let worker = {
@@ -188,7 +186,7 @@ mod testutils {
                     let client = client.clone();
                     let clock = clock.clone();
                     let worker =
-                        Worker::new(worker_db.clone(), clock.clone(), opts.clone(), move |task| {
+                        Worker::new(db.clone(), clock.clone(), opts.clone(), move |task| {
                             run_task(task, state.clone(), client.clone(), clock.clone())
                         });
                     Arc::from(Mutex::from(worker))

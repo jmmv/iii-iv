@@ -15,40 +15,33 @@
 
 //! Operations on one key.
 
-use crate::db::Tx;
+use crate::db;
 use crate::driver::Driver;
 use crate::model::*;
-use iii_iv_core::db::{BareTx, Db};
 use iii_iv_core::driver::DriverResult;
 
-impl<D> Driver<D>
-where
-    D: Db + Clone + Send + Sync + 'static,
-    D::Tx: Tx + Send + Sync + 'static,
-{
+impl Driver {
     /// Deletes an existing `key`.
     pub(crate) async fn delete_key(self, key: &Key) -> DriverResult<()> {
-        let mut tx = self.db.begin().await?;
-        tx.delete_key(key).await?;
-        tx.commit().await?;
+        db::delete_key(&mut self.db.ex(), key).await?;
         Ok(())
     }
 
     /// Gets the current value of the given `key`.
     pub(crate) async fn get_key(self, key: &Key) -> DriverResult<Entry> {
-        let mut tx = self.db.begin().await?;
-        let value = tx.get_key(key).await?;
-        tx.commit().await?;
+        let value = db::get_key(&mut self.db.ex(), key).await?;
         Ok(value)
     }
 
     /// Sets `key` to `value`, incrementing its version.
     pub(crate) async fn set_key(self, key: &Key, value: String) -> DriverResult<Entry> {
         let mut tx = self.db.begin().await?;
-        let version =
-            tx.get_key_version(key).await?.map(Version::next).unwrap_or_else(Version::initial);
+        let version = db::get_key_version(tx.ex(), key)
+            .await?
+            .map(Version::next)
+            .unwrap_or_else(Version::initial);
         let entry = Entry::new(value, version);
-        tx.set_key(key, &entry).await?;
+        db::set_key(tx.ex(), key, &entry).await?;
         tx.commit().await?;
         Ok(entry)
     }
@@ -57,6 +50,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db;
     use crate::driver::testutils::*;
     use iii_iv_core::db::DbError;
     use iii_iv_core::driver::DriverError;
@@ -68,15 +62,11 @@ mod tests {
         let key = Key::new("test".to_owned());
         let entry = Entry::new("the value".to_owned(), Version::initial());
 
-        let mut tx = context.db().begin().await.unwrap();
-        tx.set_key(&key, &entry).await.unwrap();
-        tx.commit().await.unwrap();
+        db::set_key(&mut context.ex(), &key, &entry).await.unwrap();
 
         context.driver().delete_key(&key).await.unwrap();
 
-        let mut tx = context.db().begin().await.unwrap();
-        assert_eq!(DbError::NotFound, tx.get_key(&key).await.unwrap_err());
-        tx.commit().await.unwrap();
+        assert_eq!(DbError::NotFound, db::get_key(&mut context.ex(), &key).await.unwrap_err());
     }
 
     #[tokio::test]
@@ -98,9 +88,7 @@ mod tests {
         let key = Key::new("test".to_owned());
         let exp_entry = Entry::new("the value".to_owned(), Version::initial());
 
-        let mut tx = context.db().begin().await.unwrap();
-        tx.set_key(&key, &exp_entry).await.unwrap();
-        tx.commit().await.unwrap();
+        db::set_key(&mut context.ex(), &key, &exp_entry).await.unwrap();
 
         let entry = context.driver().get_key(&key).await.unwrap();
         assert_eq!(exp_entry, entry);
@@ -126,10 +114,8 @@ mod tests {
 
         context.driver().set_key(&key, "first value".to_owned()).await.unwrap();
 
-        let mut tx = context.db().begin().await.unwrap();
-        let entry = tx.get_key(&key).await.unwrap();
+        let entry = db::get_key(&mut context.ex(), &key).await.unwrap();
         assert_eq!(Entry::new("first value".to_owned(), Version::initial()), entry);
-        tx.commit().await.unwrap();
     }
 
     #[tokio::test]
@@ -141,9 +127,7 @@ mod tests {
         context.driver().set_key(&key, "first value".to_owned()).await.unwrap();
         context.driver().set_key(&key, "second value".to_owned()).await.unwrap();
 
-        let mut tx = context.db().begin().await.unwrap();
-        let entry = tx.get_key(&key).await.unwrap();
+        let entry = db::get_key(&mut context.ex(), &key).await.unwrap();
         assert_eq!(Entry::new("second value".to_owned(), Version::initial().next()), entry);
-        tx.commit().await.unwrap();
     }
 }

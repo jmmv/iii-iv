@@ -15,23 +15,17 @@
 
 //! API to get all existing keys.
 
-use crate::db::Tx;
 use crate::driver::Driver;
 use axum::extract::State;
 use axum::response::IntoResponse;
 use axum::Json;
-use iii_iv_core::db::Db;
 use iii_iv_core::rest::{EmptyBody, RestError};
 
 /// API handler.
-pub(crate) async fn handler<D>(
-    State(driver): State<Driver<D>>,
+pub(crate) async fn handler(
+    State(driver): State<Driver>,
     _: EmptyBody,
-) -> Result<impl IntoResponse, RestError>
-where
-    D: Db + Clone + Send + Sync + 'static,
-    D::Tx: Tx + Send + Sync + 'static,
-{
+) -> Result<impl IntoResponse, RestError> {
     let keys = driver.get_keys().await?;
 
     Ok(Json(keys))

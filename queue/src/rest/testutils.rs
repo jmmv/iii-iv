@@ -13,7 +13,7 @@
 // License for the specific language governing permissions and limitations
 // under the License.
 
-use crate::db::{SqliteClientTx, SqliteWorkerTx};
+use crate::db;
 use crate::driver::{Client, Worker, WorkerOptions};
 use crate::model::{ExecError, ExecResult};
 use crate::rest::worker_cron_app;
@@ -21,7 +21,7 @@ use axum::Router;
 use futures::lock::Mutex;
 use iii_iv_core::clocks::testutils::MonotonicClock;
 use iii_iv_core::clocks::Clock;
-use iii_iv_core::db::sqlite::SqliteDb;
+use iii_iv_core::db::Db;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -43,7 +43,7 @@ pub(super) struct TestContext {
     app: Router,
 
     /// Queue client to interact with the tasks handled by `app`.
-    pub(super) client: Client<MockTask, SqliteDb<SqliteClientTx<MockTask>>>,
+    pub(super) client: Client<MockTask>,
 
     /// Clock used during testing.
     pub(super) clock: Arc<dyn Clock>,
@@ -53,20 +53,19 @@ impl TestContext {
     /// Initializes a REST app using an in-memory datababase with an in-process worker and a
     /// client that is **not** connected to the worker.
     pub(super) async fn setup() -> TestContext {
-        let client_db = iii_iv_core::db::sqlite::testutils::setup().await;
-        let worker_db: SqliteDb<SqliteWorkerTx<MockTask>> =
-            iii_iv_core::db::sqlite::testutils::setup_attach(client_db.clone()).await;
+        let db = Arc::from(iii_iv_core::db::sqlite::testutils::setup().await);
+        db::init_schema(&mut db.ex()).await.unwrap();
         let clock = Arc::from(MonotonicClock::new(100000));
 
         let worker = {
             let opts = WorkerOptions::default();
-            let worker = Worker::new(worker_db, clock.clone(), opts, run_task);
+            let worker = Worker::new(db.clone(), clock.clone(), opts, run_task);
             Arc::from(Mutex::from(worker))
         };
 
         // The client is not connected to the worker so that we can validate that the worker loop
         // isn't invoked until we ask for it.
-        let client = Client::new(client_db, clock.clone());
+        let client = Client::new(db, clock.clone());
 
         let app = worker_cron_app(worker);
 

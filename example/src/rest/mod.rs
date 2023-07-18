@@ -15,10 +15,8 @@
 
 //! Entry point to the REST server.
 
-use crate::db::Tx;
 use crate::driver::Driver;
 use axum::Router;
-use iii_iv_core::db::Db;
 
 mod key_delete;
 mod key_get;
@@ -28,11 +26,7 @@ mod keys_get;
 mod testutils;
 
 /// Creates the router for the application.
-pub(crate) fn app<D>(driver: Driver<D>) -> Router
-where
-    D: Db + Clone + Send + Sync + 'static,
-    D::Tx: Tx + Send + Sync + 'static,
-{
+pub(crate) fn app(driver: Driver) -> Router {
     use axum::routing::get;
     Router::new()
         .route(

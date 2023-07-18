@@ -15,15 +15,16 @@
 
 //! Provides the task queue client implementation.
 
-use crate::db::ClientTx;
+use crate::db;
 use crate::driver::Worker;
 use crate::model::TaskResult;
 use derivative::Derivative;
 use futures::lock::Mutex;
 use iii_iv_core::clocks::Clock;
-use iii_iv_core::db::{BareTx, Db};
+use iii_iv_core::db::Db;
 use iii_iv_core::driver::{DriverError, DriverResult};
 use log::warn;
+use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
@@ -36,14 +37,12 @@ use uuid::Uuid;
 /// worker process.
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""))]
-pub struct Client<T, D>
+pub struct Client<T>
 where
-    D: Db + Clone + Send + Sync + 'static,
-    D::Tx: ClientTx<T = T> + Send + Sync + 'static,
-    T: Send + Sync,
+    T: Serialize + Send + Sync,
 {
     /// The database that the driver uses for persistence.
-    db: D,
+    db: Arc<dyn Db + Send + Sync>,
 
     /// Clock instance to obtain the current time.
     clock: Arc<dyn Clock + Send + Sync>,
@@ -53,14 +52,12 @@ where
     worker: Option<Arc<Mutex<Worker<T>>>>,
 }
 
-impl<T, D> Client<T, D>
+impl<T> Client<T>
 where
-    D: Db + Clone + Send + Sync + 'static,
-    D::Tx: ClientTx<T = T> + Send + Sync + 'static,
-    T: Send + Sync,
+    T: Serialize + Send + Sync,
 {
     /// Creates a new driver backed by `db` and a `clock`.
-    pub fn new(db: D, clock: Arc<dyn Clock + Send + Sync>) -> Self {
+    pub fn new(db: Arc<dyn Db + Send + Sync>, clock: Arc<dyn Clock + Send + Sync>) -> Self {
         Self { db, clock, worker: None }
     }
 
@@ -87,9 +84,7 @@ where
     /// If the client is configured to notify a worker, this notifies the worker for immediate
     /// task processing.
     pub async fn enqueue(&mut self, task: &T) -> DriverResult<Uuid> {
-        let mut tx = self.db.begin().await?;
-        let id = tx.put_new_task(task, self.clock.now_utc(), None).await?;
-        tx.commit().await?;
+        let id = db::put_new_task(&mut self.db.ex(), task, self.clock.now_utc(), None).await?;
 
         self.maybe_notify_worker().await;
 
@@ -106,9 +101,8 @@ where
         task: &T,
         only_after: OffsetDateTime,
     ) -> DriverResult<Uuid> {
-        let mut tx = self.db.begin().await?;
-        let id = tx.put_new_task(task, self.clock.now_utc(), Some(only_after)).await?;
-        tx.commit().await?;
+        let id = db::put_new_task(&mut self.db.ex(), task, self.clock.now_utc(), Some(only_after))
+            .await?;
 
         self.maybe_notify_worker().await;
 
@@ -125,10 +119,8 @@ where
         task: &T,
         only_after: Duration,
     ) -> DriverResult<Uuid> {
-        let mut tx = self.db.begin().await?;
         let now = self.clock.now_utc();
-        let id = tx.put_new_task(task, now, Some(now + only_after)).await?;
-        tx.commit().await?;
+        let id = db::put_new_task(&mut self.db.ex(), task, now, Some(now + only_after)).await?;
 
         self.maybe_notify_worker().await;
 
@@ -137,9 +129,7 @@ where
 
     /// Returns the result of task `id` if it is already available.
     pub async fn poll(&mut self, id: Uuid) -> DriverResult<Option<TaskResult>> {
-        let mut tx = self.db.begin().await?;
-        let result = tx.get_result(id).await?;
-        tx.commit().await?;
+        let result = db::get_result(&mut self.db.ex(), id).await?;
         Ok(result)
     }
 
@@ -174,12 +164,7 @@ where
 
         let mut results = HashMap::default();
         while !ids.is_empty() {
-            let partial = {
-                let mut tx = self.db.begin().await?;
-                let results = tx.get_results_since(since).await?;
-                tx.commit().await?;
-                results
-            };
+            let partial = db::get_results_since(&mut self.db.ex(), since).await?;
 
             for (id, result) in partial {
                 if !ids.remove(&id) {

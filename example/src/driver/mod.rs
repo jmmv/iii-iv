@@ -15,8 +15,8 @@
 
 //! Business logic for the service.
 
-use crate::db::Tx;
 use iii_iv_core::db::Db;
+use std::sync::Arc;
 
 mod key;
 mod keys;
@@ -30,22 +30,14 @@ mod testutils;
 /// these operations consume the driver in an attempt to minimize the possibility of executing
 /// two operations.
 #[derive(Clone)]
-pub(crate) struct Driver<D>
-where
-    D: Db + Clone + Send + Sync + 'static,
-    D::Tx: Tx + Send + Sync + 'static,
-{
+pub(crate) struct Driver {
     /// The database that the driver uses for persistence.
-    db: D,
+    db: Arc<dyn Db + Send + Sync>,
 }
 
-impl<D> Driver<D>
-where
-    D: Db + Clone + Send + Sync + 'static,
-    D::Tx: Tx + Send + Sync + 'static,
-{
+impl Driver {
     /// Creates a new driver backed by the given injected components.
-    pub(crate) fn new(db: D) -> Self {
-        Self { db }
+    pub(crate) fn new(db: Box<dyn Db + Send + Sync>) -> Self {
+        Self { db: Arc::from(db) }
     }
 }

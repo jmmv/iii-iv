@@ -15,25 +15,19 @@
 
 //! API to get the latest version of a key.
 
-use crate::db::Tx;
 use crate::driver::Driver;
 use crate::model::Key;
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 use axum::Json;
-use iii_iv_core::db::Db;
 use iii_iv_core::rest::{EmptyBody, RestError};
 
 /// API handler.
-pub(crate) async fn handler<D>(
-    State(driver): State<Driver<D>>,
+pub(crate) async fn handler(
+    State(driver): State<Driver>,
     Path(key): Path<Key>,
     _: EmptyBody,
-) -> Result<impl IntoResponse, RestError>
-where
-    D: Db + Clone + Send + Sync + 'static,
-    D::Tx: Tx + Send + Sync + 'static,
-{
+) -> Result<impl IntoResponse, RestError> {
     let entry = driver.get_key(&key).await?;
     Ok(Json(entry))
 }
