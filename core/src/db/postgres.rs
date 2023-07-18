@@ -15,12 +15,13 @@
 
 //! Common utilities to interact with a PostgreSQL database.
 
-use crate::db::{BareTx, Db, DbError, DbResult};
+use crate::db::{Db, DbError, DbResult, Executor, TxExecutor};
 use crate::env::{get_optional_var, get_required_var};
+use async_trait::async_trait;
 use derivative::Derivative;
+use futures::future::BoxFuture;
 use sqlx::postgres::{PgConnectOptions, PgDatabaseError, PgPool, PgPoolOptions, Postgres};
 use sqlx::Transaction;
-use std::marker::PhantomData;
 #[cfg(test)]
 use std::sync::Arc;
 
@@ -87,6 +88,189 @@ impl PostgresOptions {
     }
 }
 
+/// A generic database executor implementation for PostgreSQL.
+#[derive(Debug)]
+pub enum PostgresExecutor {
+    /// An executor backed by a pool.  Operations issued via this executor aren't guaranteed to
+    /// happen on the same connection.
+    PoolExec(PgPool),
+
+    /// An executor backed by a transaction.
+    TxExec(Transaction<'static, Postgres>),
+}
+
+impl PostgresExecutor {
+    /// Commits the transaction if this executor is backed by one.
+    ///
+    /// Calling this on a non-transaction-based executor results in a panic.
+    pub(super) async fn commit(self) -> DbResult<()> {
+        match self {
+            PostgresExecutor::PoolExec(_) => unreachable!("Do not call commit on direct executors"),
+            PostgresExecutor::TxExec(tx) => tx.commit().await.map_err(map_sqlx_error),
+        }
+    }
+}
+
+impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
+    type Database = Postgres;
+
+    fn describe<'e, 'q: 'e>(
+        self,
+        sql: &'q str,
+    ) -> BoxFuture<'e, Result<sqlx::Describe<Self::Database>, sqlx::Error>>
+    where
+        'c: 'e,
+    {
+        match self {
+            PostgresExecutor::PoolExec(pool) => pool.describe(sql),
+            PostgresExecutor::TxExec(ref mut tx) => tx.describe(sql),
+        }
+    }
+
+    fn execute<'e, 'q: 'e, E: 'q>(
+        self,
+        query: E,
+    ) -> BoxFuture<'e, Result<<Self::Database as sqlx::Database>::QueryResult, sqlx::Error>>
+    where
+        'c: 'e,
+        E: sqlx::Execute<'q, Self::Database>,
+    {
+        match self {
+            PostgresExecutor::PoolExec(pool) => pool.execute(query),
+            PostgresExecutor::TxExec(ref mut tx) => tx.execute(query),
+        }
+    }
+
+    fn execute_many<'e, 'q: 'e, E: 'q>(
+        self,
+        query: E,
+    ) -> futures::stream::BoxStream<
+        'e,
+        Result<<Self::Database as sqlx::Database>::QueryResult, sqlx::Error>,
+    >
+    where
+        'c: 'e,
+        E: sqlx::Execute<'q, Self::Database>,
+    {
+        match self {
+            PostgresExecutor::PoolExec(pool) => pool.execute_many(query),
+            PostgresExecutor::TxExec(ref mut tx) => tx.execute_many(query),
+        }
+    }
+
+    fn fetch<'e, 'q: 'e, E: 'q>(
+        self,
+        query: E,
+    ) -> futures::stream::BoxStream<'e, Result<<Self::Database as sqlx::Database>::Row, sqlx::Error>>
+    where
+        'c: 'e,
+        E: sqlx::Execute<'q, Self::Database>,
+    {
+        match self {
+            PostgresExecutor::PoolExec(pool) => pool.fetch(query),
+            PostgresExecutor::TxExec(ref mut tx) => tx.fetch(query),
+        }
+    }
+
+    fn fetch_all<'e, 'q: 'e, E: 'q>(
+        self,
+        query: E,
+    ) -> BoxFuture<'e, Result<Vec<<Self::Database as sqlx::Database>::Row>, sqlx::Error>>
+    where
+        'c: 'e,
+        E: sqlx::Execute<'q, Self::Database>,
+    {
+        match self {
+            PostgresExecutor::PoolExec(pool) => pool.fetch_all(query),
+            PostgresExecutor::TxExec(ref mut tx) => tx.fetch_all(query),
+        }
+    }
+
+    fn fetch_many<'e, 'q: 'e, E: 'q>(
+        self,
+        query: E,
+    ) -> futures::stream::BoxStream<
+        'e,
+        Result<
+            sqlx::Either<
+                <Self::Database as sqlx::Database>::QueryResult,
+                <Self::Database as sqlx::Database>::Row,
+            >,
+            sqlx::Error,
+        >,
+    >
+    where
+        'c: 'e,
+        E: sqlx::Execute<'q, Self::Database>,
+    {
+        match self {
+            PostgresExecutor::PoolExec(pool) => pool.fetch_many(query),
+            PostgresExecutor::TxExec(ref mut tx) => tx.fetch_many(query),
+        }
+    }
+
+    fn fetch_one<'e, 'q: 'e, E: 'q>(
+        self,
+        query: E,
+    ) -> BoxFuture<'e, Result<<Self::Database as sqlx::Database>::Row, sqlx::Error>>
+    where
+        'c: 'e,
+        E: sqlx::Execute<'q, Self::Database>,
+    {
+        match self {
+            PostgresExecutor::PoolExec(pool) => pool.fetch_one(query),
+            PostgresExecutor::TxExec(ref mut tx) => tx.fetch_one(query),
+        }
+    }
+
+    fn fetch_optional<'e, 'q: 'e, E: 'q>(
+        self,
+        query: E,
+    ) -> BoxFuture<'e, Result<Option<<Self::Database as sqlx::Database>::Row>, sqlx::Error>>
+    where
+        'c: 'e,
+        E: sqlx::Execute<'q, Self::Database>,
+    {
+        match self {
+            PostgresExecutor::PoolExec(pool) => pool.fetch_optional(query),
+            PostgresExecutor::TxExec(ref mut tx) => tx.fetch_optional(query),
+        }
+    }
+
+    fn prepare<'e, 'q: 'e>(
+        self,
+        query: &'q str,
+    ) -> BoxFuture<
+        'e,
+        Result<<Self::Database as sqlx::database::HasStatement<'q>>::Statement, sqlx::Error>,
+    >
+    where
+        'c: 'e,
+    {
+        match self {
+            PostgresExecutor::PoolExec(pool) => pool.prepare(query),
+            PostgresExecutor::TxExec(ref mut tx) => tx.prepare(query),
+        }
+    }
+
+    fn prepare_with<'e, 'q: 'e>(
+        self,
+        sql: &'q str,
+        parameters: &'e [<Self::Database as sqlx::Database>::TypeInfo],
+    ) -> BoxFuture<
+        'e,
+        Result<<Self::Database as sqlx::database::HasStatement<'q>>::Statement, sqlx::Error>,
+    >
+    where
+        'c: 'e,
+    {
+        match self {
+            PostgresExecutor::PoolExec(pool) => pool.prepare_with(sql, parameters),
+            PostgresExecutor::TxExec(ref mut tx) => tx.prepare_with(sql, parameters),
+        }
+    }
+}
+
 #[cfg(test)]
 struct PoolCloser {
     pool: PgPool,
@@ -108,8 +292,8 @@ impl Drop for PoolCloser {
 
 /// Shareable connection across transactions and `PostgresDb` types.
 #[derive(Derivative)]
-#[derivative(Clone(bound = ""))]
-pub struct PostgresPool {
+#[derivative(Clone)]
+pub struct PostgresDb {
     /// Shared PostgreSQL connection pool.  This is a cloneable type that all concurrent
     /// transactions can use it concurrently.
     pool: PgPool,
@@ -119,7 +303,7 @@ pub struct PostgresPool {
     closer: Arc<PoolCloser>,
 }
 
-impl PostgresPool {
+impl PostgresDb {
     /// Creates a new connection based on a set of options.
     ///
     /// Note that this does *not* establish the connection.
@@ -150,68 +334,33 @@ impl PostgresPool {
         Ok(db)
     }
 
-    /// Opens a new transaction.
-    async fn begin(&self) -> DbResult<Transaction<'static, Postgres>> {
-        self.pool.begin().await.map_err(map_sqlx_error)
+    /// Returns an executor of the specific type used by this database.
+    pub fn typed_ex(&self) -> PostgresExecutor {
+        PostgresExecutor::PoolExec(self.pool.clone())
     }
 }
 
-/// A database instance backed by a PostgreSQL database.
-#[derive(Derivative)]
-#[derivative(Clone(bound = ""))]
-pub struct PostgresDb<T>
-where
-    T: BareTx + From<Transaction<'static, Postgres>> + Send + Sync + 'static,
-{
-    /// Shared PostgreSQL connection pool.
-    pool: PostgresPool,
+#[async_trait]
+impl Db for PostgresDb {
+    fn ex(&self) -> Executor {
+        Executor::Postgres(PostgresExecutor::PoolExec(self.pool.clone()))
+    }
 
-    /// Marker for the unused type `T`.
-    _phantom_tx: PhantomData<T>,
-}
-
-impl<T> PostgresDb<T>
-where
-    T: BareTx + From<Transaction<'static, Postgres>> + Send + Sync + 'static,
-{
-    /// Attaches a new database of type `T` to an existing pool.
-    ///
-    /// This takes care of running the migration process for the type `T`, which in turn results
-    /// in the database connection being established.
-    pub async fn attach(pool: PostgresPool) -> DbResult<PostgresDb<T>> {
-        let db = Self { pool, _phantom_tx: PhantomData };
-
-        let mut tx: T = db.begin().await?;
-        tx.migrate().await?;
-        tx.commit().await?;
-
-        Ok(db)
+    async fn begin(&self) -> DbResult<TxExecutor> {
+        let tx = self.pool.begin().await.map_err(map_sqlx_error)?;
+        Ok(TxExecutor(Executor::Postgres(PostgresExecutor::TxExec(tx))))
     }
 }
 
-#[async_trait::async_trait]
-impl<T> Db for PostgresDb<T>
-where
-    T: BareTx + From<Transaction<'static, Postgres>> + Send + Sync + 'static,
-{
-    type Tx = T;
-
-    async fn begin(&self) -> DbResult<Self::Tx> {
-        let tx = self.pool.begin().await?;
-        Ok(Self::Tx::from(tx))
-    }
-}
-
-/// Helper function to initialize the database with a schema.  Use in implementations of
-/// `BareTx::migrate`.
-pub async fn run_schema(tx: &mut Transaction<'static, Postgres>, schema: &str) -> DbResult<()> {
+/// Helper function to initialize the database with a schema.
+pub async fn run_schema(e: &mut PostgresExecutor, schema: &str) -> DbResult<()> {
     // Strip out comments from the schema so that we can safely separate the statements by
     // looking for semicolons.
     let schema =
         regex::RegexBuilder::new("--.*$").multi_line(true).build().unwrap().replace_all(schema, "");
 
     for query_str in schema.split(';') {
-        sqlx::query(query_str).execute(&mut **tx).await.map_err(map_sqlx_error).unwrap();
+        sqlx::query(query_str).execute(&mut *e).await.map_err(map_sqlx_error).unwrap();
     }
     Ok(())
 }
@@ -222,25 +371,6 @@ pub mod testutils {
     use super::*;
     use std::time::Duration;
 
-    /// A transaction backed by a PostgreSQL database.
-    pub(crate) struct PostgresTestTx {
-        /// Inner transaction type to obtain access to the raw sqlx transaction.
-        tx: Transaction<'static, Postgres>,
-    }
-
-    impl From<Transaction<'static, Postgres>> for PostgresTestTx {
-        fn from(tx: Transaction<'static, Postgres>) -> Self {
-            Self { tx }
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl BareTx for PostgresTestTx {
-        async fn commit(mut self) -> DbResult<()> {
-            self.tx.commit().await.map_err(map_sqlx_error)
-        }
-    }
-
     /// Creates a new connection to the test database and initializes it.
     ///
     /// This sets up the database to use the `pg_temp` schema by default so that any tables
@@ -248,25 +378,22 @@ pub mod testutils {
     /// the connection pool must maintain a single connection open at all times, but not more.
     ///
     /// Given that this is for testing purposes only, any errors will panic.
-    pub async fn setup<T>() -> PostgresDb<T>
-    where
-        T: BareTx + From<Transaction<'static, Postgres>> + Send + Sync + 'static,
-    {
+    pub async fn setup() -> PostgresDb {
         let _can_fail = env_logger::builder().is_test(true).try_init();
 
         let mut opts = PostgresOptions::from_env("PGSQL_TEST").unwrap();
         opts.min_connections = Some(1);
         opts.max_connections = Some(1);
-        let pool = PostgresPool::connect(opts).unwrap();
-        // We don't use attach because we don't want to run the DB migration code.
-        let db = PostgresDb { pool, _phantom_tx: PhantomData };
+        let db = PostgresDb::connect(opts).unwrap();
 
-        let mut tx;
         let mut delay = Duration::from_millis(100 + rand::random::<u64>() % 100);
         loop {
-            match db.pool.begin().await {
-                Ok(tx2) => {
-                    tx = tx2;
+            match sqlx::query("SET search_path TO pg_temp")
+                .execute(&mut db.typed_ex())
+                .await
+                .map_err(map_sqlx_error)
+            {
+                Ok(_) => {
                     break;
                 }
                 Err(DbError::Unavailable) => {
@@ -278,39 +405,6 @@ pub mod testutils {
                 Err(e) => panic!("{:?}", e),
             }
         }
-        sqlx::query("SET search_path TO pg_temp")
-            .execute(&mut *tx)
-            .await
-            .map_err(map_sqlx_error)
-            .unwrap();
-        tx.commit().await.unwrap();
-
-        // Now that we have prepared the database and set up the temporary schema, initialize the
-        // database.
-        let mut tx: T = db.begin().await.unwrap();
-        tx.migrate_test().await.unwrap();
-        tx.commit().await.unwrap();
-
-        db
-    }
-
-    /// Initializes another test database sharing the connection of `other`.
-    pub async fn setup_attach<T, O>(other: PostgresDb<O>) -> PostgresDb<T>
-    where
-        T: BareTx + From<Transaction<'static, Postgres>> + Send + Sync + 'static,
-        O: BareTx + From<Transaction<'static, Postgres>> + Send + Sync + 'static,
-    {
-        // We don't use attach because we don't want to run the DB migration code.
-        let db = PostgresDb { pool: other.pool, _phantom_tx: PhantomData };
-
-        // Unlike attach, we do not set up the `pg_temp` schema here because we assume this already
-        // happened while setting up `other`.
-
-        // Now that we have prepared the database and set up the temporary schema, initialize the
-        // database.
-        let mut tx: T = db.begin().await.unwrap();
-        tx.migrate_test().await.unwrap();
-        tx.commit().await.unwrap();
 
         db
     }
@@ -320,9 +414,27 @@ pub mod testutils {
 mod tests {
     use super::testutils::*;
     use super::*;
-    use crate::db::testutils::generate_core_db_tests;
+    use crate::db::tests::{generate_db_ro_concurrent_tests, generate_db_rw_tests};
     use std::env;
-    use std::sync::atomic::{AtomicBool, Ordering};
+
+    generate_db_ro_concurrent_tests!(
+        {
+            let _can_fail = env_logger::builder().is_test(true).try_init();
+
+            // We don't use testutils::setup() here because that function limits concurrent
+            // connections to 1 but we need at least 2 for the concurrent tests to succeed.
+            // This means that the tests cannot write to the database because we did not set
+            // up the `search_path`.
+            let db = PostgresDb::connect(PostgresOptions::from_env("PGSQL_TEST").unwrap()).unwrap();
+            Box::from(db)
+        },
+        #[ignore = "Requires environment configuration and is expensive"]
+    );
+
+    generate_db_rw_tests!(
+        Box::from(setup().await),
+        #[ignore = "Requires environment configuration and is expensive"]
+    );
 
     #[test]
     pub fn test_postgres_options_from_env_all_required_present() {
@@ -414,70 +526,5 @@ mod tests {
             assert!(err.contains("MISSING_PORT"));
             assert!(err.contains("Invalid u16"));
         });
-    }
-
-    /// Creates a new connection to the test database and initializes it.
-    async fn setup() -> PostgresDb<PostgresTestTx> {
-        let _can_fail = env_logger::builder().is_test(true).try_init();
-
-        // We don't use connect_lazy_for_test here because that function must limit concurrent
-        // connections to 1, yet we need at least 2 connections for our tests here to succeed.
-        // This means we cannot write to the database because we did not set up the `search_path`.
-        let pool = PostgresPool::connect(PostgresOptions::from_env("PGSQL_TEST").unwrap()).unwrap();
-        PostgresDb::attach(pool).await.unwrap()
-    }
-
-    generate_core_db_tests!(
-        setup().await,
-        #[ignore = "Requires environment configuration and is expensive"]
-    );
-
-    /// Tracks whether `AttachTx::migrate_test` has been called.  Only one test can exercise
-    /// this due to the process-wide nature of the static value.
-    static ATTACH_TX_MIGRATE_TEST_CALLED: AtomicBool = AtomicBool::new(false);
-
-    /// A transaction backed by a PostgreSQL database used to verify the behavior of the
-    /// `setup_attach` method.
-    struct AttachTx {
-        /// Inner transaction type to obtain access to the raw sqlx transaction.
-        tx: Transaction<'static, Postgres>,
-    }
-
-    impl From<Transaction<'static, Postgres>> for AttachTx {
-        fn from(tx: Transaction<'static, Postgres>) -> Self {
-            Self { tx }
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl BareTx for AttachTx {
-        async fn commit(mut self) -> DbResult<()> {
-            self.tx.commit().await.map_err(map_sqlx_error)
-        }
-
-        async fn migrate(&mut self) -> DbResult<()> {
-            unreachable!("Should not be called during tests");
-        }
-
-        async fn migrate_test(&mut self) -> DbResult<()> {
-            let called = ATTACH_TX_MIGRATE_TEST_CALLED
-                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-                .unwrap();
-            assert!(!called);
-            Ok(())
-        }
-    }
-
-    #[ignore = "Requires environment configuration and is expensive"]
-    #[tokio::test]
-    async fn test_setup_attach() {
-        let db1: PostgresDb<PostgresTestTx> = setup().await;
-
-        assert!(!ATTACH_TX_MIGRATE_TEST_CALLED.load(Ordering::SeqCst));
-        let db2: PostgresDb<AttachTx> = setup_attach(db1).await;
-        assert!(ATTACH_TX_MIGRATE_TEST_CALLED.load(Ordering::SeqCst));
-
-        let tx = db2.begin().await.unwrap();
-        tx.commit().await.unwrap();
     }
 }

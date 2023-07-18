@@ -15,25 +15,7 @@
 
 //! Generic business logic for any service.
 //!
-//! Every service should implement its own `Driver` type.  In most cases, this type will be
-//! parameterized on a database implementation, and as such the definition will look like this:
-//!
-//! ```rust
-//! use iii_iv_core::db::{BareTx, Db};
-//! trait Tx: BareTx {}
-//!
-//! #[derive(Clone)]
-//! pub(crate) struct Driver<D>
-//! where
-//!     D: Db + Clone + Send + Sync + 'static,
-//!     D::Tx: Tx + Send + Sync + 'static,
-//! {
-//!     /// The database that the driver uses for persistence.
-//!     db: D,
-//!
-//!     // ... other fields here ...
-//! }
-//! ```
+//! Every service should implement its own `Driver` type.
 //!
 //! Every operation implemented in the `Driver` should take consume `self` because this is the
 //! layer that coordinates multiple operations against the database inside a single transaction.

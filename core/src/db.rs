@@ -13,21 +13,11 @@
 // License for the specific language governing permissions and limitations
 // under the License.
 
-//! Generic features and types to access a database.
+//! Generic abstraction to access different database systems.
 //!
-//! Every service using these primitives must define its own `Tx` trait that extends `BareTx` and
-//! that provides the database operations that make sense in the context of the service's business
-//! logic.  These operations should be primitive: the driver layer is responsible for coordinating
-//! multiple operations within a single transaction.  Then, each service should provide concrete
-//! implementations of its `Tx` for the database implementations it wants to use.  It's expected
-//! that services will use `SqliteDb<Tx>` during tests and probably `PostgresDb<Tx>` for production.
-//!
-//! The design behind this transaction-based approach is to keep the services' code unaware of the
-//! database implementation.  The primary reason is to support implementing unit tests using the
-//! SQLite backend while using PostgreSQL in production.  There is some fidelity loss in doing so
-//! because the behavior of the two implementations may not be identical (the SQL statements will
-//! be different), but it's a good-enough approximation.  The fact that the tests developed in this
-//! manner can run with zero  configuration and be extremely fast outweighs this issue.
+//! The facilities in this module provide an abstraction over different database systems such as
+//! PostgreSQL and SQLite.  The PostgreSQL backend is for production use and the SQLite backend is
+//! primarily intended to support unit tests.
 
 use crate::model::ModelError;
 use async_trait::async_trait;
@@ -72,73 +62,67 @@ impl From<ModelError> for DbError {
 /// Result type for this module.
 pub type DbResult<T> = Result<T, DbError>;
 
+/// A database executor that can talk to multiple database implementations.
+///
+/// This type provides a generic mechanism to access a typed instance of a database, which is needed
+/// by sqlx to offer type safety guarantees during query compilation.  Users of this type are forced
+/// to destructure it and issue different calls for each database.
+///
+/// Note that this can wrap an executor that talks directly to a pool or to an open transaction.
+pub enum Executor {
+    /// A PostgreSQL executor that can be used in `sqlx` operations.
+    #[cfg(feature = "postgres")]
+    Postgres(postgres::PostgresExecutor),
+
+    /// A SQLite executor that can be used in `sqlx` operations.
+    #[cfg(feature = "sqlite")]
+    Sqlite(sqlite::SqliteExecutor),
+}
+
+/// A wrapper for a database executor backed by an open transaction.
+pub struct TxExecutor(Executor);
+
+impl TxExecutor {
+    /// Returns the executor wrapped by this transaction.
+    ///
+    /// This would be better called `executor` but this method is used so frequently that it makes
+    /// call sites too verbose.
+    pub fn ex(&mut self) -> &mut Executor {
+        &mut self.0
+    }
+
+    /// Commits the transaction.
+    pub async fn commit(self) -> DbResult<()> {
+        match self.0 {
+            #[cfg(feature = "postgres")]
+            Executor::Postgres(e) => e.commit().await,
+
+            #[cfg(feature = "sqlite")]
+            Executor::Sqlite(e) => e.commit().await,
+        }
+    }
+}
+
 /// Abstraction over the database connection.
 #[async_trait]
 pub trait Db {
-    /// Type of the transaction wrapper type to generate.
-    type Tx: BareTx + Send + Sync + 'static;
+    /// Obtains an executor for direct access to the pool.
+    ///
+    /// This would be better called `executor` but this method is used so frequently that it makes
+    /// call sites too verbose.
+    fn ex(&self) -> Executor;
 
     /// Begins a transaction.
-    async fn begin(&self) -> DbResult<Self::Tx>;
+    ///
+    /// It is the responsibility of the caller to call `commit` on the returned executor.  Otherwise
+    /// the transaction is rolled back on drop.
+    async fn begin(&self) -> DbResult<TxExecutor>;
 }
 
-/// Common operations for all transactions.
-#[async_trait]
-pub trait BareTx {
-    /// Commits the transaction.
-    async fn commit(mut self) -> DbResult<()>;
-
-    /// Initializes or upgrades the database schema when establishing the database connection.
-    async fn migrate(&mut self) -> DbResult<()> {
-        Ok(())
-    }
-
-    /// Initializes or upgrades the database schema when establishing the database connection to the
-    /// test database.
-    async fn migrate_test(&mut self) -> DbResult<()> {
-        self.migrate().await
-    }
-}
-
-/// Common tests for the database implementations in the framework and helper macros.
+/// Macros to help instantiate tests for multiple database systems.
 #[cfg(any(test, feature = "testutils"))]
 pub mod testutils {
-    use super::{BareTx, Db};
     pub use paste::paste;
-
-    #[allow(missing_docs, clippy::missing_docs_in_private_items)]
-    pub async fn test_uncommitted_tx<D>(db: D)
-    where
-        D: Db,
-        D::Tx: BareTx,
-    {
-        let _unused = db.begin().await.unwrap();
-    }
-
-    #[allow(missing_docs, clippy::missing_docs_in_private_items)]
-    pub async fn test_multiple_txs<D>(db: D)
-    where
-        D: Db,
-        D::Tx: BareTx,
-    {
-        let tx1 = db.begin().await.unwrap();
-        let tx2 = db.begin().await.unwrap();
-        tx1.commit().await.unwrap();
-        tx2.commit().await.unwrap();
-    }
-
-    #[allow(missing_docs, clippy::missing_docs_in_private_items)]
-    pub async fn test_begin_tx_after_drop<D>(db: D)
-    where
-        D: Db + Clone + Send + Sync + 'static,
-        D::Tx: BareTx,
-    {
-        let tx1 = db.clone().begin().await.unwrap();
-        tx1.commit().await.unwrap();
-
-        let tx2 = db.begin().await.unwrap();
-        tx2.commit().await.unwrap();
-    }
 
     /// Instantiates the `module::name` test for the database configured by `setup`.
     ///
@@ -158,10 +142,12 @@ pub mod testutils {
 
     pub use generate_one_test;
 
-    /// Instantiates a collection of tests for the current database implementation.
+    /// Instantiates a collection of tests for a specific database system.
     ///
-    /// The "current" database implementation is determined by the `setup` expression, which needs
-    /// to return a database object parameterized with the desired transaction type.
+    /// The database implementation to run the tests against is determined by the `setup`
+    /// expression, which needs to return a database object parameterized with the desired
+    /// transaction type.  The returned database should also have been initialized with the
+    /// desired schema.
     ///
     /// The `extra` metadata parameter can be used to tag the generated tests.
     #[macro_export]
@@ -180,23 +166,124 @@ pub mod testutils {
     ];
 
     pub use generate_tests;
+}
 
-    /// Instantiates the collection of tests that validate the database crates of iii-iv.
-    /// This should never be called in client code, but client code needs to define a similar macro
-    /// to instantiate its own tets.
+#[cfg(all(test, any(feature = "postgres", feature = "sqlite")))]
+mod tests {
+    use super::*;
+    use sqlx::Row;
+    use std::sync::Arc;
+
+    /// Runs a `query` on `ex` and does not care about its results.  The `query` must be valid for
+    /// all possible database implementations.
+    pub async fn exec(ex: &mut Executor, query: &str) -> DbResult<()> {
+        match ex {
+            #[cfg(feature = "postgres")]
+            Executor::Postgres(ref mut ex) => {
+                let _result = sqlx::query(query).execute(ex).await.unwrap();
+            }
+
+            #[cfg(feature = "sqlite")]
+            Executor::Sqlite(ref mut ex) => {
+                let _result = sqlx::query(query).execute(ex).await.unwrap();
+            }
+        }
+        Ok(())
+    }
+
+    /// Runs a `query` on `ex` that fetches a single row with an `i64` value on `column` and returns
+    /// that value.  The `query` must be valid for all possible database implementations.
+    async fn query_i64(ex: &mut Executor, column: &str, query: &str) -> i64 {
+        match ex {
+            #[cfg(feature = "postgres")]
+            Executor::Postgres(ref mut ex) => {
+                let row = sqlx::query(query).fetch_one(ex).await.unwrap();
+                row.try_get(column).unwrap()
+            }
+
+            #[cfg(feature = "sqlite")]
+            Executor::Sqlite(ref mut ex) => {
+                let row = sqlx::query(query).fetch_one(ex).await.unwrap();
+                row.try_get(column).unwrap()
+            }
+        }
+    }
+
+    pub(super) async fn test_direct_execution(db: Box<dyn Db>) {
+        exec(&mut db.ex(), "CREATE TABLE test (i INTEGER)").await.unwrap();
+        exec(&mut db.ex(), "INSERT INTO test (i) VALUES (3)").await.unwrap();
+        assert_eq!(1, query_i64(&mut db.ex(), "count", "SELECT COUNT(*) AS count FROM test").await);
+    }
+
+    pub(super) async fn test_tx_commit(db: Box<dyn Db>) {
+        exec(&mut db.ex(), "CREATE TABLE test (i INTEGER)").await.unwrap();
+
+        let mut tx = db.begin().await.unwrap();
+        exec(tx.ex(), "INSERT INTO test (i) VALUES (3)").await.unwrap();
+        tx.commit().await.unwrap();
+
+        assert_eq!(1, query_i64(&mut db.ex(), "count", "SELECT COUNT(*) AS count FROM test").await);
+    }
+
+    pub(super) async fn test_tx_rollback_on_drop(db: Box<dyn Db>) {
+        exec(&mut db.ex(), "CREATE TABLE test (i INTEGER)").await.unwrap();
+
+        {
+            let mut tx = db.begin().await.unwrap();
+            exec(tx.ex(), "INSERT INTO test (i) VALUES (3)").await.unwrap();
+        }
+
+        assert_eq!(0, query_i64(&mut db.ex(), "count", "SELECT COUNT(*) AS count FROM test").await);
+    }
+
+    pub(super) async fn test_multiple_txs(db: Box<dyn Db>) {
+        let tx1 = db.begin().await.unwrap();
+        let tx2 = db.begin().await.unwrap();
+        tx1.commit().await.unwrap();
+        tx2.commit().await.unwrap();
+    }
+
+    pub(super) async fn test_begin_tx_after_drop(db: Box<dyn Db>) {
+        let db: Arc<dyn Db> = Arc::from(db);
+
+        let tx1 = db.clone().begin().await.unwrap();
+        tx1.commit().await.unwrap();
+
+        let tx2 = db.begin().await.unwrap();
+        tx2.commit().await.unwrap();
+    }
+
+    /// Instantiates tests that need concurrent access to the database.  These tests cannot write
+    /// to the database.
     #[macro_export]
-    macro_rules! generate_core_db_tests [
+    macro_rules! generate_db_ro_concurrent_tests [
         ( $setup:expr $(, #[$extra:meta])? ) => {
             $crate::db::testutils::generate_tests!(
                 $( #[$extra], )?
                 $setup,
-                $crate::db::testutils,
-                test_uncommitted_tx,
+                $crate::db::tests,
                 test_multiple_txs,
                 test_begin_tx_after_drop
             );
         }
     ];
 
-    pub use generate_core_db_tests;
+    pub(super) use generate_db_ro_concurrent_tests;
+
+    /// Instantiates tests that need write access to the test database.
+    #[macro_export]
+    macro_rules! generate_db_rw_tests [
+        ( $setup:expr $(, #[$extra:meta])? ) => {
+            $crate::db::testutils::generate_tests!(
+                $( #[$extra], )?
+                $setup,
+                $crate::db::tests,
+                test_direct_execution,
+                test_tx_commit,
+                test_tx_rollback_on_drop
+            );
+        }
+    ];
+
+    pub(super) use generate_db_rw_tests;
 }

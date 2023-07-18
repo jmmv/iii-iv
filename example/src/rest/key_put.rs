@@ -15,25 +15,19 @@
 
 //! API to create or update a key.
 
-use crate::db::Tx;
 use crate::driver::Driver;
 use crate::model::{Key, Version};
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 use axum::{http, Json};
-use iii_iv_core::db::Db;
 use iii_iv_core::rest::RestError;
 
 /// API handler.
-pub(crate) async fn handler<D>(
-    State(driver): State<Driver<D>>,
+pub(crate) async fn handler(
+    State(driver): State<Driver>,
     Path(key): Path<Key>,
     body: String,
-) -> Result<(http::StatusCode, impl IntoResponse), RestError>
-where
-    D: Db + Clone + Send + Sync + 'static,
-    D::Tx: Tx + Send + Sync + 'static,
-{
+) -> Result<(http::StatusCode, impl IntoResponse), RestError> {
     let value = driver.set_key(&key, body).await?;
     let code = if *value.version() == Version::initial() {
         http::StatusCode::CREATED

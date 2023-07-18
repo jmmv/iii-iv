@@ -15,22 +15,17 @@
 
 //! Operations on a collection of keys.
 
-use crate::db::Tx;
+use crate::db;
 use crate::driver::Driver;
 use crate::model::*;
-use iii_iv_core::db::{BareTx, Db};
 use iii_iv_core::driver::DriverResult;
 use std::collections::BTreeSet;
 
-impl<D> Driver<D>
-where
-    D: Db + Clone + Send + Sync + 'static,
-    D::Tx: Tx + Send + Sync + 'static,
-{
+impl Driver {
     /// Gets a list of all existing keys.
     pub(crate) async fn get_keys(self) -> DriverResult<BTreeSet<Key>> {
         let mut tx = self.db.begin().await?;
-        let keys = tx.get_keys().await?;
+        let keys = db::get_keys(tx.ex()).await?;
         tx.commit().await?;
         Ok(keys)
     }
@@ -39,6 +34,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db;
     use crate::driver::testutils::*;
 
     #[tokio::test]
@@ -58,11 +54,9 @@ mod tests {
         let key3 = Key::new("3".to_owned());
         let entry = Entry::new("the value".to_owned(), Version::initial());
 
-        let mut tx = context.db().begin().await.unwrap();
-        tx.set_key(&key1, &entry).await.unwrap();
-        tx.set_key(&key3, &entry).await.unwrap();
-        tx.set_key(&key2, &entry).await.unwrap();
-        tx.commit().await.unwrap();
+        db::set_key(&mut context.ex(), &key1, &entry).await.unwrap();
+        db::set_key(&mut context.ex(), &key3, &entry).await.unwrap();
+        db::set_key(&mut context.ex(), &key2, &entry).await.unwrap();
 
         let keys = context.driver().get_keys().await.unwrap();
         assert_eq!(vec![key1, key2, key3], keys.into_iter().collect::<Vec<Key>>());
