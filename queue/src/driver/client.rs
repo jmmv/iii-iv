@@ -36,9 +36,8 @@ use uuid::Uuid;
 /// worker process.
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""))]
-pub struct Client<T, C, D>
+pub struct Client<T, D>
 where
-    C: Clock + Clone + Send + Sync + 'static,
     D: Db + Clone + Send + Sync + 'static,
     D::Tx: ClientTx<T = T> + Send + Sync + 'static,
     T: Send + Sync,
@@ -47,22 +46,21 @@ where
     db: D,
 
     /// Clock instance to obtain the current time.
-    clock: C,
+    clock: Arc<dyn Clock + Send + Sync>,
 
     /// Worker to notify when a task is enqueued for immediate processing.  This is only useful
     /// when the client and worker live in the same process, and thus is why this is optional.
     worker: Option<Arc<Mutex<Worker<T>>>>,
 }
 
-impl<T, C, D> Client<T, C, D>
+impl<T, D> Client<T, D>
 where
-    C: Clock + Clone + Send + Sync + 'static,
     D: Db + Clone + Send + Sync + 'static,
     D::Tx: ClientTx<T = T> + Send + Sync + 'static,
     T: Send + Sync,
 {
     /// Creates a new driver backed by `db` and a `clock`.
-    pub fn new(db: D, clock: C) -> Self {
+    pub fn new(db: D, clock: Arc<dyn Clock + Send + Sync>) -> Self {
         Self { db, clock, worker: None }
     }
 

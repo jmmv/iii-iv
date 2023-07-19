@@ -46,20 +46,18 @@ impl Clock for SystemClock {
 pub mod testutils {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
-    use std::sync::Arc;
     use time::{Date, Month, Time};
 
     /// A clock that returns a monotonically increasing instant every time it is queried.
-    #[derive(Clone)]
     pub struct MonotonicClock {
         /// Current fake time.
-        now: Arc<AtomicU64>,
+        now: AtomicU64,
     }
 
     impl MonotonicClock {
         /// Creates a new clock whose "now" start time is `now`.
         pub fn new(now: u64) -> Self {
-            Self { now: Arc::from(AtomicU64::new(now)) }
+            Self { now: AtomicU64::new(now) }
         }
     }
 

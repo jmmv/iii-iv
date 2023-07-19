@@ -55,7 +55,7 @@ mod tests {
     use crate::model::TaskResult;
     use crate::rest::testutils::*;
     use axum::http;
-    use iii_iv_core::{clocks::Clock, rest::testutils::*};
+    use iii_iv_core::rest::testutils::*;
     use std::{collections::HashMap, time::Duration};
 
     /// Constructs a URL to call the method/API under test.
