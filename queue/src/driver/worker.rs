@@ -122,17 +122,16 @@ impl WorkerOptions {
 ///
 /// Task errors are recorded within the task's result.  Therefore, this function only returns
 /// errors if it encounters problems persisting state to the database.
-async fn run_task<C, D, Exec, ExecFut, T>(
+async fn run_task<D, Exec, ExecFut, T>(
     task: RunnableTask<T>,
     exec: Exec,
     max_runs: u8,
     max_runtime: Duration,
     retry_on_error_delay: Duration,
     db: D,
-    clock: C,
+    clock: Arc<dyn Clock + Send + Sync>,
 ) -> DriverResult<Option<TaskResult>>
 where
-    C: Clock + Clone + Send + Sync,
     D: Db + Clone + Send + Sync,
     D::Tx: WorkerTx<T = T> + Send + Sync,
     Exec: Fn(T) -> ExecFut,
@@ -204,14 +203,13 @@ where
 ///
 /// This returns an error only if there are problems talking to the database.  The caller has to
 /// decide if it's worth retrying the cycle or not.
-pub(super) async fn loop_once<C, D, T, Exec, ExecFut>(
+pub(super) async fn loop_once<D, T, Exec, ExecFut>(
     db: D,
-    clock: C,
+    clock: Arc<dyn Clock + Send + Sync>,
     opts: &WorkerOptions,
     exec: Exec,
 ) -> DriverResult<()>
 where
-    C: Clock + Clone + Send + Sync,
     D: Db + Clone + Send + Sync,
     D::Tx: WorkerTx<T = T> + Send + Sync,
     Exec: Fn(T) -> ExecFut + Clone,
@@ -321,9 +319,13 @@ where
 {
     /// Creates a new driver backed by `db` and a `clock`, configured to handle tasks according
     /// to `opts` and using `exec` to run the tasks.
-    pub fn new<C, D, Exec, ExecFut>(db: D, clock: C, opts: WorkerOptions, exec: Exec) -> Self
+    pub fn new<D, Exec, ExecFut>(
+        db: D,
+        clock: Arc<dyn Clock + Send + Sync>,
+        opts: WorkerOptions,
+        exec: Exec,
+    ) -> Self
     where
-        C: Clock + Clone + Send + Sync + 'static,
         D: Db + Clone + Send + Sync + 'static,
         D::Tx: WorkerTx<T = T> + Send + Sync + 'static,
         Exec: Fn(T) -> ExecFut + Clone + Send + Sync + 'static,

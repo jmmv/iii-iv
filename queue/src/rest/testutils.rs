@@ -20,6 +20,7 @@ use crate::rest::worker_cron_app;
 use axum::Router;
 use futures::lock::Mutex;
 use iii_iv_core::clocks::testutils::MonotonicClock;
+use iii_iv_core::clocks::Clock;
 use iii_iv_core::db::sqlite::SqliteDb;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -42,10 +43,10 @@ pub(super) struct TestContext {
     app: Router,
 
     /// Queue client to interact with the tasks handled by `app`.
-    pub(super) client: Client<MockTask, MonotonicClock, SqliteDb<SqliteClientTx<MockTask>>>,
+    pub(super) client: Client<MockTask, SqliteDb<SqliteClientTx<MockTask>>>,
 
     /// Clock used during testing.
-    pub(super) clock: MonotonicClock,
+    pub(super) clock: Arc<dyn Clock>,
 }
 
 impl TestContext {
@@ -55,7 +56,7 @@ impl TestContext {
         let client_db = iii_iv_core::db::sqlite::testutils::setup().await;
         let worker_db: SqliteDb<SqliteWorkerTx<MockTask>> =
             iii_iv_core::db::sqlite::testutils::setup_attach(client_db.clone()).await;
-        let clock = MonotonicClock::new(100000);
+        let clock = Arc::from(MonotonicClock::new(100000));
 
         let worker = {
             let opts = WorkerOptions::default();

@@ -36,7 +36,7 @@ mod testutils {
     use std::time::Duration;
 
     /// A queue client backed by mock entities.
-    type MockClient = Client<MockTask, MonotonicClock, SqliteDb<SqliteClientTx<MockTask>>>;
+    type MockClient = Client<MockTask, SqliteDb<SqliteClientTx<MockTask>>>;
 
     /// A task definition for testing purposes.
     #[derive(Deserialize, Serialize)]
@@ -84,7 +84,7 @@ mod testutils {
         task: MockTask,
         state_by_id: TaskStateById,
         mut client: MockClient,
-        clock: MonotonicClock,
+        clock: Arc<dyn Clock + Send + Sync>,
     ) -> ExecResult {
         let mut state_by_id = state_by_id.lock().await;
         let state = state_by_id.entry(task.id).or_insert_with(TaskState::default);
@@ -136,7 +136,7 @@ mod testutils {
         pub(super) workers: Vec<Arc<Mutex<Worker<MockTask>>>>,
 
         /// The clock used to track task state changes.
-        pub(super) clock: MonotonicClock,
+        pub(super) clock: Arc<dyn Clock>,
 
         /// The shared task state updated by task execution for all tasks.
         pub(super) state: TaskStateById,
@@ -149,7 +149,7 @@ mod testutils {
             let client_db = iii_iv_core::db::sqlite::testutils::setup().await;
             let worker_db: SqliteDb<SqliteWorkerTx<MockTask>> =
                 iii_iv_core::db::sqlite::testutils::setup_attach(client_db.clone()).await;
-            let clock = MonotonicClock::new(100000);
+            let clock = Arc::from(MonotonicClock::new(100000));
 
             let state = TaskStateById::default();
             let client = Client::new(client_db, clock.clone());
@@ -177,7 +177,7 @@ mod testutils {
             let client_db = iii_iv_core::db::sqlite::testutils::setup().await;
             let worker_db: SqliteDb<SqliteWorkerTx<MockTask>> =
                 iii_iv_core::db::sqlite::testutils::setup_attach(client_db.clone()).await;
-            let clock = MonotonicClock::new(100000);
+            let clock = Arc::from(MonotonicClock::new(100000));
 
             let state = TaskStateById::default();
             let client = Client::new(client_db, clock.clone());
@@ -224,7 +224,6 @@ mod tests {
     use super::*;
     use crate::driver::testutils::*;
     use crate::model::TaskResult;
-    use iii_iv_core::clocks::Clock;
     use std::time::Duration;
 
     async fn do_stress_test(num_workers: usize, num_tasks: u16, batch_size: u16) {
