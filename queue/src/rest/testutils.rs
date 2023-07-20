@@ -42,6 +42,9 @@ pub(super) struct TestContext {
     /// Instance of the app under test.
     app: Router,
 
+    /// Database backing the queue.
+    pub(super) db: Arc<dyn Db + Send + Sync>,
+
     /// Queue client to interact with the tasks handled by `app`.
     pub(super) client: Client<MockTask>,
 
@@ -65,11 +68,11 @@ impl TestContext {
 
         // The client is not connected to the worker so that we can validate that the worker loop
         // isn't invoked until we ask for it.
-        let client = Client::new(db, clock.clone());
+        let client = Client::new(clock.clone());
 
         let app = worker_cron_app(worker);
 
-        TestContext { client, app, clock }
+        TestContext { app, db, client, clock }
     }
 
     /// Gets a clone of the app router.

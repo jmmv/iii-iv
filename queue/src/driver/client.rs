@@ -21,7 +21,7 @@ use crate::model::TaskResult;
 use derivative::Derivative;
 use futures::lock::Mutex;
 use iii_iv_core::clocks::Clock;
-use iii_iv_core::db::Db;
+use iii_iv_core::db::Executor;
 use iii_iv_core::driver::{DriverError, DriverResult};
 use log::warn;
 use serde::Serialize;
@@ -35,15 +35,17 @@ use uuid::Uuid;
 ///
 /// This driver talks to the database to manipulate and query tasks, delegating execution to the
 /// worker process.
+//
+// TODO(jmmv): Now that we receive a database executor via a parameter in all methods that need one,
+// this must be rethought.  Having a `Client` struct probably makes no sense...  Converting these
+// methods to free functions may work better, and also clarify the "auto-notification" of the
+// worker that we do here sometimes.
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""))]
 pub struct Client<T>
 where
     T: Serialize + Send + Sync,
 {
-    /// The database that the driver uses for persistence.
-    db: Arc<dyn Db + Send + Sync>,
-
     /// Clock instance to obtain the current time.
     clock: Arc<dyn Clock + Send + Sync>,
 
@@ -56,9 +58,9 @@ impl<T> Client<T>
 where
     T: Serialize + Send + Sync,
 {
-    /// Creates a new driver backed by `db` and a `clock`.
-    pub fn new(db: Arc<dyn Db + Send + Sync>, clock: Arc<dyn Clock + Send + Sync>) -> Self {
-        Self { db, clock, worker: None }
+    /// Creates a new queue client.
+    pub fn new(clock: Arc<dyn Clock + Send + Sync>) -> Self {
+        Self { clock, worker: None }
     }
 
     /// Configures the client to poke `worker` when new tasks are enqueued.
@@ -83,8 +85,8 @@ where
     ///
     /// If the client is configured to notify a worker, this notifies the worker for immediate
     /// task processing.
-    pub async fn enqueue(&mut self, task: &T) -> DriverResult<Uuid> {
-        let id = db::put_new_task(&mut self.db.ex(), task, self.clock.now_utc(), None).await?;
+    pub async fn enqueue(&mut self, ex: &mut Executor, task: &T) -> DriverResult<Uuid> {
+        let id = db::put_new_task(ex, task, self.clock.now_utc(), None).await?;
 
         self.maybe_notify_worker().await;
 
@@ -98,11 +100,11 @@ where
     /// task processing.
     pub async fn enqueue_deferred_after_timestamp(
         &mut self,
+        ex: &mut Executor,
         task: &T,
         only_after: OffsetDateTime,
     ) -> DriverResult<Uuid> {
-        let id = db::put_new_task(&mut self.db.ex(), task, self.clock.now_utc(), Some(only_after))
-            .await?;
+        let id = db::put_new_task(ex, task, self.clock.now_utc(), Some(only_after)).await?;
 
         self.maybe_notify_worker().await;
 
@@ -116,11 +118,12 @@ where
     /// task processing.
     pub async fn enqueue_deferred_after_delay(
         &mut self,
+        ex: &mut Executor,
         task: &T,
         only_after: Duration,
     ) -> DriverResult<Uuid> {
         let now = self.clock.now_utc();
-        let id = db::put_new_task(&mut self.db.ex(), task, now, Some(now + only_after)).await?;
+        let id = db::put_new_task(ex, task, now, Some(now + only_after)).await?;
 
         self.maybe_notify_worker().await;
 
@@ -128,15 +131,20 @@ where
     }
 
     /// Returns the result of task `id` if it is already available.
-    pub async fn poll(&mut self, id: Uuid) -> DriverResult<Option<TaskResult>> {
-        let result = db::get_result(&mut self.db.ex(), id).await?;
+    pub async fn poll(&mut self, ex: &mut Executor, id: Uuid) -> DriverResult<Option<TaskResult>> {
+        let result = db::get_result(ex, id).await?;
         Ok(result)
     }
 
     /// Waits for task `id` until it has completed execution by polling its state every `period`.
-    pub async fn wait(&mut self, id: Uuid, period: Duration) -> DriverResult<TaskResult> {
+    pub async fn wait(
+        &mut self,
+        ex: &mut Executor,
+        id: Uuid,
+        period: Duration,
+    ) -> DriverResult<TaskResult> {
         loop {
-            if let Some(result) = self.poll(id).await? {
+            if let Some(result) = self.poll(ex, id).await? {
                 break Ok(result);
             }
 
@@ -150,6 +158,7 @@ where
     /// every `period`.  Only tasks with a result produced at or after `since` are considered.
     pub async fn wait_all(
         &mut self,
+        ex: &mut Executor,
         ids: &[Uuid],
         mut since: OffsetDateTime,
         period: Duration,
@@ -164,7 +173,7 @@ where
 
         let mut results = HashMap::default();
         while !ids.is_empty() {
-            let partial = db::get_results_since(&mut self.db.ex(), since).await?;
+            let partial = db::get_results_since(ex, since).await?;
 
             for (id, result) in partial {
                 if !ids.remove(&id) {

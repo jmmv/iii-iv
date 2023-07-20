@@ -83,6 +83,7 @@ mod testutils {
     async fn run_task(
         task: MockTask,
         state_by_id: TaskStateById,
+        db: Arc<dyn Db + Send + Sync>,
         mut client: MockClient,
         clock: Arc<dyn Clock + Send + Sync>,
     ) -> ExecResult {
@@ -96,7 +97,7 @@ mod testutils {
         }
 
         if let Some(chain) = task.chain {
-            client.enqueue(&chain).await.unwrap();
+            client.enqueue(&mut db.ex(), &chain).await.unwrap();
         }
 
         if let Some((max_deferred, delay)) = task.defer {
@@ -129,6 +130,9 @@ mod testutils {
 
     /// State of a running test.
     pub(super) struct TestContext {
+        /// The database backing the queue.
+        pub(super) db: Arc<dyn Db + Send + Sync>,
+
         /// The client used to enqueue and poll for tasks.
         pub(super) client: MockClient,
 
@@ -151,20 +155,21 @@ mod testutils {
             let clock = Arc::from(MonotonicClock::new(100000));
 
             let state = TaskStateById::default();
-            let client = Client::new(db.clone(), clock.clone());
+            let client = Client::new(clock.clone());
             let worker = {
                 let state = state.clone();
+                let db = db.clone();
                 let client = client.clone();
                 let clock = clock.clone();
-                let worker = Worker::new(db, clock.clone(), opts, move |task| {
-                    run_task(task, state.clone(), client.clone(), clock.clone())
+                let worker = Worker::new(db.clone(), clock.clone(), opts, move |task| {
+                    run_task(task, state.clone(), db.clone(), client.clone(), clock.clone())
                 });
                 Arc::from(Mutex::from(worker))
             };
 
             let client = client.with_worker(worker.clone());
 
-            TestContext { client, workers: vec![worker], clock, state }
+            TestContext { db, client, workers: vec![worker], clock, state }
         }
 
         /// Initializes an in-memory queue with `num_workers` in-process workers and a client that
@@ -178,23 +183,24 @@ mod testutils {
             let clock = Arc::from(MonotonicClock::new(100000));
 
             let state = TaskStateById::default();
-            let client = Client::new(db.clone(), clock.clone());
+            let client = Client::new(clock.clone());
             let mut workers = Vec::with_capacity(num_workers);
             for _ in 0..num_workers {
                 let worker = {
                     let state = state.clone();
+                    let db = db.clone();
                     let client = client.clone();
                     let clock = clock.clone();
                     let worker =
                         Worker::new(db.clone(), clock.clone(), opts.clone(), move |task| {
-                            run_task(task, state.clone(), client.clone(), clock.clone())
+                            run_task(task, state.clone(), db.clone(), client.clone(), clock.clone())
                         });
                     Arc::from(Mutex::from(worker))
                 };
                 workers.push(worker);
             }
 
-            TestContext { client, workers, clock, state }
+            TestContext { db, client, workers, clock, state }
         }
 
         /// Notifies `n` workers about the availability of new tasks.
@@ -231,6 +237,7 @@ mod tests {
             ..Default::default()
         };
         let mut context = TestContext::setup_many_disconnected(opts.clone(), num_workers).await;
+        let mut ex = context.db.ex();
 
         let before = context.clock.now_utc();
 
@@ -239,7 +246,7 @@ mod tests {
         for i in 0..num_tasks {
             let task =
                 MockTask { id: i, result: Ok(Some(format!("Task {}", i))), ..Default::default() };
-            ids.push(context.client.enqueue(&task).await.unwrap());
+            ids.push(context.client.enqueue(&mut ex, &task).await.unwrap());
             if i % (opts.batch_size * 2) == 0 {
                 context.notify_workers(num_workers / 4 + 1).await;
             }
@@ -248,7 +255,7 @@ mod tests {
 
         // Poll until all tasks complete.
         let period = Duration::from_millis(10);
-        let results = context.client.wait_all(&ids, before, period).await.unwrap();
+        let results = context.client.wait_all(&mut ex, &ids, before, period).await.unwrap();
         assert_eq!(usize::from(num_tasks), results.len());
         for (i, id) in ids.iter().enumerate().take(usize::from(num_tasks)) {
             assert_eq!(&TaskResult::Done(Some(format!("Task {}", i))), results.get(id).unwrap());
@@ -295,10 +302,11 @@ mod tests {
             ..Default::default()
         })
         .await;
+        let mut ex = context.db.ex();
 
         let task = MockTask { id: 123, crash: 4, ..Default::default() };
-        let id = context.client.enqueue(&task).await.unwrap();
-        let result = context.client.wait(id, Duration::from_millis(1)).await.unwrap();
+        let id = context.client.enqueue(&mut ex, &task).await.unwrap();
+        let result = context.client.wait(&mut ex, id, Duration::from_millis(1)).await.unwrap();
 
         let state = context.state.lock().await;
         assert_eq!(1, state.len());
@@ -317,11 +325,12 @@ mod tests {
             ..Default::default()
         })
         .await;
+        let mut ex = context.db.ex();
 
         let task =
             MockTask { id: 123, result: Err("foo bar".to_owned()), crash: 3, ..Default::default() };
-        let id = context.client.enqueue(&task).await.unwrap();
-        let result = context.client.wait(id, Duration::from_millis(1)).await.unwrap();
+        let id = context.client.enqueue(&mut ex, &task).await.unwrap();
+        let result = context.client.wait(&mut ex, id, Duration::from_millis(1)).await.unwrap();
 
         let state = context.state.lock().await;
         assert_eq!(1, state.len());
@@ -340,11 +349,12 @@ mod tests {
             ..Default::default()
         })
         .await;
+        let mut ex = context.db.ex();
 
         let task = MockTask { id: 123, crash: 1, ..Default::default() };
-        let id = context.client.enqueue(&task).await.unwrap();
+        let id = context.client.enqueue(&mut ex, &task).await.unwrap();
         for _ in 0..100 {
-            if let Some(_result) = context.client.poll(id).await.unwrap() {
+            if let Some(_result) = context.client.poll(&mut ex, id).await.unwrap() {
                 panic!("Task completed but it should have not");
             }
 
@@ -362,10 +372,11 @@ mod tests {
         let opts = WorkerOptions::default();
         assert!(opts.consume_all);
         let mut context = TestContext::setup_many_disconnected(opts, 1).await;
+        let mut ex = context.db.ex();
 
         let chained = MockTask { id: 2, ..Default::default() };
         let task = MockTask { id: 1, chain: Some(Box::from(chained)), ..Default::default() };
-        context.client.enqueue(&task).await.unwrap();
+        context.client.enqueue(&mut ex, &task).await.unwrap();
         context.notify_workers(1).await;
 
         loop {
@@ -385,14 +396,15 @@ mod tests {
     async fn test_chained_task_skipped_if_consume_all_is_false() {
         let opts = WorkerOptions { consume_all: false, ..Default::default() };
         let mut context = TestContext::setup_many_disconnected(opts, 1).await;
+        let mut ex = context.db.ex();
 
         let chained = MockTask { id: 2, ..Default::default() };
         let task = MockTask { id: 1, chain: Some(Box::from(chained)), ..Default::default() };
-        let id = context.client.enqueue(&task).await.unwrap();
+        let id = context.client.enqueue(&mut ex, &task).await.unwrap();
         context.notify_workers(1).await;
 
         // Run the task that enqueues another chained task.
-        let result = context.client.wait(id, Duration::from_millis(1)).await.unwrap();
+        let result = context.client.wait(&mut ex, id, Duration::from_millis(1)).await.unwrap();
         assert_eq!(TaskResult::Done(None), result);
 
         // Make sure the chained task did not run yet.  This is racy and we may fail to detect
@@ -428,6 +440,7 @@ mod tests {
     async fn test_deferred_task_only_runs_when_time_passes() {
         let opts = WorkerOptions::default();
         let mut context = TestContext::setup_one_connected(opts).await;
+        let mut ex = context.db.ex();
 
         let now = context.clock.now_utc();
 
@@ -435,6 +448,7 @@ mod tests {
         let id1 = context
             .client
             .enqueue_deferred_after_timestamp(
+                &mut ex,
                 &MockTask { id: 1, ..Default::default() },
                 now + delay,
             )
@@ -442,7 +456,7 @@ mod tests {
             .unwrap();
         let id2 = context
             .client
-            .enqueue_deferred_after_delay(&MockTask { id: 2, ..Default::default() }, delay)
+            .enqueue_deferred_after_delay(&mut ex, &MockTask { id: 2, ..Default::default() }, delay)
             .await
             .unwrap();
 
@@ -461,9 +475,9 @@ mod tests {
         context.advance_clock(Duration::from_secs(120));
 
         // The tasks will complete now that enough time has passed.
-        let result = context.client.wait(id1, Duration::from_millis(1)).await.unwrap();
+        let result = context.client.wait(&mut ex, id1, Duration::from_millis(1)).await.unwrap();
         assert_eq!(TaskResult::Done(None), result);
-        let result = context.client.wait(id2, Duration::from_millis(1)).await.unwrap();
+        let result = context.client.wait(&mut ex, id2, Duration::from_millis(1)).await.unwrap();
         assert_eq!(TaskResult::Done(None), result);
     }
 
@@ -471,6 +485,7 @@ mod tests {
     async fn test_task_retry_result_ok() {
         let opts = WorkerOptions { max_runs: 5, ..Default::default() };
         let mut context = TestContext::setup_one_connected(opts.clone()).await;
+        let mut ex = context.db.ex();
 
         let delay = Duration::from_secs(60);
         let task = MockTask {
@@ -478,7 +493,7 @@ mod tests {
             defer: Some((u16::from(opts.max_runs - 2), delay)),
             ..Default::default()
         };
-        let id = context.client.enqueue(&task).await.unwrap();
+        let id = context.client.enqueue(&mut ex, &task).await.unwrap();
 
         // Wait until we know the task has asked to retry the `defer` times we configured.
         loop {
@@ -496,12 +511,12 @@ mod tests {
             context.notify_workers(1).await;
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
-        assert_eq!(None, context.client.poll(id).await.unwrap());
+        assert_eq!(None, context.client.poll(&mut ex, id).await.unwrap());
 
         context.advance_clock(delay * 2);
 
         // The task will complete now that it is not in the deferred state any more, so wait for it.
-        let result = context.client.wait(id, Duration::from_millis(1)).await.unwrap();
+        let result = context.client.wait(&mut ex, id, Duration::from_millis(1)).await.unwrap();
         assert_eq!(TaskResult::Done(None), result);
 
         let state = context.state.lock().await;
@@ -515,9 +530,10 @@ mod tests {
     async fn test_task_retry_result_zero_delay() {
         let opts = WorkerOptions { retry_delay: Duration::from_secs(300), ..Default::default() };
         let mut context = TestContext::setup_one_connected(opts.clone()).await;
+        let mut ex = context.db.ex();
 
         let task = MockTask { id: 123, defer: Some((1, Duration::ZERO)), ..Default::default() };
-        let id = context.client.enqueue(&task).await.unwrap();
+        let id = context.client.enqueue(&mut ex, &task).await.unwrap();
 
         // Make sure the task does not run if not enough time has passed.
         context.advance_clock(opts.retry_delay - Duration::from_secs(1));
@@ -533,12 +549,12 @@ mod tests {
             context.notify_workers(1).await;
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
-        assert_eq!(None, context.client.poll(id).await.unwrap());
+        assert_eq!(None, context.client.poll(&mut ex, id).await.unwrap());
 
         context.advance_clock(Duration::from_secs(1));
 
         // The task will complete now that it is not in the deferred state any more, so wait for it.
-        let result = context.client.wait(id, Duration::from_millis(1)).await.unwrap();
+        let result = context.client.wait(&mut ex, id, Duration::from_millis(1)).await.unwrap();
         assert_eq!(TaskResult::Done(None), result);
 
         let state = context.state.lock().await;
@@ -552,6 +568,7 @@ mod tests {
     async fn test_task_retry_result_exceeds_max_runs() {
         let opts = WorkerOptions { max_runs: 5, ..Default::default() };
         let mut context = TestContext::setup_one_connected(opts.clone()).await;
+        let mut ex = context.db.ex();
 
         let delay = Duration::from_secs(60);
         let task = MockTask {
@@ -559,12 +576,12 @@ mod tests {
             defer: Some((u16::from(opts.max_runs - 1), delay)),
             ..Default::default()
         };
-        let id = context.client.enqueue(&task).await.unwrap();
+        let id = context.client.enqueue(&mut ex, &task).await.unwrap();
 
         context.advance_clock(delay * u32::from(opts.max_runs));
 
         // The task will complete now that it is not in the deferred state any more, so wait for it.
-        let result = context.client.wait(id, Duration::from_millis(1)).await.unwrap();
+        let result = context.client.wait(&mut ex, id, Duration::from_millis(1)).await.unwrap();
         assert_eq!(
             TaskResult::Abandoned("Attempted to run 5 times, but max_runs is 5".to_owned()),
             result

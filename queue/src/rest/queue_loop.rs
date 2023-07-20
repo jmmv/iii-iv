@@ -66,17 +66,18 @@ mod tests {
     #[tokio::test]
     async fn test_ok() {
         let mut context = TestContext::setup().await;
+        let mut ex = context.db.ex();
 
         let before = context.clock.now_utc();
 
         let id1 = context
             .client
-            .enqueue(&MockTask { result: Ok(Some("diagnostics".to_string())) })
+            .enqueue(&mut ex, &MockTask { result: Ok(Some("diagnostics".to_string())) })
             .await
             .unwrap();
         let id2 = context
             .client
-            .enqueue(&MockTask { result: Err("the result".to_string()) })
+            .enqueue(&mut ex, &MockTask { result: Err("the result".to_string()) })
             .await
             .unwrap();
         let ids = [id1, id2];
@@ -87,7 +88,7 @@ mod tests {
         // is racy and might not detect a real bug, but we should not get any false negatives.
         for _ in 0..10 {
             for id in ids {
-                let result = context.client.poll(id).await.unwrap();
+                let result = context.client.poll(&mut ex, id).await.unwrap();
                 assert!(
                     result.is_none(),
                     "Task should not have completed because we didn't poll the worker yet"
@@ -105,7 +106,7 @@ mod tests {
 
         // Now that we poked the worker via the REST API, we can expect the tasks to complete.
         let results =
-            context.client.wait_all(&ids, before, Duration::from_millis(1)).await.unwrap();
+            context.client.wait_all(&mut ex, &ids, before, Duration::from_millis(1)).await.unwrap();
         assert_eq!(2, results.len());
         assert_eq!(&TaskResult::Done(Some("diagnostics".to_string())), results.get(&id1).unwrap());
         assert_eq!(&TaskResult::Failed("the result".to_string()), results.get(&id2).unwrap());
