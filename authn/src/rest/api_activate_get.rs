@@ -21,9 +21,7 @@ use axum::response::Html;
 use iii_iv_core::model::Username;
 use iii_iv_core::rest::{EmptyBody, RestError};
 use iii_iv_core::template;
-use serde::Deserialize;
-#[cfg(test)]
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Default HTML to return when an account is successfully activated.
 const DEFAULT_ACTIVATED_TEMPLATE: &str = r#"<html>
@@ -39,8 +37,7 @@ const DEFAULT_ACTIVATED_TEMPLATE: &str = r#"<html>
 "#;
 
 /// Message sent to the server to activate a user account.
-#[derive(Default, Deserialize)]
-#[cfg_attr(test, derive(Serialize))]
+#[derive(Default, Deserialize, Serialize)]
 pub struct ActivateRequest {
     /// Activation code.
     pub code: u64,

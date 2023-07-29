@@ -26,6 +26,9 @@ mod httputils;
 #[cfg(test)]
 mod testutils;
 
+pub use api_activate_get::ActivateRequest;
+pub use api_login_post::LoginResponse;
+pub use api_signup_post::SignupRequest;
 pub use httputils::{get_basic_auth, get_bearer_auth, has_bearer_auth};
 
 /// Creates the router for the authentication endpoints.

@@ -23,16 +23,13 @@ use axum::http::HeaderMap;
 use axum::response::IntoResponse;
 use axum::Json;
 use iii_iv_core::rest::{EmptyBody, RestError};
-#[cfg(test)]
-use serde::Deserialize;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Message returned by the server after a successful login attempt.
-#[derive(Debug, Serialize)]
-#[cfg_attr(test, derive(Deserialize))]
-pub(crate) struct LoginResponse {
+#[derive(Debug, Deserialize, Serialize)]
+pub struct LoginResponse {
     /// Access token for this session.
-    pub(crate) access_token: AccessToken,
+    pub access_token: AccessToken,
 }
 
 /// POST handler for this API.
