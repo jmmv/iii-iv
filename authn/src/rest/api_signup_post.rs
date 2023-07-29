@@ -21,23 +21,20 @@ use axum::extract::State;
 use axum::Json;
 use iii_iv_core::model::{EmailAddress, Username};
 use iii_iv_core::rest::RestError;
-use serde::Deserialize;
-#[cfg(test)]
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Message sent to the server to create an account.
-#[derive(Deserialize)]
-#[cfg_attr(test, derive(Serialize))]
-pub(crate) struct SignupRequest {
+#[derive(Deserialize, Serialize)]
+pub struct SignupRequest {
     /// Desired username.
-    pub(crate) username: Username,
+    pub username: Username,
 
     /// Desired password.
-    pub(crate) password: Password,
+    pub password: Password,
 
     /// Email address for the user, needed to validate their account signup process and to contact
     /// the user for service changes.
-    pub(crate) email: EmailAddress,
+    pub email: EmailAddress,
 }
 
 /// POST handler for this API.
