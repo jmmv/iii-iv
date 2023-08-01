@@ -10,7 +10,7 @@ publish = false
 default = ["postgres"]
 postgres = ["iii-iv-core/postgres", "sqlx/postgres"]
 sqlite = ["dep:futures", "iii-iv-core/sqlite", "sqlx/sqlite"]
-testutils = []
+testutils = ["dep:url"]
 
 [dependencies]
 async-trait = "0.1"
@@ -26,6 +26,7 @@ iii-iv-lettre = { path = "../lettre" }
 serde = { version = "1", features = ["derive"] }
 serde_urlencoded = "0.7"
 time = "0.3"
+url = { version = "2.3", optional = true }
 
 [dependencies.sqlx]
 version = "0.7"

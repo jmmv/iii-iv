@@ -23,8 +23,8 @@ mod api_login_post;
 mod api_logout_post;
 mod api_signup_post;
 mod httputils;
-#[cfg(test)]
-mod testutils;
+#[cfg(any(test, feature = "testutils"))]
+pub mod testutils;
 
 pub use api_activate_get::ActivateRequest;
 pub use api_login_post::LoginResponse;

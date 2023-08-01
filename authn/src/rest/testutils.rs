@@ -13,51 +13,93 @@
 // License for the specific language governing permissions and limitations
 // under the License.
 
+//! Utilities to help testing services that integrate with the `authn` features.
+
 use crate::db;
-use crate::driver::email::testutils::{get_latest_activation_code, make_test_activation_template};
-use crate::driver::{AuthnDriver, AuthnOptions};
 use crate::model::{AccessToken, HashedPassword, Password, User};
-use crate::rest::app;
+use crate::rest::LoginResponse;
 use axum::Router;
-use iii_iv_core::clocks::testutils::MonotonicClock;
-use iii_iv_core::db::{Db, DbError};
+use iii_iv_core::db::Executor;
 use iii_iv_core::model::{EmailAddress, Username};
-use iii_iv_core::rest::BaseUrls;
-use iii_iv_lettre::testutils::RecorderSmtpMailer;
-use std::sync::Arc;
+use iii_iv_core::rest::testutils::OneShotBuilder;
 use time::OffsetDateTime;
 
+#[cfg(test)]
+use {
+    crate::driver::email::testutils::{get_latest_activation_code, make_test_activation_template},
+    crate::driver::{AuthnDriver, AuthnOptions},
+    crate::rest::app,
+    iii_iv_core::clocks::testutils::MonotonicClock,
+    iii_iv_core::db::{Db, DbError},
+    iii_iv_core::rest::BaseUrls,
+    iii_iv_lettre::testutils::RecorderSmtpMailer,
+    std::sync::Arc,
+};
+
+/// Creates an active test user by directly modifying the backing database.
+pub async fn create_test_user(
+    ex: &mut Executor,
+    username: Username,
+    password: Password,
+    email: EmailAddress,
+) -> User {
+    let password = password.validate_and_hash(|_| None).unwrap();
+
+    let user = User::new(username, email)
+        .with_password(password)
+        .with_last_login(OffsetDateTime::from_unix_timestamp(100100).unwrap());
+    db::create_user(
+        ex,
+        user.username().clone(),
+        user.password().map(HashedPassword::clone),
+        user.email().clone(),
+    )
+    .await
+    .unwrap();
+    db::update_user(ex, user.username().clone(), user.last_login().unwrap()).await.unwrap();
+    user
+}
+
+/// Logs the `username` in with `password` and returns the access token for the session.
+///
+/// The `router` is a REST router serving the `authn` interface under the `base` prefix.
+pub async fn do_test_login(
+    app: Router,
+    base: &str,
+    username: &Username,
+    password: &Password,
+) -> AccessToken {
+    let response = OneShotBuilder::new(app, (http::Method::POST, &format!("{}/login", base)))
+        .with_basic_auth(username.as_str(), password.as_str())
+        .send_empty()
+        .await
+        .expect_json::<LoginResponse>()
+        .await;
+    response.access_token
+}
+
 /// State of a running test.
+#[cfg(test)]
 pub(crate) struct TestContext {
     app: Router,
     db: Arc<dyn Db + Send + Sync>,
     whoami: String,
     whoami_password: Password,
     mailer: Arc<RecorderSmtpMailer>,
-    driver: AuthnDriver,
 }
 
+#[cfg(test)]
 impl TestContext {
     /// Creates the `whoami` user by directly modifying the backing database. The user is marked
     /// as active.
     pub(crate) async fn create_whoami_user(&mut self) -> User {
-        let password = self.whoami_password.clone().validate_and_hash(|_| None).unwrap();
-
-        let user = User::new(self.whoami(), EmailAddress::from("whoami@example.com"))
-            .with_password(password)
-            .with_last_login(OffsetDateTime::from_unix_timestamp(100100).unwrap());
-        db::create_user(
+        create_test_user(
             &mut self.db.ex(),
-            user.username().clone(),
-            user.password().map(HashedPassword::clone),
-            user.email().clone(),
+            Username::new(self.whoami.clone()).unwrap(),
+            self.whoami_password.clone(),
+            EmailAddress::new(format!("{}@example.com", self.whoami)).unwrap(),
         )
         .await
-        .unwrap();
-        db::update_user(&mut self.db.ex(), user.username().clone(), user.last_login().unwrap())
-            .await
-            .unwrap();
-        user
     }
 
     /// Consumes the context and transforms it into the app router.
@@ -106,13 +148,13 @@ impl TestContext {
 
     /// Logs the `whoami` user in and returns its access token.
     pub(crate) async fn access_token(&self) -> AccessToken {
-        let response = self
-            .driver
-            .clone()
-            .login(Username::new(self.whoami.clone()).unwrap(), self.whoami_password.clone())
-            .await
-            .unwrap();
-        response.take_access_token()
+        do_test_login(
+            self.app.clone(),
+            "/api/test",
+            &Username::new(self.whoami.clone()).unwrap(),
+            &self.whoami_password,
+        )
+        .await
     }
 
     /// Returns the "who am I" identifier of the running test. Panics if this context was built
@@ -138,12 +180,14 @@ impl TestContext {
 }
 
 /// Builder pattern for the test context.
+#[cfg(test)]
 #[must_use]
 pub(crate) struct TestContextBuilder {
     whoami: String,
     activated_template: Option<&'static str>,
 }
 
+#[cfg(test)]
 impl TestContextBuilder {
     /// Initializes a new builder with the default test settings.
     pub(crate) fn new() -> Self {
@@ -178,10 +222,10 @@ impl TestContextBuilder {
             "the-realm",
             AuthnOptions::default(),
         );
-        let app = Router::new().nest("/api/test", app(driver.clone(), self.activated_template));
+        let app = Router::new().nest("/api/test", app(driver, self.activated_template));
 
         let whoami_password = Password::new(format!("random-{}", rand::random::<u32>())).unwrap();
 
-        TestContext { app, db, whoami: self.whoami, whoami_password, mailer, driver }
+        TestContext { app, db, whoami: self.whoami, whoami_password, mailer }
     }
 }
