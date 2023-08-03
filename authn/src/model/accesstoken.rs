@@ -102,15 +102,15 @@ mod tests {
     #[test]
     fn test_accesstoken_error_invalid_character() {
         let raw_token = "!".repeat(TOKEN_LENGTH);
-        AccessToken::new(&raw_token).unwrap_err();
+        AccessToken::new(raw_token).unwrap_err();
     }
 
     #[test]
     fn test_accesstoken_error_too_long() {
         let mut raw_token = "b".repeat(TOKEN_LENGTH);
-        AccessToken::new(&raw_token).unwrap();
+        AccessToken::new(raw_token.clone()).unwrap();
         raw_token.push('b');
-        AccessToken::new(&raw_token).unwrap_err();
+        AccessToken::new(raw_token).unwrap_err();
     }
 
     #[test]
