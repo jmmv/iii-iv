@@ -35,6 +35,7 @@ pub fn map_sqlx_error(e: sqlx::Error) -> DbError {
             "53300" /* too_many_connections */ => DbError::Unavailable,
             number => DbError::BackendError(format!("pgsql error {}: {}", number, e)),
         },
+        sqlx::Error::PoolTimedOut => DbError::Unavailable,
         sqlx::Error::RowNotFound => DbError::NotFound,
         e => DbError::BackendError(e.to_string()),
     }
@@ -285,7 +286,7 @@ impl Drop for PoolCloser {
         //
         // Note that this is a best-effort operation so, if the server is slow in releasing
         // resources, other threads might not be able to gather new connections.  To handle this
-        // case, the connection logic in `connect_lazy_for_test` implements retries.
+        // case, the connection logic in `testutils::setup()` implements retries.
         self.pool.close();
     }
 }
