@@ -33,8 +33,8 @@ pub(crate) mod email;
 mod login;
 mod logout;
 mod signup;
-#[cfg(test)]
-pub(crate) mod testutils;
+#[cfg(any(test, feature = "testutils"))]
+pub mod testutils;
 
 /// Default value for the `SESSION_MAX_AGE` setting when not specified.
 const DEFAULT_SESSION_MAX_AGE_SECONDS: u64 = 24 * 60 * 60;
@@ -179,7 +179,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_session_ok() {
         let context = TestContext::setup().await;
-        let mut tx = context.db.begin().await.unwrap();
+        let mut tx = context.db().begin().await.unwrap();
 
         let token = context.do_test_login(Username::from("username")).await;
         assert!(context
@@ -192,7 +192,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_session_login_expired() {
         let context = TestContext::setup().await;
-        let mut tx = context.db.begin().await.unwrap();
+        let mut tx = context.db().begin().await.unwrap();
 
         let token = context.do_test_login(Username::from("username")).await;
         assert!(context
@@ -236,7 +236,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_session_login_future() {
         let context = TestContext::setup().await;
-        let mut tx = context.db.begin().await.unwrap();
+        let mut tx = context.db().begin().await.unwrap();
 
         let token = context.do_test_login(Username::from("username")).await;
         assert!(context

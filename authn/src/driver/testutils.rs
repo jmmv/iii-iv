@@ -13,11 +13,13 @@
 // License for the specific language governing permissions and limitations
 // under the License.
 
+//! Utilities to help testing services that integrate with the `authn` features.
+
 use crate::db;
 use crate::driver::email::testutils::{get_latest_activation_code, make_test_activation_template};
 use crate::driver::{AuthnDriver, AuthnOptions};
 use crate::model::{AccessToken, Password};
-use iii_iv_core::clocks::testutils::MonotonicClock;
+use iii_iv_core::clocks::Clock;
 use iii_iv_core::db::Db;
 use iii_iv_core::model::EmailAddress;
 use iii_iv_core::model::Username;
@@ -26,39 +28,51 @@ use iii_iv_lettre::testutils::RecorderSmtpMailer;
 use std::sync::Arc;
 
 /// State of a running test.
-pub(crate) struct TestContext {
-    pub(crate) db: Arc<dyn Db + Send + Sync>,
+pub struct TestContext {
+    /// The SMTP mailer to capture authentication flow request messages.
     mailer: Arc<RecorderSmtpMailer>,
+
+    /// The driver to handle authentication flows.
     driver: AuthnDriver,
 }
 
 impl TestContext {
     /// Initializes the driver using an in-memory database, a monotonic clock and a mock
     /// messenger that captures outgoing notifications.
+    #[cfg(test)]
     pub(crate) async fn setup() -> Self {
         let db = Arc::from(iii_iv_core::db::sqlite::testutils::setup().await);
+        let clock = Arc::from(iii_iv_core::clocks::testutils::MonotonicClock::new(100000));
+        Self::setup_with(db, clock, "the-realm").await
+    }
+
+    /// Initializes the test context using the given already-initialized objects.
+    pub async fn setup_with(
+        db: Arc<dyn Db + Send + Sync>,
+        clock: Arc<dyn Clock + Send + Sync>,
+        realm: &'static str,
+    ) -> Self {
         db::init_schema(&mut db.ex()).await.unwrap();
-        let clock = Arc::from(MonotonicClock::new(100000));
         let mailer = Arc::from(RecorderSmtpMailer::default());
         let base_urls = Arc::from(BaseUrls::from_strs(
             "http://localhost:1234/",
             Some("http://no-frontend.example.com"),
         ));
         let driver = AuthnDriver::new(
-            db.clone(),
+            db,
             clock,
             mailer.clone(),
             make_test_activation_template(),
             base_urls,
-            "the-realm",
+            realm,
             AuthnOptions::default(),
         );
 
-        TestContext { db, mailer, driver }
+        TestContext { mailer, driver }
     }
 
-    /// Syntactic sugar to create and log a user in for testing purposes.
-    pub(crate) async fn do_test_login(&self, username: Username) -> AccessToken {
+    /// Syntactic sugar to create a user ifor testing purposes.
+    pub async fn create_active_user(&self, username: &Username) {
         let password = Password::from("test0password");
 
         let email = EmailAddress::new(format!("{}@example.com", username.as_str())).unwrap();
@@ -68,20 +82,33 @@ impl TestContext {
             .await
             .unwrap();
         let activation_code =
-            get_latest_activation_code(&self.mailer, &email, &username).await.unwrap();
+            get_latest_activation_code(&self.mailer, &email, username).await.unwrap();
         self.driver.clone().activate(username.clone(), activation_code).await.unwrap();
+    }
+
+    /// Syntactic sugar to create and log a user in for testing purposes.
+    pub async fn do_test_login(&self, username: Username) -> AccessToken {
+        let password = Password::from("test0password");
+        self.create_active_user(&username).await;
 
         let response = self.driver.clone().login(username, password).await.unwrap();
         response.take_access_token()
     }
 
+    /// Gets access to the database used by this test context.
+    #[cfg(test)]
+    pub(crate) fn db(&self) -> &dyn Db {
+        self.driver.db.as_ref()
+    }
+
     /// Gets a copy of the driver in this test context.
-    pub(crate) fn driver(&self) -> AuthnDriver {
+    pub fn driver(&self) -> AuthnDriver {
         self.driver.clone()
     }
 
     /// Gets the latest activation code sent to `email` which, if any, should be for the username
     /// given in `exp_username`.
+    #[cfg(test)]
     pub(crate) async fn get_latest_activation_code(
         &self,
         email: &EmailAddress,

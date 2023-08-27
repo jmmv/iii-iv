@@ -143,9 +143,9 @@ impl TryFrom<SqliteRow> for User {
     }
 }
 
-/// Creates a new user named `username`, with a `password` in hashed form, an `email` address.
+/// Creates a new user named `username`, with a `password` in hashed form and an `email` address.
 /// The user is created as activated (no activation code) and as not having logged in.
-pub(crate) async fn create_user(
+pub async fn create_user(
     ex: &mut Executor,
     username: Username,
     password: Option<HashedPassword>,

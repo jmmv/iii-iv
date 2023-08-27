@@ -47,7 +47,7 @@ mod tests {
     #[tokio::test]
     async fn test_ok() {
         let context = TestContext::setup().await;
-        let mut ex = context.db.ex();
+        let mut ex = context.db().ex();
 
         let username = Username::from("test");
 
@@ -63,7 +63,7 @@ mod tests {
     #[tokio::test]
     async fn test_not_found() {
         let context = TestContext::setup().await;
-        let mut ex = context.db.ex();
+        let mut ex = context.db().ex();
 
         let username1 = Username::from("test1");
 
