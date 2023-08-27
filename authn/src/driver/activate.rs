@@ -64,7 +64,7 @@ mod tests {
     #[tokio::test]
     async fn test_activate_ok() {
         let context = TestContext::setup().await;
-        let mut ex = context.db.ex();
+        let mut ex = context.db().ex();
 
         let username = create_test_user(&mut ex, Some(42)).await;
 
@@ -77,7 +77,7 @@ mod tests {
     #[tokio::test]
     async fn test_activate_bad_code() {
         let context = TestContext::setup().await;
-        let mut ex = context.db.ex();
+        let mut ex = context.db().ex();
 
         let username = create_test_user(&mut ex, Some(42)).await;
 
@@ -93,7 +93,7 @@ mod tests {
     #[tokio::test]
     async fn test_activate_already_active() {
         let context = TestContext::setup().await;
-        let mut ex = context.db.ex();
+        let mut ex = context.db().ex();
 
         let username = create_test_user(&mut ex, None).await;
 
@@ -109,7 +109,7 @@ mod tests {
     #[tokio::test]
     async fn test_user_not_found() {
         let context = TestContext::setup().await;
-        let mut ex = context.db.ex();
+        let mut ex = context.db().ex();
 
         let username = Username::from("unknown");
 

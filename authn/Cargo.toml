@@ -10,7 +10,7 @@ publish = false
 default = ["postgres"]
 postgres = ["iii-iv-core/postgres", "sqlx/postgres"]
 sqlite = ["dep:futures", "iii-iv-core/sqlite", "sqlx/sqlite"]
-testutils = ["dep:url"]
+testutils = ["dep:url", "iii-iv-core/sqlite", "iii-iv-core/testutils", "iii-iv-lettre/testutils"]
 
 [dependencies]
 async-trait = "0.1"

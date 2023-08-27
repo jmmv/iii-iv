@@ -74,7 +74,7 @@ mod tests {
     #[tokio::test]
     async fn test_login_ok_first_time() {
         let context = TestContext::setup().await;
-        let mut ex = context.db.ex();
+        let mut ex = context.db().ex();
 
         let username = Username::from("hello");
         let password = Password::from("password");
@@ -103,7 +103,7 @@ mod tests {
     #[tokio::test]
     async fn test_login_ok_returning() {
         let context = TestContext::setup().await;
-        let mut ex = context.db.ex();
+        let mut ex = context.db().ex();
 
         let username = Username::from("hello");
         let password = Password::from("password");
@@ -145,7 +145,7 @@ mod tests {
     #[tokio::test]
     async fn test_login_invalid_password() {
         let context = TestContext::setup().await;
-        let mut ex = context.db.ex();
+        let mut ex = context.db().ex();
 
         let username = Username::from("hello");
 
@@ -167,7 +167,7 @@ mod tests {
     #[tokio::test]
     async fn test_login_not_allowed() {
         let context = TestContext::setup().await;
-        let mut ex = context.db.ex();
+        let mut ex = context.db().ex();
 
         let username = Username::from("hello");
 
@@ -184,7 +184,7 @@ mod tests {
     #[tokio::test]
     async fn test_login_not_activated() {
         let context = TestContext::setup().await;
-        let mut ex = context.db.ex();
+        let mut ex = context.db().ex();
 
         let username = Username::from("hello");
         let password = Password::from("password");
