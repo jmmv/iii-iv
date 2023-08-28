@@ -193,7 +193,7 @@ pub async fn create_user(
 }
 
 /// Gets information about an existing user named `username`.
-pub(crate) async fn get_user_by_username(ex: &mut Executor, username: Username) -> DbResult<User> {
+pub async fn get_user_by_username(ex: &mut Executor, username: Username) -> DbResult<User> {
     match ex {
         #[cfg(feature = "postgres")]
         Executor::Postgres(ref mut ex) => {
