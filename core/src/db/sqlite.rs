@@ -17,7 +17,6 @@
 
 use crate::db::{Db, DbError, DbResult, Executor, TxExecutor};
 use async_trait::async_trait;
-use derivative::Derivative;
 use futures::future::BoxFuture;
 use futures::TryStreamExt;
 use sqlx::pool::PoolConnection;
@@ -227,11 +226,9 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
 }
 
 /// A database instance backed by an in-memory SQLite database.
-#[derive(Derivative)]
-#[derivative(Clone)]
 pub struct SqliteDb {
     /// Shared SQLite connection pool.  This is a cloneable type that all concurrent
-    /// transactions can use it concurrently.
+    /// transactions can use concurrently.
     pool: SqlitePool,
 }
 
@@ -240,6 +237,18 @@ impl SqliteDb {
     pub async fn typed_ex(&self) -> DbResult<SqliteExecutor> {
         let conn = self.pool.acquire().await.map_err(map_sqlx_error)?;
         Ok(SqliteExecutor::PoolExec(conn))
+    }
+}
+
+impl Drop for SqliteDb {
+    fn drop(&mut self) {
+        let pool = self.pool.clone();
+        tokio::task::spawn_blocking(move || {
+            let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+            rt.block_on(async move {
+                pool.close().await;
+            });
+        });
     }
 }
 

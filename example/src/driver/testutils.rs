@@ -17,19 +17,19 @@
 
 use crate::db;
 use crate::driver::Driver;
-use iii_iv_core::db::sqlite::SqliteDb;
 use iii_iv_core::db::{Db, Executor};
+use std::sync::Arc;
 
 pub(crate) struct TestContext {
-    db: SqliteDb,
+    db: Arc<dyn Db + Send + Sync>,
     driver: Driver,
 }
 
 impl TestContext {
     pub(crate) async fn setup() -> Self {
-        let db = iii_iv_core::db::sqlite::connect(":memory:").await.unwrap();
+        let db = Arc::from(iii_iv_core::db::sqlite::connect(":memory:").await.unwrap());
         db::init_schema(&mut db.ex().await.unwrap()).await.unwrap();
-        let driver = Driver::new(Box::from(db.clone()));
+        let driver = Driver::new(db.clone());
         Self { db, driver }
     }
 

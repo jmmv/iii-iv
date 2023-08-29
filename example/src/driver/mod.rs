@@ -37,7 +37,7 @@ pub(crate) struct Driver {
 
 impl Driver {
     /// Creates a new driver backed by the given injected components.
-    pub(crate) fn new(db: Box<dyn Db + Send + Sync>) -> Self {
-        Self { db: Arc::from(db) }
+    pub(crate) fn new(db: Arc<dyn Db + Send + Sync>) -> Self {
+        Self { db }
     }
 }

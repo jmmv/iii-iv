@@ -26,6 +26,7 @@ use iii_iv_example::db::init_schema;
 use iii_iv_example::serve;
 use std::env;
 use std::net::Ipv4Addr;
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() {
@@ -38,7 +39,7 @@ async fn main() {
     let addr = (Ipv4Addr::LOCALHOST, port);
 
     let db_opts = PostgresOptions::from_env("PGSQL_PROD").unwrap();
-    let db = Box::from(PostgresDb::connect(db_opts).unwrap());
+    let db = Arc::from(PostgresDb::connect(db_opts).unwrap());
     init_schema(&mut db.ex().await.unwrap()).await.unwrap();
 
     serve(addr, db).await.unwrap()
