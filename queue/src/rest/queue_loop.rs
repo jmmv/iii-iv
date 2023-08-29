@@ -109,7 +109,7 @@ mod tests {
         // Now that we poked the worker via the REST API, we can expect the tasks to complete.
         let results = context
             .client
-            .wait_all(&mut context.ex().await, &ids, before, Duration::from_millis(1))
+            .wait_all(context.db.clone(), &ids, before, Duration::from_millis(1))
             .await
             .unwrap();
         assert_eq!(2, results.len());
