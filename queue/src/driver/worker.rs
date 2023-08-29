@@ -141,7 +141,8 @@ where
 
     // This protects against running the same task concurrently more than once if we think it is
     // still running.
-    let task = db::set_task_running(&mut db.ex(), task, max_runtime, clock.now_utc()).await?;
+    let task =
+        db::set_task_running(&mut db.ex().await?, task, max_runtime, clock.now_utc()).await?;
 
     let result = if task.runs() >= max_runs {
         TaskResult::Abandoned(format!(
@@ -187,7 +188,7 @@ where
     // TODO(jmmv): Consider adding some form of retries here given the criticality of the situation
     // to minimize the chances of this being a problem.  And also expose the `runs` counter to the
     // task so that it can decide whether it actually wants to retry non-idempotent steps.
-    db::set_task_result(&mut db.ex(), id, &result, clock.now_utc()).await?;
+    db::set_task_result(&mut db.ex().await?, id, &result, clock.now_utc()).await?;
 
     Ok(Some(result))
 }
@@ -211,7 +212,7 @@ where
 {
     loop {
         let tasks = db::get_runnable_tasks::<T>(
-            &mut db.ex(),
+            &mut db.ex().await?,
             opts.batch_size,
             opts.max_runtime,
             clock.now_utc(),

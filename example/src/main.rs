@@ -39,7 +39,7 @@ async fn main() {
 
     let db_opts = PostgresOptions::from_env("PGSQL_PROD").unwrap();
     let db = Box::from(PostgresDb::connect(db_opts).unwrap());
-    init_schema(&mut db.ex()).await.unwrap();
+    init_schema(&mut db.ex().await.unwrap()).await.unwrap();
 
     serve(addr, db).await.unwrap()
 }

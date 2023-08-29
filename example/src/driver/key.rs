@@ -23,13 +23,13 @@ use iii_iv_core::driver::DriverResult;
 impl Driver {
     /// Deletes an existing `key`.
     pub(crate) async fn delete_key(self, key: &Key) -> DriverResult<()> {
-        db::delete_key(&mut self.db.ex(), key).await?;
+        db::delete_key(&mut self.db.ex().await?, key).await?;
         Ok(())
     }
 
     /// Gets the current value of the given `key`.
     pub(crate) async fn get_key(self, key: &Key) -> DriverResult<Entry> {
-        let value = db::get_key(&mut self.db.ex(), key).await?;
+        let value = db::get_key(&mut self.db.ex().await?, key).await?;
         Ok(value)
     }
 
@@ -62,11 +62,14 @@ mod tests {
         let key = Key::new("test".to_owned());
         let entry = Entry::new("the value".to_owned(), Version::initial());
 
-        db::set_key(&mut context.ex(), &key, &entry).await.unwrap();
+        db::set_key(&mut context.ex().await, &key, &entry).await.unwrap();
 
         context.driver().delete_key(&key).await.unwrap();
 
-        assert_eq!(DbError::NotFound, db::get_key(&mut context.ex(), &key).await.unwrap_err());
+        assert_eq!(
+            DbError::NotFound,
+            db::get_key(&mut context.ex().await, &key).await.unwrap_err()
+        );
     }
 
     #[tokio::test]
@@ -88,7 +91,7 @@ mod tests {
         let key = Key::new("test".to_owned());
         let exp_entry = Entry::new("the value".to_owned(), Version::initial());
 
-        db::set_key(&mut context.ex(), &key, &exp_entry).await.unwrap();
+        db::set_key(&mut context.ex().await, &key, &exp_entry).await.unwrap();
 
         let entry = context.driver().get_key(&key).await.unwrap();
         assert_eq!(exp_entry, entry);
@@ -114,7 +117,7 @@ mod tests {
 
         context.driver().set_key(&key, "first value".to_owned()).await.unwrap();
 
-        let entry = db::get_key(&mut context.ex(), &key).await.unwrap();
+        let entry = db::get_key(&mut context.ex().await, &key).await.unwrap();
         assert_eq!(Entry::new("first value".to_owned(), Version::initial()), entry);
     }
 
@@ -127,7 +130,7 @@ mod tests {
         context.driver().set_key(&key, "first value".to_owned()).await.unwrap();
         context.driver().set_key(&key, "second value".to_owned()).await.unwrap();
 
-        let entry = db::get_key(&mut context.ex(), &key).await.unwrap();
+        let entry = db::get_key(&mut context.ex().await, &key).await.unwrap();
         assert_eq!(Entry::new("second value".to_owned(), Version::initial().next()), entry);
     }
 }

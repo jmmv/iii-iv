@@ -31,7 +31,7 @@ pub(crate) struct TestContext {
 impl TestContext {
     pub(crate) async fn setup() -> Self {
         let db = iii_iv_core::db::sqlite::connect(":memory:").await.unwrap();
-        db::init_schema(&mut db.ex()).await.unwrap();
+        db::init_schema(&mut db.ex().await.unwrap()).await.unwrap();
         let driver = Driver::new(Box::from(db.clone()));
         let app = app(driver);
         Self { db, app }
@@ -52,7 +52,7 @@ impl TestContext {
         version: u32,
     ) {
         db::set_key(
-            &mut self.db.ex(),
+            &mut self.db.ex().await.unwrap(),
             &Key::new(key.into()),
             &Entry::new(value.into(), Version::from_u32(version).unwrap()),
         )
@@ -61,10 +61,13 @@ impl TestContext {
     }
 
     pub(crate) async fn has_key<K: Into<String>>(&self, key: K) -> bool {
-        db::get_key_version(&mut self.db.ex(), &Key::new(key.into())).await.unwrap().is_some()
+        db::get_key_version(&mut self.db.ex().await.unwrap(), &Key::new(key.into()))
+            .await
+            .unwrap()
+            .is_some()
     }
 
     pub(crate) async fn get_key<K: Into<String>>(&self, key: K) -> Entry {
-        db::get_key(&mut self.db.ex(), &Key::new(key.into())).await.unwrap()
+        db::get_key(&mut self.db.ex().await.unwrap(), &Key::new(key.into())).await.unwrap()
     }
 }

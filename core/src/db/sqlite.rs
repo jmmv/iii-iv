@@ -20,6 +20,7 @@ use async_trait::async_trait;
 use derivative::Derivative;
 use futures::future::BoxFuture;
 use futures::TryStreamExt;
+use sqlx::pool::PoolConnection;
 use sqlx::sqlite::{Sqlite, SqlitePool};
 use sqlx::Transaction;
 use std::time::Duration;
@@ -47,7 +48,7 @@ pub async fn connect(conn_str: &str) -> DbResult<SqliteDb> {
 pub enum SqliteExecutor {
     /// An executor backed by a pool.  Operations issued via this executor aren't guaranteed to
     /// happen on the same connection.
-    PoolExec(SqlitePool),
+    PoolExec(PoolConnection<Sqlite>),
 
     /// An executor backed by a transaction.
     TxExec(Transaction<'static, Sqlite>),
@@ -76,7 +77,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
         'c: 'e,
     {
         match self {
-            SqliteExecutor::PoolExec(pool) => pool.describe(sql),
+            SqliteExecutor::PoolExec(conn) => conn.describe(sql),
             SqliteExecutor::TxExec(ref mut tx) => tx.describe(sql),
         }
     }
@@ -90,7 +91,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
         E: sqlx::Execute<'q, Self::Database>,
     {
         match self {
-            SqliteExecutor::PoolExec(pool) => pool.execute(query),
+            SqliteExecutor::PoolExec(conn) => conn.execute(query),
             SqliteExecutor::TxExec(ref mut tx) => tx.execute(query),
         }
     }
@@ -107,7 +108,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
         E: sqlx::Execute<'q, Self::Database>,
     {
         match self {
-            SqliteExecutor::PoolExec(pool) => pool.execute_many(query),
+            SqliteExecutor::PoolExec(conn) => conn.execute_many(query),
             SqliteExecutor::TxExec(ref mut tx) => tx.execute_many(query),
         }
     }
@@ -121,7 +122,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
         E: sqlx::Execute<'q, Self::Database>,
     {
         match self {
-            SqliteExecutor::PoolExec(pool) => pool.fetch(query),
+            SqliteExecutor::PoolExec(conn) => conn.fetch(query),
             SqliteExecutor::TxExec(ref mut tx) => tx.fetch(query),
         }
     }
@@ -135,7 +136,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
         E: sqlx::Execute<'q, Self::Database>,
     {
         match self {
-            SqliteExecutor::PoolExec(pool) => pool.fetch_all(query),
+            SqliteExecutor::PoolExec(conn) => conn.fetch_all(query),
             SqliteExecutor::TxExec(ref mut tx) => tx.fetch_all(query),
         }
     }
@@ -158,7 +159,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
         E: sqlx::Execute<'q, Self::Database>,
     {
         match self {
-            SqliteExecutor::PoolExec(pool) => pool.fetch_many(query),
+            SqliteExecutor::PoolExec(conn) => conn.fetch_many(query),
             SqliteExecutor::TxExec(ref mut tx) => tx.fetch_many(query),
         }
     }
@@ -172,7 +173,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
         E: sqlx::Execute<'q, Self::Database>,
     {
         match self {
-            SqliteExecutor::PoolExec(pool) => pool.fetch_one(query),
+            SqliteExecutor::PoolExec(conn) => conn.fetch_one(query),
             SqliteExecutor::TxExec(ref mut tx) => tx.fetch_one(query),
         }
     }
@@ -186,7 +187,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
         E: sqlx::Execute<'q, Self::Database>,
     {
         match self {
-            SqliteExecutor::PoolExec(pool) => pool.fetch_optional(query),
+            SqliteExecutor::PoolExec(conn) => conn.fetch_optional(query),
             SqliteExecutor::TxExec(ref mut tx) => tx.fetch_optional(query),
         }
     }
@@ -202,7 +203,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
         'c: 'e,
     {
         match self {
-            SqliteExecutor::PoolExec(pool) => pool.prepare(query),
+            SqliteExecutor::PoolExec(conn) => conn.prepare(query),
             SqliteExecutor::TxExec(ref mut tx) => tx.prepare(query),
         }
     }
@@ -219,7 +220,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
         'c: 'e,
     {
         match self {
-            SqliteExecutor::PoolExec(pool) => pool.prepare_with(sql, parameters),
+            SqliteExecutor::PoolExec(conn) => conn.prepare_with(sql, parameters),
             SqliteExecutor::TxExec(ref mut tx) => tx.prepare_with(sql, parameters),
         }
     }
@@ -236,15 +237,17 @@ pub struct SqliteDb {
 
 impl SqliteDb {
     /// Returns an executor of the specific type used by this database.
-    pub fn typed_ex(&self) -> SqliteExecutor {
-        SqliteExecutor::PoolExec(self.pool.clone())
+    pub async fn typed_ex(&self) -> DbResult<SqliteExecutor> {
+        let conn = self.pool.acquire().await.map_err(map_sqlx_error)?;
+        Ok(SqliteExecutor::PoolExec(conn))
     }
 }
 
 #[async_trait]
 impl Db for SqliteDb {
-    fn ex(&self) -> Executor {
-        Executor::Sqlite(SqliteExecutor::PoolExec(self.pool.clone()))
+    async fn ex(&self) -> DbResult<Executor> {
+        let conn = self.pool.acquire().await.map_err(map_sqlx_error)?;
+        Ok(Executor::Sqlite(SqliteExecutor::PoolExec(conn)))
     }
 
     async fn begin(&self) -> DbResult<TxExecutor> {

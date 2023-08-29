@@ -54,9 +54,9 @@ mod tests {
         let key3 = Key::new("3".to_owned());
         let entry = Entry::new("the value".to_owned(), Version::initial());
 
-        db::set_key(&mut context.ex(), &key1, &entry).await.unwrap();
-        db::set_key(&mut context.ex(), &key3, &entry).await.unwrap();
-        db::set_key(&mut context.ex(), &key2, &entry).await.unwrap();
+        db::set_key(&mut context.ex().await, &key1, &entry).await.unwrap();
+        db::set_key(&mut context.ex().await, &key3, &entry).await.unwrap();
+        db::set_key(&mut context.ex().await, &key2, &entry).await.unwrap();
 
         let keys = context.driver().get_keys().await.unwrap();
         assert_eq!(vec![key1, key2, key3], keys.into_iter().collect::<Vec<Key>>());

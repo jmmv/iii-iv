@@ -20,6 +20,7 @@ use crate::env::{get_optional_var, get_required_var};
 use async_trait::async_trait;
 use derivative::Derivative;
 use futures::future::BoxFuture;
+use sqlx::pool::PoolConnection;
 use sqlx::postgres::{PgConnectOptions, PgDatabaseError, PgPool, PgPoolOptions, Postgres};
 use sqlx::Transaction;
 #[cfg(test)]
@@ -92,9 +93,8 @@ impl PostgresOptions {
 /// A generic database executor implementation for PostgreSQL.
 #[derive(Debug)]
 pub enum PostgresExecutor {
-    /// An executor backed by a pool.  Operations issued via this executor aren't guaranteed to
-    /// happen on the same connection.
-    PoolExec(PgPool),
+    /// An executor backed by a connection.
+    PoolExec(PoolConnection<Postgres>),
 
     /// An executor backed by a transaction.
     TxExec(Transaction<'static, Postgres>),
@@ -123,7 +123,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
         'c: 'e,
     {
         match self {
-            PostgresExecutor::PoolExec(pool) => pool.describe(sql),
+            PostgresExecutor::PoolExec(conn) => conn.describe(sql),
             PostgresExecutor::TxExec(ref mut tx) => tx.describe(sql),
         }
     }
@@ -137,7 +137,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
         E: sqlx::Execute<'q, Self::Database>,
     {
         match self {
-            PostgresExecutor::PoolExec(pool) => pool.execute(query),
+            PostgresExecutor::PoolExec(conn) => conn.execute(query),
             PostgresExecutor::TxExec(ref mut tx) => tx.execute(query),
         }
     }
@@ -154,7 +154,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
         E: sqlx::Execute<'q, Self::Database>,
     {
         match self {
-            PostgresExecutor::PoolExec(pool) => pool.execute_many(query),
+            PostgresExecutor::PoolExec(conn) => conn.execute_many(query),
             PostgresExecutor::TxExec(ref mut tx) => tx.execute_many(query),
         }
     }
@@ -168,7 +168,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
         E: sqlx::Execute<'q, Self::Database>,
     {
         match self {
-            PostgresExecutor::PoolExec(pool) => pool.fetch(query),
+            PostgresExecutor::PoolExec(conn) => conn.fetch(query),
             PostgresExecutor::TxExec(ref mut tx) => tx.fetch(query),
         }
     }
@@ -182,7 +182,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
         E: sqlx::Execute<'q, Self::Database>,
     {
         match self {
-            PostgresExecutor::PoolExec(pool) => pool.fetch_all(query),
+            PostgresExecutor::PoolExec(conn) => conn.fetch_all(query),
             PostgresExecutor::TxExec(ref mut tx) => tx.fetch_all(query),
         }
     }
@@ -205,7 +205,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
         E: sqlx::Execute<'q, Self::Database>,
     {
         match self {
-            PostgresExecutor::PoolExec(pool) => pool.fetch_many(query),
+            PostgresExecutor::PoolExec(conn) => conn.fetch_many(query),
             PostgresExecutor::TxExec(ref mut tx) => tx.fetch_many(query),
         }
     }
@@ -219,7 +219,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
         E: sqlx::Execute<'q, Self::Database>,
     {
         match self {
-            PostgresExecutor::PoolExec(pool) => pool.fetch_one(query),
+            PostgresExecutor::PoolExec(conn) => conn.fetch_one(query),
             PostgresExecutor::TxExec(ref mut tx) => tx.fetch_one(query),
         }
     }
@@ -233,7 +233,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
         E: sqlx::Execute<'q, Self::Database>,
     {
         match self {
-            PostgresExecutor::PoolExec(pool) => pool.fetch_optional(query),
+            PostgresExecutor::PoolExec(conn) => conn.fetch_optional(query),
             PostgresExecutor::TxExec(ref mut tx) => tx.fetch_optional(query),
         }
     }
@@ -249,7 +249,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
         'c: 'e,
     {
         match self {
-            PostgresExecutor::PoolExec(pool) => pool.prepare(query),
+            PostgresExecutor::PoolExec(conn) => conn.prepare(query),
             PostgresExecutor::TxExec(ref mut tx) => tx.prepare(query),
         }
     }
@@ -266,7 +266,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
         'c: 'e,
     {
         match self {
-            PostgresExecutor::PoolExec(pool) => pool.prepare_with(sql, parameters),
+            PostgresExecutor::PoolExec(conn) => conn.prepare_with(sql, parameters),
             PostgresExecutor::TxExec(ref mut tx) => tx.prepare_with(sql, parameters),
         }
     }
@@ -336,15 +336,17 @@ impl PostgresDb {
     }
 
     /// Returns an executor of the specific type used by this database.
-    pub fn typed_ex(&self) -> PostgresExecutor {
-        PostgresExecutor::PoolExec(self.pool.clone())
+    pub async fn typed_ex(&self) -> DbResult<PostgresExecutor> {
+        let conn = self.pool.acquire().await.map_err(map_sqlx_error)?;
+        Ok(PostgresExecutor::PoolExec(conn))
     }
 }
 
 #[async_trait]
 impl Db for PostgresDb {
-    fn ex(&self) -> Executor {
-        Executor::Postgres(PostgresExecutor::PoolExec(self.pool.clone()))
+    async fn ex(&self) -> DbResult<Executor> {
+        let conn = self.pool.acquire().await.map_err(map_sqlx_error)?;
+        Ok(Executor::Postgres(PostgresExecutor::PoolExec(conn)))
     }
 
     async fn begin(&self) -> DbResult<TxExecutor> {
@@ -390,7 +392,7 @@ pub mod testutils {
         let mut delay = Duration::from_millis(100 + rand::random::<u64>() % 100);
         loop {
             match sqlx::query("SET search_path TO pg_temp")
-                .execute(&mut db.typed_ex())
+                .execute(&mut db.typed_ex().await.unwrap())
                 .await
                 .map_err(map_sqlx_error)
             {

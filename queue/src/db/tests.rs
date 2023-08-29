@@ -491,12 +491,12 @@ mod postgres {
 
     async fn setup() -> PostgresDb {
         let db = iii_iv_core::db::postgres::testutils::setup().await;
-        init_schema(&mut db.ex()).await.unwrap();
+        init_schema(&mut db.ex().await.unwrap()).await.unwrap();
         db
     }
 
     generate_db_tests!(
-        &mut setup().await.ex(),
+        &mut setup().await.ex().await.unwrap(),
         #[ignore = "Requires environment configuration and is expensive"]
     );
 }
@@ -509,9 +509,9 @@ mod sqlite {
 
     async fn setup() -> SqliteDb {
         let db = iii_iv_core::db::sqlite::testutils::setup().await;
-        init_schema(&mut db.ex()).await.unwrap();
+        init_schema(&mut db.ex().await.unwrap()).await.unwrap();
         db
     }
 
-    generate_db_tests!(&mut setup().await.ex());
+    generate_db_tests!(&mut setup().await.ex().await.unwrap());
 }
