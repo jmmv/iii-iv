@@ -25,8 +25,6 @@ use log::warn;
 use sqlx::pool::PoolConnection;
 use sqlx::postgres::{PgConnectOptions, PgDatabaseError, PgPool, PgPoolOptions, Postgres};
 use sqlx::Transaction;
-#[cfg(test)]
-use std::sync::Arc;
 use std::time::Duration;
 
 /// Default value for the `max_retries` configuration property.
@@ -284,25 +282,6 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
     }
 }
 
-#[cfg(test)]
-struct PoolCloser {
-    pool: PgPool,
-}
-
-#[cfg(test)]
-impl Drop for PoolCloser {
-    #[allow(unused_must_use)]
-    fn drop(&mut self) {
-        // Forcibly terminate open connections to release server resources early.  This is required
-        // to prevent other tests from stalling, even if running with low parallelism.
-        //
-        // Note that this is a best-effort operation so, if the server is slow in releasing
-        // resources, other threads might not be able to gather new connections.  To handle this
-        // case, the connection logic in `testutils::setup()` implements retries.
-        self.pool.close();
-    }
-}
-
 /// Retries a database operation up to `retries` times.
 async fn retry<Op, OpFut, T>(op: Op, mut retries: u16) -> DbResult<T>
 where
@@ -337,8 +316,6 @@ where
 }
 
 /// Shareable connection across transactions and `PostgresDb` types.
-#[derive(Derivative)]
-#[derivative(Clone)]
 pub struct PostgresDb {
     /// Shared PostgreSQL connection pool.  This is a cloneable type that all concurrent
     /// transactions can use it concurrently.
@@ -347,10 +324,18 @@ pub struct PostgresDb {
     /// Maximum number of attempts to retry a connection operation when the database does not seem
     /// to be available.
     max_retries: u16,
+}
 
-    /// Automatic connection closer for tests to limit concurrent connections.
-    #[cfg(test)]
-    closer: Arc<PoolCloser>,
+impl Drop for PostgresDb {
+    fn drop(&mut self) {
+        let pool = self.pool.clone();
+        tokio::task::spawn_blocking(move || {
+            let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+            rt.block_on(async move {
+                pool.close().await;
+            });
+        });
+    }
 }
 
 impl PostgresDb {
@@ -375,18 +360,7 @@ impl PostgresDb {
             .password(&opts.password);
 
         let pool = pool_options.connect_lazy_with(options);
-
-        #[cfg(not(test))]
-        let db = Self { pool, max_retries: opts.max_retries };
-
-        #[cfg(test)]
-        let db = Self {
-            pool: pool.clone(),
-            max_retries: opts.max_retries,
-            closer: Arc::from(PoolCloser { pool }),
-        };
-
-        Ok(db)
+        Ok(Self { pool, max_retries: opts.max_retries })
     }
 
     /// Returns an executor of the specific type used by this database.

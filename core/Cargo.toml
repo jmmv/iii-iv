@@ -17,7 +17,12 @@ postgres = [
     "sqlx/postgres",
     "sqlx/runtime-tokio-rustls",
 ]
-sqlite = ["dep:futures", "sqlx/sqlite", "sqlx/runtime-tokio-rustls"]
+sqlite = [
+    "dep:futures",
+    "dep:tokio",
+    "sqlx/sqlite",
+    "sqlx/runtime-tokio-rustls",
+]
 testutils = [
     "dep:base64",
     "dep:bytes",
