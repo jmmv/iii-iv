@@ -21,7 +21,7 @@ use crate::model::TaskResult;
 use derivative::Derivative;
 use futures::lock::Mutex;
 use iii_iv_core::clocks::Clock;
-use iii_iv_core::db::Executor;
+use iii_iv_core::db::{Db, Executor};
 use iii_iv_core::driver::{DriverError, DriverResult};
 use log::warn;
 use serde::Serialize;
@@ -139,12 +139,12 @@ where
     /// Waits for task `id` until it has completed execution by polling its state every `period`.
     pub async fn wait(
         &mut self,
-        ex: &mut Executor,
+        db: Arc<dyn Db + Send + Sync>,
         id: Uuid,
         period: Duration,
     ) -> DriverResult<TaskResult> {
         loop {
-            if let Some(result) = self.poll(ex, id).await? {
+            if let Some(result) = self.poll(&mut db.ex().await?, id).await? {
                 break Ok(result);
             }
 
@@ -158,7 +158,7 @@ where
     /// every `period`.  Only tasks with a result produced at or after `since` are considered.
     pub async fn wait_all(
         &mut self,
-        ex: &mut Executor,
+        db: Arc<dyn Db + Send + Sync>,
         ids: &[Uuid],
         mut since: OffsetDateTime,
         period: Duration,
@@ -173,7 +173,7 @@ where
 
         let mut results = HashMap::default();
         while !ids.is_empty() {
-            let partial = db::get_results_since(ex, since).await?;
+            let partial = db::get_results_since(&mut db.ex().await?, since).await?;
 
             for (id, result) in partial {
                 if !ids.remove(&id) {

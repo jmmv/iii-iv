@@ -260,7 +260,7 @@ mod tests {
         // Poll until all tasks complete.
         let period = Duration::from_millis(10);
         let results =
-            context.client.wait_all(&mut context.ex().await, &ids, before, period).await.unwrap();
+            context.client.wait_all(context.db.clone(), &ids, before, period).await.unwrap();
         assert_eq!(usize::from(num_tasks), results.len());
         for (i, id) in ids.iter().enumerate().take(usize::from(num_tasks)) {
             assert_eq!(&TaskResult::Done(Some(format!("Task {}", i))), results.get(id).unwrap());
@@ -310,11 +310,8 @@ mod tests {
 
         let task = MockTask { id: 123, crash: 4, ..Default::default() };
         let id = context.client.enqueue(&mut context.ex().await, &task).await.unwrap();
-        let result = context
-            .client
-            .wait(&mut context.ex().await, id, Duration::from_millis(1))
-            .await
-            .unwrap();
+        let result =
+            context.client.wait(context.db.clone(), id, Duration::from_millis(1)).await.unwrap();
 
         let state = context.state.lock().await;
         assert_eq!(1, state.len());
@@ -337,11 +334,8 @@ mod tests {
         let task =
             MockTask { id: 123, result: Err("foo bar".to_owned()), crash: 3, ..Default::default() };
         let id = context.client.enqueue(&mut context.ex().await, &task).await.unwrap();
-        let result = context
-            .client
-            .wait(&mut context.ex().await, id, Duration::from_millis(1))
-            .await
-            .unwrap();
+        let result =
+            context.client.wait(context.db.clone(), id, Duration::from_millis(1)).await.unwrap();
 
         let state = context.state.lock().await;
         assert_eq!(1, state.len());
@@ -412,11 +406,8 @@ mod tests {
         context.notify_workers(1).await;
 
         // Run the task that enqueues another chained task.
-        let result = context
-            .client
-            .wait(&mut context.ex().await, id, Duration::from_millis(1))
-            .await
-            .unwrap();
+        let result =
+            context.client.wait(context.db.clone(), id, Duration::from_millis(1)).await.unwrap();
         assert_eq!(TaskResult::Done(None), result);
 
         // Make sure the chained task did not run yet.  This is racy and we may fail to detect
@@ -490,17 +481,11 @@ mod tests {
         context.advance_clock(Duration::from_secs(120));
 
         // The tasks will complete now that enough time has passed.
-        let result = context
-            .client
-            .wait(&mut context.ex().await, id1, Duration::from_millis(1))
-            .await
-            .unwrap();
+        let result =
+            context.client.wait(context.db.clone(), id1, Duration::from_millis(1)).await.unwrap();
         assert_eq!(TaskResult::Done(None), result);
-        let result = context
-            .client
-            .wait(&mut context.ex().await, id2, Duration::from_millis(1))
-            .await
-            .unwrap();
+        let result =
+            context.client.wait(context.db.clone(), id2, Duration::from_millis(1)).await.unwrap();
         assert_eq!(TaskResult::Done(None), result);
     }
 
@@ -538,11 +523,8 @@ mod tests {
         context.advance_clock(delay * 2);
 
         // The task will complete now that it is not in the deferred state any more, so wait for it.
-        let result = context
-            .client
-            .wait(&mut context.ex().await, id, Duration::from_millis(1))
-            .await
-            .unwrap();
+        let result =
+            context.client.wait(context.db.clone(), id, Duration::from_millis(1)).await.unwrap();
         assert_eq!(TaskResult::Done(None), result);
 
         let state = context.state.lock().await;
@@ -579,11 +561,8 @@ mod tests {
         context.advance_clock(Duration::from_secs(1));
 
         // The task will complete now that it is not in the deferred state any more, so wait for it.
-        let result = context
-            .client
-            .wait(&mut context.ex().await, id, Duration::from_millis(1))
-            .await
-            .unwrap();
+        let result =
+            context.client.wait(context.db.clone(), id, Duration::from_millis(1)).await.unwrap();
         assert_eq!(TaskResult::Done(None), result);
 
         let state = context.state.lock().await;
@@ -609,11 +588,8 @@ mod tests {
         context.advance_clock(delay * u32::from(opts.max_runs));
 
         // The task will complete now that it is not in the deferred state any more, so wait for it.
-        let result = context
-            .client
-            .wait(&mut context.ex().await, id, Duration::from_millis(1))
-            .await
-            .unwrap();
+        let result =
+            context.client.wait(context.db.clone(), id, Duration::from_millis(1)).await.unwrap();
         assert_eq!(
             TaskResult::Abandoned("Attempted to run 5 times, but max_runs is 5".to_owned()),
             result
