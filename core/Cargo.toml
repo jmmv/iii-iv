@@ -8,7 +8,15 @@ publish = false
 
 [features]
 default = []
-postgres = ["dep:futures", "dep:regex", "sqlx/postgres", "sqlx/runtime-tokio-rustls"]
+postgres = [
+    "dep:futures",
+    "dep:log",
+    "dep:rand",
+    "dep:regex",
+    "dep:tokio",
+    "sqlx/postgres",
+    "sqlx/runtime-tokio-rustls",
+]
 sqlite = ["dep:futures", "sqlx/sqlite", "sqlx/runtime-tokio-rustls"]
 testutils = [
     "dep:base64",
@@ -35,6 +43,7 @@ futures = { version = "0.3", optional = true }
 http = "0.2.8"
 http-body = { version = "0.4", optional = true }
 hyper = { version = "0.14", optional = true, features = ["full"] }
+log = { version = "0.4", optional = true }
 mime = { version = "0.3", optional = true }
 paste = { version = "1.0", optional = true }
 rand = { version = "0.8", optional = true }
@@ -45,6 +54,7 @@ serde_urlencoded = { version = "0.7", optional = true }
 sqlx = "0.7"
 thiserror = "1.0"
 time = "0.3"
+tokio = { version = "1", optional = true }
 tower = { version = "0.4", optional = true }
 url = "2.3"
 

@@ -20,11 +20,17 @@ use crate::env::{get_optional_var, get_required_var};
 use async_trait::async_trait;
 use derivative::Derivative;
 use futures::future::BoxFuture;
+use futures::Future;
+use log::warn;
 use sqlx::pool::PoolConnection;
 use sqlx::postgres::{PgConnectOptions, PgDatabaseError, PgPool, PgPoolOptions, Postgres};
 use sqlx::Transaction;
 #[cfg(test)]
 use std::sync::Arc;
+use std::time::Duration;
+
+/// Default value for the `max_retries` configuration property.
+const DEFAULT_MAX_RETRIES: u16 = 60;
 
 /// Takes a raw SQLx error `e` and converts it to our generic error type.
 pub fn map_sqlx_error(e: sqlx::Error) -> DbError {
@@ -68,6 +74,10 @@ pub struct PostgresOptions {
 
     /// Maximum number of connections to allow against the database.
     pub max_connections: Option<u32>,
+
+    /// Maximum number of attempts to retry a connection operation when the database does not seem
+    /// to be available.
+    pub max_retries: u16,
 }
 
 impl PostgresOptions {
@@ -75,8 +85,8 @@ impl PostgresOptions {
     /// given `prefix`.
     ///
     /// This will use variables such as `<prefix>_HOST`, `<prefix>_PORT`, `<prefix>_DATABASE`,
-    /// `<prefix>_USERNAME`, `<prefix>_PASSWORD`, `<prefix>_MIN_CONNECTIONS` and
-    /// `<prefix>_MAX_CONNECTIONS`.
+    /// `<prefix>_USERNAME`, `<prefix>_PASSWORD`, `<prefix>_MIN_CONNECTIONS`,
+    /// `<prefix>_MAX_CONNECTIONS` and `<prefix>_MAX_RETRIES`.
     pub fn from_env(prefix: &str) -> Result<PostgresOptions, String> {
         Ok(PostgresOptions {
             host: get_required_var::<String>(prefix, "HOST")?,
@@ -86,6 +96,8 @@ impl PostgresOptions {
             password: get_required_var::<String>(prefix, "PASSWORD")?,
             min_connections: get_optional_var::<u32>(prefix, "MIN_CONNECTIONS")?,
             max_connections: get_optional_var::<u32>(prefix, "MAX_CONNECTIONS")?,
+            max_retries: get_optional_var::<u16>(prefix, "MAX_RETRIES")?
+                .unwrap_or(DEFAULT_MAX_RETRIES),
         })
     }
 }
@@ -291,6 +303,39 @@ impl Drop for PoolCloser {
     }
 }
 
+/// Retries a database operation up to `retries` times.
+async fn retry<Op, OpFut, T>(op: Op, mut retries: u16) -> DbResult<T>
+where
+    Op: Fn() -> OpFut,
+    OpFut: Future<Output = Result<T, sqlx::Error>>,
+    T: Send + Sync,
+{
+    let mut delay = Duration::from_millis(100 + u64::from(rand::random::<u16>() % 900));
+    loop {
+        match op().await.map_err(map_sqlx_error) {
+            Ok(result) => return Ok(result),
+            Err(DbError::Unavailable) => {
+                if retries == 0 {
+                    return Err(DbError::Unavailable);
+                }
+                retries -= 1;
+
+                warn!(
+                    "Database is unavailable; waiting {}ms before retrying with {} attempts left",
+                    delay.as_millis(),
+                    retries
+                );
+
+                tokio::time::sleep(delay).await;
+                if delay < Duration::from_secs(5) {
+                    delay += Duration::from_millis(u64::from(rand::random::<u16>() % 1000));
+                }
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
+
 /// Shareable connection across transactions and `PostgresDb` types.
 #[derive(Derivative)]
 #[derivative(Clone)]
@@ -298,6 +343,10 @@ pub struct PostgresDb {
     /// Shared PostgreSQL connection pool.  This is a cloneable type that all concurrent
     /// transactions can use it concurrently.
     pool: PgPool,
+
+    /// Maximum number of attempts to retry a connection operation when the database does not seem
+    /// to be available.
+    max_retries: u16,
 
     /// Automatic connection closer for tests to limit concurrent connections.
     #[cfg(test)]
@@ -316,6 +365,7 @@ impl PostgresDb {
         if let Some(max_connections) = opts.max_connections {
             pool_options = pool_options.max_connections(max_connections);
         }
+        pool_options = pool_options.acquire_timeout(Duration::from_secs(2));
 
         let options = PgConnectOptions::new()
             .host(&opts.host)
@@ -327,17 +377,21 @@ impl PostgresDb {
         let pool = pool_options.connect_lazy_with(options);
 
         #[cfg(not(test))]
-        let db = Self { pool };
+        let db = Self { pool, max_retries: opts.max_retries };
 
         #[cfg(test)]
-        let db = Self { pool: pool.clone(), closer: Arc::from(PoolCloser { pool }) };
+        let db = Self {
+            pool: pool.clone(),
+            max_retries: opts.max_retries,
+            closer: Arc::from(PoolCloser { pool }),
+        };
 
         Ok(db)
     }
 
     /// Returns an executor of the specific type used by this database.
     pub async fn typed_ex(&self) -> DbResult<PostgresExecutor> {
-        let conn = self.pool.acquire().await.map_err(map_sqlx_error)?;
+        let conn = retry(|| self.pool.acquire(), self.max_retries).await?;
         Ok(PostgresExecutor::PoolExec(conn))
     }
 }
@@ -345,12 +399,12 @@ impl PostgresDb {
 #[async_trait]
 impl Db for PostgresDb {
     async fn ex(&self) -> DbResult<Executor> {
-        let conn = self.pool.acquire().await.map_err(map_sqlx_error)?;
-        Ok(Executor::Postgres(PostgresExecutor::PoolExec(conn)))
+        let ex = self.typed_ex().await?;
+        Ok(Executor::Postgres(ex))
     }
 
     async fn begin(&self) -> DbResult<TxExecutor> {
-        let tx = self.pool.begin().await.map_err(map_sqlx_error)?;
+        let tx = retry(|| self.pool.begin(), self.max_retries).await?;
         Ok(TxExecutor(Executor::Postgres(PostgresExecutor::TxExec(tx))))
     }
 }
@@ -372,7 +426,6 @@ pub async fn run_schema(e: &mut PostgresExecutor, schema: &str) -> DbResult<()> 
 #[cfg(any(feature = "testutils", test))]
 pub mod testutils {
     use super::*;
-    use std::time::Duration;
 
     /// Creates a new connection to the test database and initializes it.
     ///
@@ -389,26 +442,8 @@ pub mod testutils {
         opts.max_connections = Some(1);
         let db = PostgresDb::connect(opts).unwrap();
 
-        let mut delay = Duration::from_millis(100 + rand::random::<u64>() % 100);
-        loop {
-            match sqlx::query("SET search_path TO pg_temp")
-                .execute(&mut db.typed_ex().await.unwrap())
-                .await
-                .map_err(map_sqlx_error)
-            {
-                Ok(_) => {
-                    break;
-                }
-                Err(DbError::Unavailable) => {
-                    std::thread::sleep(delay);
-                    if delay < Duration::from_secs(5) {
-                        delay += Duration::from_millis(rand::random::<u64>() % 100);
-                    }
-                }
-                Err(e) => panic!("{:?}", e),
-            }
-        }
-
+        let mut ex = db.typed_ex().await.unwrap();
+        sqlx::query("SET search_path TO pg_temp").execute(&mut ex).await.unwrap();
         db
     }
 }
@@ -460,6 +495,7 @@ mod tests {
                         password: "the-password".to_owned(),
                         min_connections: None,
                         max_connections: None,
+                        max_retries: DEFAULT_MAX_RETRIES,
                     },
                     opts
                 );
@@ -478,6 +514,7 @@ mod tests {
                 ("PGSQL_PASSWORD", Some("the-password")),
                 ("PGSQL_MIN_CONNECTIONS", Some("10")),
                 ("PGSQL_MAX_CONNECTIONS", Some("20")),
+                ("PGSQL_MAX_RETRIES", Some("30")),
             ],
             || {
                 let opts = PostgresOptions::from_env("PGSQL").unwrap();
@@ -490,6 +527,7 @@ mod tests {
                         password: "the-password".to_owned(),
                         min_connections: Some(10),
                         max_connections: Some(20),
+                        max_retries: 30,
                     },
                     opts
                 );
