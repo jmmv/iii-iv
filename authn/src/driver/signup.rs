@@ -98,7 +98,6 @@ mod tests {
     #[tokio::test]
     async fn test_signup_ok() {
         let context = TestContext::setup().await;
-        let mut ex = context.db().ex();
 
         let username = Username::from("hello");
         let password = Password::from("sufficiently0complex");
@@ -106,12 +105,13 @@ mod tests {
 
         assert_eq!(
             DbError::NotFound,
-            db::get_user_by_username(&mut ex, username.clone()).await.unwrap_err()
+            db::get_user_by_username(&mut context.ex().await, username.clone()).await.unwrap_err()
         );
 
         context.driver().signup(username.clone(), password, email).await.unwrap();
 
-        let user = db::get_user_by_username(&mut ex, username.clone()).await.unwrap();
+        let user =
+            db::get_user_by_username(&mut context.ex().await, username.clone()).await.unwrap();
         assert!(user.activation_code().is_some());
         assert_eq!(
             user.activation_code(),
@@ -122,12 +122,13 @@ mod tests {
     #[tokio::test]
     async fn test_signup_username_already_exists() {
         let context = TestContext::setup().await;
-        let mut ex = context.db().ex();
 
         let username = Username::from("hello");
         let email = EmailAddress::from("other@example.com");
 
-        db::create_user(&mut ex, username.clone(), None, email.clone()).await.unwrap();
+        db::create_user(&mut context.ex().await, username.clone(), None, email.clone())
+            .await
+            .unwrap();
 
         match context
             .driver()
@@ -144,11 +145,12 @@ mod tests {
     #[tokio::test]
     async fn test_signup_email_already_exists() {
         let context = TestContext::setup().await;
-        let mut ex = context.db().ex();
 
         let email = EmailAddress::from("foo@example.com");
 
-        db::create_user(&mut ex, Username::from("some"), None, email.clone()).await.unwrap();
+        db::create_user(&mut context.ex().await, Username::from("some"), None, email.clone())
+            .await
+            .unwrap();
 
         match context
             .driver()

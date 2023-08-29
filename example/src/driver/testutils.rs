@@ -28,13 +28,13 @@ pub(crate) struct TestContext {
 impl TestContext {
     pub(crate) async fn setup() -> Self {
         let db = iii_iv_core::db::sqlite::connect(":memory:").await.unwrap();
-        db::init_schema(&mut db.ex()).await.unwrap();
+        db::init_schema(&mut db.ex().await.unwrap()).await.unwrap();
         let driver = Driver::new(Box::from(db.clone()));
         Self { db, driver }
     }
 
-    pub(crate) fn ex(&self) -> Executor {
-        self.db.ex()
+    pub(crate) async fn ex(&self) -> Executor {
+        self.db.ex().await.unwrap()
     }
 
     pub(crate) fn driver(&self) -> Driver {

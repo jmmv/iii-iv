@@ -64,52 +64,48 @@ mod tests {
     #[tokio::test]
     async fn test_activate_ok() {
         let context = TestContext::setup().await;
-        let mut ex = context.db().ex();
 
-        let username = create_test_user(&mut ex, Some(42)).await;
+        let username = create_test_user(&mut context.ex().await, Some(42)).await;
 
         context.driver().activate(username.clone(), 42).await.unwrap();
 
-        let user = db::get_user_by_username(&mut ex, username).await.unwrap();
+        let user = db::get_user_by_username(&mut context.ex().await, username).await.unwrap();
         assert!(user.activation_code().is_none());
     }
 
     #[tokio::test]
     async fn test_activate_bad_code() {
         let context = TestContext::setup().await;
-        let mut ex = context.db().ex();
 
-        let username = create_test_user(&mut ex, Some(42)).await;
+        let username = create_test_user(&mut context.ex().await, Some(42)).await;
 
         match context.driver().activate(username.clone(), 41).await {
             Err(DriverError::InvalidInput(e)) => assert!(e.contains("Invalid activation code")),
             e => panic!("{:?}", e),
         }
 
-        let user = db::get_user_by_username(&mut ex, username).await.unwrap();
+        let user = db::get_user_by_username(&mut context.ex().await, username).await.unwrap();
         assert!(user.activation_code().is_some());
     }
 
     #[tokio::test]
     async fn test_activate_already_active() {
         let context = TestContext::setup().await;
-        let mut ex = context.db().ex();
 
-        let username = create_test_user(&mut ex, None).await;
+        let username = create_test_user(&mut context.ex().await, None).await;
 
         match context.driver().activate(username.clone(), 1234).await {
             Err(DriverError::InvalidInput(e)) => assert!(e.contains("already active")),
             e => panic!("{:?}", e),
         }
 
-        let user = db::get_user_by_username(&mut ex, username).await.unwrap();
+        let user = db::get_user_by_username(&mut context.ex().await, username).await.unwrap();
         assert!(user.activation_code().is_none());
     }
 
     #[tokio::test]
     async fn test_user_not_found() {
         let context = TestContext::setup().await;
-        let mut ex = context.db().ex();
 
         let username = Username::from("unknown");
 
@@ -118,6 +114,6 @@ mod tests {
             e => panic!("{:?}", e),
         }
 
-        db::get_user_by_username(&mut ex, username).await.unwrap_err();
+        db::get_user_by_username(&mut context.ex().await, username).await.unwrap_err();
     }
 }

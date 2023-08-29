@@ -94,7 +94,7 @@ impl TestContext {
     /// as active.
     pub(crate) async fn create_whoami_user(&mut self) -> User {
         create_test_user(
-            &mut self.db.ex(),
+            &mut self.db.ex().await.unwrap(),
             Username::new(self.whoami.clone()).unwrap(),
             self.whoami_password.clone(),
             EmailAddress::new(format!("{}@example.com", self.whoami)).unwrap(),
@@ -118,12 +118,14 @@ impl TestContext {
         let user = self.create_whoami_user().await;
         assert!(user.activation_code().is_none());
 
-        db::set_user_activation_code(&mut self.db.ex(), user, Some(code)).await.unwrap()
+        db::set_user_activation_code(&mut self.db.ex().await.unwrap(), user, Some(code))
+            .await
+            .unwrap()
     }
 
     /// Checks if the user with `username` exists by directly querying the backing database.
     pub(crate) async fn user_exists(&mut self, username: &Username) -> bool {
-        match db::get_user_by_username(&mut self.db.ex(), username.clone()).await {
+        match db::get_user_by_username(&mut self.db.ex().await.unwrap(), username.clone()).await {
             Ok(_) => true,
             Err(DbError::NotFound) => false,
             Err(e) => panic!("{:?}", e),
@@ -133,13 +135,15 @@ impl TestContext {
     /// Checks if the user with `username` exists and is active by directly querying the backing
     /// database.
     pub(crate) async fn user_is_active(&mut self, username: &Username) -> bool {
-        let user = db::get_user_by_username(&mut self.db.ex(), username.clone()).await.unwrap();
+        let user = db::get_user_by_username(&mut self.db.ex().await.unwrap(), username.clone())
+            .await
+            .unwrap();
         user.activation_code().is_none()
     }
 
     /// Checks if the session with `token` exists by directly querying the backing database.
     pub(crate) async fn session_exists(&mut self, token: &AccessToken) -> bool {
-        match db::get_session(&mut self.db.ex(), token).await {
+        match db::get_session(&mut self.db.ex().await.unwrap(), token).await {
             Ok(_) => true,
             Err(DbError::NotFound) => false,
             Err(e) => panic!("{:?}", e),
@@ -209,7 +213,7 @@ impl TestContextBuilder {
     /// Sets up the test environment with the configured settings.
     pub(crate) async fn build(self) -> TestContext {
         let db = Arc::from(iii_iv_core::db::sqlite::testutils::setup().await);
-        db::init_schema(&mut db.ex()).await.unwrap();
+        db::init_schema(&mut db.ex().await.unwrap()).await.unwrap();
         let clock = Arc::from(MonotonicClock::new(100000));
         let mailer = Arc::from(RecorderSmtpMailer::default());
 

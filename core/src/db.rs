@@ -106,11 +106,11 @@ impl TxExecutor {
 /// Abstraction over the database connection.
 #[async_trait]
 pub trait Db {
-    /// Obtains an executor for direct access to the pool.
+    /// Obtains an executor for direct access to the pool through a single connection.
     ///
     /// This would be better called `executor` but this method is used so frequently that it makes
     /// call sites too verbose.
-    fn ex(&self) -> Executor;
+    async fn ex(&self) -> DbResult<Executor>;
 
     /// Begins a transaction.
     ///
@@ -210,30 +210,39 @@ mod tests {
     }
 
     pub(super) async fn test_direct_execution(db: Box<dyn Db>) {
-        exec(&mut db.ex(), "CREATE TABLE test (i INTEGER)").await.unwrap();
-        exec(&mut db.ex(), "INSERT INTO test (i) VALUES (3)").await.unwrap();
-        assert_eq!(1, query_i64(&mut db.ex(), "count", "SELECT COUNT(*) AS count FROM test").await);
+        let mut ex = db.ex().await.unwrap();
+        exec(&mut ex, "CREATE TABLE test (i INTEGER)").await.unwrap();
+        exec(&mut ex, "INSERT INTO test (i) VALUES (3)").await.unwrap();
+        assert_eq!(1, query_i64(&mut ex, "count", "SELECT COUNT(*) AS count FROM test").await);
     }
 
     pub(super) async fn test_tx_commit(db: Box<dyn Db>) {
-        exec(&mut db.ex(), "CREATE TABLE test (i INTEGER)").await.unwrap();
+        exec(&mut db.ex().await.unwrap(), "CREATE TABLE test (i INTEGER)").await.unwrap();
 
         let mut tx = db.begin().await.unwrap();
         exec(tx.ex(), "INSERT INTO test (i) VALUES (3)").await.unwrap();
         tx.commit().await.unwrap();
 
-        assert_eq!(1, query_i64(&mut db.ex(), "count", "SELECT COUNT(*) AS count FROM test").await);
+        assert_eq!(
+            1,
+            query_i64(&mut db.ex().await.unwrap(), "count", "SELECT COUNT(*) AS count FROM test")
+                .await
+        );
     }
 
     pub(super) async fn test_tx_rollback_on_drop(db: Box<dyn Db>) {
-        exec(&mut db.ex(), "CREATE TABLE test (i INTEGER)").await.unwrap();
+        exec(&mut db.ex().await.unwrap(), "CREATE TABLE test (i INTEGER)").await.unwrap();
 
         {
             let mut tx = db.begin().await.unwrap();
             exec(tx.ex(), "INSERT INTO test (i) VALUES (3)").await.unwrap();
         }
 
-        assert_eq!(0, query_i64(&mut db.ex(), "count", "SELECT COUNT(*) AS count FROM test").await);
+        assert_eq!(
+            0,
+            query_i64(&mut db.ex().await.unwrap(), "count", "SELECT COUNT(*) AS count FROM test")
+                .await
+        );
     }
 
     pub(super) async fn test_multiple_txs(db: Box<dyn Db>) {

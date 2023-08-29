@@ -47,14 +47,13 @@ mod tests {
     #[tokio::test]
     async fn test_ok() {
         let context = TestContext::setup().await;
-        let mut ex = context.db().ex();
 
         let username = Username::from("test");
 
         let token = context.do_test_login(username.clone()).await;
         context.driver().logout(token.clone(), username).await.unwrap();
 
-        match db::get_session(&mut ex, &token).await {
+        match db::get_session(&mut context.ex().await, &token).await {
             Err(DbError::NotFound) => (),
             e => panic!("{:?}", e),
         }
@@ -63,7 +62,6 @@ mod tests {
     #[tokio::test]
     async fn test_not_found() {
         let context = TestContext::setup().await;
-        let mut ex = context.db().ex();
 
         let username1 = Username::from("test1");
 
@@ -71,8 +69,8 @@ mod tests {
         let token2 = context.do_test_login(Username::from("test2")).await;
         context.driver().logout(token1.clone(), username1).await.unwrap();
 
-        db::get_session(&mut ex, &token1).await.unwrap_err();
-        db::get_session(&mut ex, &token2).await.unwrap();
+        db::get_session(&mut context.ex().await, &token1).await.unwrap_err();
+        db::get_session(&mut context.ex().await, &token2).await.unwrap();
     }
 
     #[tokio::test]

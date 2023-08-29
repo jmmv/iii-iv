@@ -21,7 +21,7 @@ use axum::Router;
 use futures::lock::Mutex;
 use iii_iv_core::clocks::testutils::MonotonicClock;
 use iii_iv_core::clocks::Clock;
-use iii_iv_core::db::Db;
+use iii_iv_core::db::{Db, Executor};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -57,7 +57,7 @@ impl TestContext {
     /// client that is **not** connected to the worker.
     pub(super) async fn setup() -> TestContext {
         let db = Arc::from(iii_iv_core::db::sqlite::testutils::setup().await);
-        db::init_schema(&mut db.ex()).await.unwrap();
+        db::init_schema(&mut db.ex().await.unwrap()).await.unwrap();
         let clock = Arc::from(MonotonicClock::new(100000));
 
         let worker = {
@@ -73,6 +73,11 @@ impl TestContext {
         let app = worker_cron_app(worker);
 
         TestContext { app, db, client, clock }
+    }
+
+    /// Gets a direct executor against the database.
+    pub(crate) async fn ex(&self) -> Executor {
+        self.db.ex().await.unwrap()
     }
 
     /// Gets a clone of the app router.

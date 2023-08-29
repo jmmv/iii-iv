@@ -74,13 +74,12 @@ mod tests {
     #[tokio::test]
     async fn test_login_ok_first_time() {
         let context = TestContext::setup().await;
-        let mut ex = context.db().ex();
 
         let username = Username::from("hello");
         let password = Password::from("password");
 
         db::create_user(
-            &mut ex,
+            &mut context.ex().await,
             username.clone(),
             Some(password.clone().validate_and_hash(|_| None).unwrap()),
             EmailAddress::from("some@example.com"),
@@ -92,10 +91,11 @@ mod tests {
         let response = context.driver().login(username.clone(), password).await.unwrap();
         let after = context.driver().now_utc();
 
-        let session = db::get_session(&mut ex, response.access_token()).await.unwrap();
+        let session =
+            db::get_session(&mut context.ex().await, response.access_token()).await.unwrap();
         assert_eq!(&username, session.username());
         assert!(session.login_time() >= before && session.login_time() <= after);
-        let user = db::get_user_by_username(&mut ex, username).await.unwrap();
+        let user = db::get_user_by_username(&mut context.ex().await, username).await.unwrap();
         assert!(user.last_login().unwrap() >= before && user.last_login().unwrap() <= after);
         assert_eq!(&EmailAddress::from("some@example.com"), user.email());
     }
@@ -103,31 +103,35 @@ mod tests {
     #[tokio::test]
     async fn test_login_ok_returning() {
         let context = TestContext::setup().await;
-        let mut ex = context.db().ex();
 
         let username = Username::from("hello");
         let password = Password::from("password");
 
         db::create_user(
-            &mut ex,
+            &mut context.ex().await,
             username.clone(),
             Some(password.clone().validate_and_hash(|_| None).unwrap()),
             EmailAddress::from("some@example.com"),
         )
         .await
         .unwrap();
-        db::update_user(&mut ex, username.clone(), OffsetDateTime::from_unix_timestamp(1).unwrap())
-            .await
-            .unwrap();
+        db::update_user(
+            &mut context.ex().await,
+            username.clone(),
+            OffsetDateTime::from_unix_timestamp(1).unwrap(),
+        )
+        .await
+        .unwrap();
 
         let before = context.driver().now_utc();
         let response = context.driver().login(username.clone(), password).await.unwrap();
         let after = context.driver().now_utc();
 
-        let session = db::get_session(&mut ex, response.access_token()).await.unwrap();
+        let session =
+            db::get_session(&mut context.ex().await, response.access_token()).await.unwrap();
         assert_eq!(&username, session.username());
         assert!(session.login_time() >= before && session.login_time() <= after);
-        let user = db::get_user_by_username(&mut ex, username).await.unwrap();
+        let user = db::get_user_by_username(&mut context.ex().await, username).await.unwrap();
         assert!(user.last_login().unwrap() >= before && user.last_login().unwrap() <= after);
         assert_eq!(&EmailAddress::from("some@example.com"), user.email());
     }
@@ -145,12 +149,11 @@ mod tests {
     #[tokio::test]
     async fn test_login_invalid_password() {
         let context = TestContext::setup().await;
-        let mut ex = context.db().ex();
 
         let username = Username::from("hello");
 
         db::create_user(
-            &mut ex,
+            &mut context.ex().await,
             username.clone(),
             Some(Password::new("ABC").unwrap().validate_and_hash(|_| None).unwrap()),
             EmailAddress::from("some@example.com"),
@@ -167,13 +170,17 @@ mod tests {
     #[tokio::test]
     async fn test_login_not_allowed() {
         let context = TestContext::setup().await;
-        let mut ex = context.db().ex();
 
         let username = Username::from("hello");
 
-        db::create_user(&mut ex, username.clone(), None, EmailAddress::from("some@example.com"))
-            .await
-            .unwrap();
+        db::create_user(
+            &mut context.ex().await,
+            username.clone(),
+            None,
+            EmailAddress::from("some@example.com"),
+        )
+        .await
+        .unwrap();
 
         match context.driver().login(username, Password::from("irrelevant")).await {
             Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("Login not allowed")),
@@ -184,20 +191,19 @@ mod tests {
     #[tokio::test]
     async fn test_login_not_activated() {
         let context = TestContext::setup().await;
-        let mut ex = context.db().ex();
 
         let username = Username::from("hello");
         let password = Password::from("password");
 
         let user = db::create_user(
-            &mut ex,
+            &mut context.ex().await,
             username.clone(),
             Some(password.clone().validate_and_hash(|_| None).unwrap()),
             EmailAddress::from("some@example.com"),
         )
         .await
         .unwrap();
-        db::set_user_activation_code(&mut ex, user, Some(50)).await.unwrap();
+        db::set_user_activation_code(&mut context.ex().await, user, Some(50)).await.unwrap();
 
         match context.driver().login(username, password).await {
             Err(DriverError::NotActivated) => (),

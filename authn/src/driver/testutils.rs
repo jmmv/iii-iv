@@ -21,6 +21,8 @@ use crate::driver::{AuthnDriver, AuthnOptions};
 use crate::model::{AccessToken, Password};
 use iii_iv_core::clocks::Clock;
 use iii_iv_core::db::Db;
+#[cfg(test)]
+use iii_iv_core::db::Executor;
 use iii_iv_core::model::EmailAddress;
 use iii_iv_core::model::Username;
 use iii_iv_core::rest::BaseUrls;
@@ -52,7 +54,7 @@ impl TestContext {
         clock: Arc<dyn Clock + Send + Sync>,
         realm: &'static str,
     ) -> Self {
-        db::init_schema(&mut db.ex()).await.unwrap();
+        db::init_schema(&mut db.ex().await.unwrap()).await.unwrap();
         let mailer = Arc::from(RecorderSmtpMailer::default());
         let base_urls = Arc::from(BaseUrls::from_strs(
             "http://localhost:1234/",
@@ -99,6 +101,12 @@ impl TestContext {
     #[cfg(test)]
     pub(crate) fn db(&self) -> &dyn Db {
         self.driver.db.as_ref()
+    }
+
+    /// Gets a direct executor against the database.
+    #[cfg(test)]
+    pub(crate) async fn ex(&self) -> Executor {
+        self.driver.db.ex().await.unwrap()
     }
 
     /// Gets a copy of the driver in this test context.
