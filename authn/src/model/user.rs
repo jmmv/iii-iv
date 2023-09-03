@@ -20,8 +20,7 @@ use iii_iv_core::model::{EmailAddress, Username};
 use time::OffsetDateTime;
 
 /// Representation of a user's information.
-#[derive(Debug)]
-#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug, PartialEq)]
 pub struct User {
     /// Name of the user.
     username: Username,

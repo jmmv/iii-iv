@@ -26,7 +26,7 @@ use crate::db::DbError;
 use crate::model::ModelError;
 
 /// Business logic errors.  These errors encompass backend and logical errors.
-#[derive(Debug, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum DriverError {
     /// Indicates that a request to create an entry failed because it already exists.
     #[error("{0}")]
