@@ -43,7 +43,8 @@ const DEFAULT_SESSION_MAX_AGE_SECONDS: u64 = 24 * 60 * 60;
 const DEFAULT_SESSION_MAX_SKEW_SECONDS: u64 = 60 * 60;
 
 /// Configuration options for the authentication driver.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct AuthnOptions {
     /// The amount of time we consider sessions valid for.
     pub session_max_age: Duration,
@@ -171,10 +172,36 @@ impl AuthnDriver {
 
 #[cfg(test)]
 mod tests {
-    use crate::driver::testutils::*;
+    use super::testutils::*;
+    use super::*;
     use iii_iv_core::driver::DriverError;
     use iii_iv_core::model::Username;
     use time::OffsetDateTime;
+
+    #[test]
+    pub fn test_options_from_env_all_all_missing() {
+        temp_env::with_vars_unset(["PREFIX_SESSION_MAX_AGE", "PREFIX_SESSION_MAX_SKEW"], || {
+            let opts = AuthnOptions::from_env("PREFIX").unwrap();
+            assert_eq!(AuthnOptions::default(), opts);
+        });
+    }
+
+    #[test]
+    pub fn test_options_from_env_all_optional_present() {
+        temp_env::with_vars(
+            [("PREFIX_SESSION_MAX_AGE", Some("10m")), ("PREFIX_SESSION_MAX_SKEW", Some("20m"))],
+            || {
+                let opts = AuthnOptions::from_env("PREFIX").unwrap();
+                assert_eq!(
+                    AuthnOptions {
+                        session_max_age: Duration::from_secs(10 * 60),
+                        session_max_skew: Duration::from_secs(20 * 60),
+                    },
+                    opts
+                );
+            },
+        );
+    }
 
     #[tokio::test]
     async fn test_get_session_ok() {
