@@ -37,6 +37,7 @@ features = ["runtime-tokio-rustls", "time"]
 futures = "0.3"
 iii-iv-core = { path = "../core", features = ["sqlite", "testutils"] }
 iii-iv-lettre = { path = "../lettre", features = ["testutils"] }
+temp-env = "0.3.2"
 tokio = { version = "1", features = ["rt", "macros", "rt-multi-thread"] }
 url = "2.3"
 
