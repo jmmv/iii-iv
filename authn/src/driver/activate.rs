@@ -46,6 +46,7 @@ impl AuthnDriver {
 mod tests {
     use super::*;
     use crate::driver::testutils::*;
+    use crate::driver::AuthnOptions;
     use iii_iv_core::db::Executor;
     use iii_iv_core::model::EmailAddress;
 
@@ -63,7 +64,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_activate_ok() {
-        let context = TestContext::setup().await;
+        let context = TestContext::setup(AuthnOptions::default()).await;
 
         let username = create_test_user(&mut context.ex().await, Some(42)).await;
 
@@ -75,7 +76,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_activate_bad_code() {
-        let context = TestContext::setup().await;
+        let context = TestContext::setup(AuthnOptions::default()).await;
 
         let username = create_test_user(&mut context.ex().await, Some(42)).await;
 
@@ -90,7 +91,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_activate_already_active() {
-        let context = TestContext::setup().await;
+        let context = TestContext::setup(AuthnOptions::default()).await;
 
         let username = create_test_user(&mut context.ex().await, None).await;
 
@@ -105,7 +106,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_user_not_found() {
-        let context = TestContext::setup().await;
+        let context = TestContext::setup(AuthnOptions::default()).await;
 
         let username = Username::from("unknown");
 

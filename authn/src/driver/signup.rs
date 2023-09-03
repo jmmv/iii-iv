@@ -94,10 +94,11 @@ impl AuthnDriver {
 mod tests {
     use super::*;
     use crate::driver::testutils::*;
+    use crate::driver::AuthnOptions;
 
     #[tokio::test]
     async fn test_signup_ok() {
-        let context = TestContext::setup().await;
+        let context = TestContext::setup(AuthnOptions::default()).await;
 
         let username = Username::from("hello");
         let password = Password::from("sufficiently0complex");
@@ -121,7 +122,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_signup_username_already_exists() {
-        let context = TestContext::setup().await;
+        let context = TestContext::setup(AuthnOptions::default()).await;
 
         let username = Username::from("hello");
         let email = EmailAddress::from("other@example.com");
@@ -144,7 +145,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_signup_email_already_exists() {
-        let context = TestContext::setup().await;
+        let context = TestContext::setup(AuthnOptions::default()).await;
 
         let email = EmailAddress::from("foo@example.com");
 
@@ -166,7 +167,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_signup_weak_password() {
-        let context = TestContext::setup().await;
+        let context = TestContext::setup(AuthnOptions::default()).await;
 
         let username = Username::from("hello");
         let email = EmailAddress::from("other@example.com");

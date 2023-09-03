@@ -42,11 +42,12 @@ impl AuthnDriver {
 mod tests {
     use super::*;
     use crate::driver::testutils::*;
+    use crate::driver::AuthnOptions;
     use iii_iv_core::db::DbError;
 
     #[tokio::test]
     async fn test_ok() {
-        let context = TestContext::setup().await;
+        let context = TestContext::setup(AuthnOptions::default()).await;
 
         let username = Username::from("test");
 
@@ -61,7 +62,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_not_found() {
-        let context = TestContext::setup().await;
+        let context = TestContext::setup(AuthnOptions::default()).await;
 
         let username1 = Username::from("test1");
 
@@ -75,7 +76,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_invalid_user_error() {
-        let context = TestContext::setup().await;
+        let context = TestContext::setup(AuthnOptions::default()).await;
 
         let username1 = Username::from("test1");
         let username2 = Username::from("test2");

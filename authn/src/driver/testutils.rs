@@ -42,14 +42,15 @@ impl TestContext {
     /// Initializes the driver using an in-memory database, a monotonic clock and a mock
     /// messenger that captures outgoing notifications.
     #[cfg(test)]
-    pub(crate) async fn setup() -> Self {
+    pub(crate) async fn setup(opts: AuthnOptions) -> Self {
         let db = Arc::from(iii_iv_core::db::sqlite::testutils::setup().await);
         let clock = Arc::from(iii_iv_core::clocks::testutils::MonotonicClock::new(100000));
-        Self::setup_with(db, clock, "the-realm").await
+        Self::setup_with(opts, db, clock, "the-realm").await
     }
 
     /// Initializes the test context using the given already-initialized objects.
     pub async fn setup_with(
+        opts: AuthnOptions,
         db: Arc<dyn Db + Send + Sync>,
         clock: Arc<dyn Clock + Send + Sync>,
         realm: &'static str,
@@ -67,7 +68,7 @@ impl TestContext {
             make_test_activation_template(),
             base_urls,
             realm,
-            AuthnOptions::default(),
+            opts,
         );
 
         TestContext { mailer, driver }
