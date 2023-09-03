@@ -34,6 +34,15 @@ impl AuthnDriver {
         db::delete_session(tx.ex(), session, now).await?;
 
         tx.commit().await?;
+
+        // Removing the session from the cache is only a best-effort operation.  If we end up with
+        // multiple instances of a frontend running at once, there is no easy way to perform cache
+        // invalidation across all of them.  But we don't know how this code is consumed (maybe it
+        // is part of a single-instance server instead of a lambda-style deployment), so let's try
+        // to do the right thing.
+        let mut cache = self.sessions_cache.lock().await;
+        let _previous = cache.remove(&token);
+
         Ok(())
     }
 }
@@ -44,6 +53,7 @@ mod tests {
     use crate::driver::testutils::*;
     use crate::driver::AuthnOptions;
     use iii_iv_core::db::DbError;
+    use std::time::Duration;
 
     #[tokio::test]
     async fn test_ok() {
@@ -87,5 +97,34 @@ mod tests {
         let err2 = context.driver().logout(token1.clone(), username1).await.unwrap_err();
 
         assert_eq!(err1, err2);
+    }
+
+    #[tokio::test]
+    async fn test_remove_from_sessions_cache() {
+        // Configure a cache with just one entry and "infinite" duration so that we can precisely
+        // control when entries get evicted.
+        let opts = AuthnOptions {
+            sessions_cache_capacity: 1,
+            sessions_cache_ttl: Duration::from_secs(900),
+            ..Default::default()
+        };
+        let context = TestContext::setup(opts).await;
+
+        let username = Username::from("test");
+
+        assert_eq!(0, context.driver().sessions_cache.lock().await.len());
+        let token = context.do_test_login(username.clone()).await;
+
+        let mut tx = context.db().begin().await.unwrap();
+        let _user = context
+            .driver()
+            .get_session(&mut tx, context.driver().now_utc(), token.clone())
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        assert_eq!(1, context.driver().sessions_cache.lock().await.len());
+
+        context.driver().logout(token.clone(), username).await.unwrap();
+        assert_eq!(0, context.driver().sessions_cache.lock().await.len());
     }
 }
