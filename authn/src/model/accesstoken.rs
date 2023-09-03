@@ -29,7 +29,7 @@ const TOKEN_LENGTH: usize = 256;
 /// An opaque type representing a user's access token.
 ///
 /// Access tokens are user-readable character sequences of a fixed size.
-#[derive(Clone, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(transparent)]
 pub struct AccessToken(String);
 

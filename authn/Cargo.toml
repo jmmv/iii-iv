@@ -9,7 +9,7 @@ publish = false
 [features]
 default = ["postgres"]
 postgres = ["iii-iv-core/postgres", "sqlx/postgres"]
-sqlite = ["dep:futures", "iii-iv-core/sqlite", "sqlx/sqlite"]
+sqlite = ["iii-iv-core/sqlite", "sqlx/sqlite"]
 testutils = ["dep:url", "iii-iv-core/sqlite", "iii-iv-core/testutils", "iii-iv-lettre/testutils"]
 
 [dependencies]
@@ -18,11 +18,13 @@ axum = "0.6"
 base64 = "0.21"
 bcrypt = "0.14"
 derivative = "2.2"
-futures = { version = "0.3", optional = true }
-rand = "0.8"
+futures = "0.3"
+log = "0.4"
 http = "0.2.8"
 iii-iv-core = { path = "../core" }
 iii-iv-lettre = { path = "../lettre" }
+lru_time_cache = "0.11"
+rand = "0.8"
 serde = { version = "1", features = ["derive"] }
 serde_urlencoded = "0.7"
 time = "0.3"
