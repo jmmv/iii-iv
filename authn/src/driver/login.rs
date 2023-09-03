@@ -68,12 +68,13 @@ impl AuthnDriver {
 mod tests {
     use super::*;
     use crate::driver::testutils::*;
+    use crate::driver::AuthnOptions;
     use iii_iv_core::model::EmailAddress;
     use time::OffsetDateTime;
 
     #[tokio::test]
     async fn test_login_ok_first_time() {
-        let context = TestContext::setup().await;
+        let context = TestContext::setup(AuthnOptions::default()).await;
 
         let username = Username::from("hello");
         let password = Password::from("password");
@@ -102,7 +103,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_login_ok_returning() {
-        let context = TestContext::setup().await;
+        let context = TestContext::setup(AuthnOptions::default()).await;
 
         let username = Username::from("hello");
         let password = Password::from("password");
@@ -138,7 +139,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_login_unknown_user() {
-        let context = TestContext::setup().await;
+        let context = TestContext::setup(AuthnOptions::default()).await;
 
         match context.driver().login(Username::from("foo"), Password::from("bar")).await {
             Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("Unknown user")),
@@ -148,7 +149,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_login_invalid_password() {
-        let context = TestContext::setup().await;
+        let context = TestContext::setup(AuthnOptions::default()).await;
 
         let username = Username::from("hello");
 
@@ -169,7 +170,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_login_not_allowed() {
-        let context = TestContext::setup().await;
+        let context = TestContext::setup(AuthnOptions::default()).await;
 
         let username = Username::from("hello");
 
@@ -190,7 +191,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_login_not_activated() {
-        let context = TestContext::setup().await;
+        let context = TestContext::setup(AuthnOptions::default()).await;
 
         let username = Username::from("hello");
         let password = Password::from("password");

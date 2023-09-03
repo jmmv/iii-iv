@@ -205,7 +205,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_session_ok() {
-        let context = TestContext::setup().await;
+        let context = TestContext::setup(AuthnOptions::default()).await;
         let mut tx = context.db().begin().await.unwrap();
 
         let token = context.do_test_login(Username::from("username")).await;
@@ -218,7 +218,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_session_login_expired() {
-        let context = TestContext::setup().await;
+        let context = TestContext::setup(AuthnOptions::default()).await;
         let mut tx = context.db().begin().await.unwrap();
 
         let token = context.do_test_login(Username::from("username")).await;
@@ -262,7 +262,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_session_login_future() {
-        let context = TestContext::setup().await;
+        let context = TestContext::setup(AuthnOptions::default()).await;
         let mut tx = context.db().begin().await.unwrap();
 
         let token = context.do_test_login(Username::from("username")).await;
