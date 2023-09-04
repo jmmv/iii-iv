@@ -189,13 +189,18 @@ impl TestContext {
 pub(crate) struct TestContextBuilder {
     whoami: String,
     activated_template: Option<&'static str>,
+    opts: AuthnOptions,
 }
 
 #[cfg(test)]
 impl TestContextBuilder {
     /// Initializes a new builder with the default test settings.
     pub(crate) fn new() -> Self {
-        Self { whoami: "whoami".to_owned(), activated_template: None }
+        Self {
+            whoami: "whoami".to_owned(),
+            activated_template: None,
+            opts: AuthnOptions::default(),
+        }
     }
 
     /// Overrides the default activated template.
@@ -207,6 +212,12 @@ impl TestContextBuilder {
     /// Overrides the default test user's identifier.  The identifier needn't be valid.
     pub(crate) fn with_whoami<S: Into<String>>(mut self, whoami: S) -> Self {
         self.whoami = whoami.into();
+        self
+    }
+
+    /// Overrides the default authentication options.
+    pub(crate) fn with_opts(mut self, opts: AuthnOptions) -> Self {
+        self.opts = opts;
         self
     }
 
@@ -224,7 +235,7 @@ impl TestContextBuilder {
             make_test_activation_template(),
             Arc::from(BaseUrls::from_strs("http://localhost:1234/", None)),
             "the-realm",
-            AuthnOptions::default(),
+            self.opts,
         );
         let app = Router::new().nest("/api/test", app(driver, self.activated_template));
 

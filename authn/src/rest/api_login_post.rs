@@ -24,12 +24,17 @@ use axum::response::IntoResponse;
 use axum::Json;
 use iii_iv_core::rest::{EmptyBody, RestError};
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 /// Message returned by the server after a successful login attempt.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct LoginResponse {
     /// Access token for this session.
     pub access_token: AccessToken,
+
+    /// Maximum age of the created session.  The client can use this to set up cookie expiration
+    /// times to match.
+    pub session_max_age: Duration,
 }
 
 /// POST handler for this API.
@@ -40,8 +45,15 @@ pub(crate) async fn handler(
 ) -> Result<impl IntoResponse, RestError> {
     let (username, password) = get_basic_auth(&headers, driver.realm())?;
 
+    // The maximum session age is a property of the server, not the session.  This might lead to a
+    // situation where this value changes in the server's configuration and the clients have session
+    // cookies with expiration times that don't match.  That's OK because the clients need to be
+    // prepared to handle authentication problems and session revocation for any reason.  But this
+    // is just a choice.  We could as well store this value along each session in the database.
+    let session_max_age = driver.opts().session_max_age;
+
     let session = driver.login(username, password).await?;
-    let response = LoginResponse { access_token: session.take_access_token() };
+    let response = LoginResponse { access_token: session.take_access_token(), session_max_age };
 
     Ok(Json(response))
 }
@@ -49,6 +61,7 @@ pub(crate) async fn handler(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::driver::AuthnOptions;
     use crate::rest::testutils::*;
     use axum::http;
     use iii_iv_core::rest::testutils::OneShotBuilder;
@@ -60,7 +73,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_ok() {
-        let mut context = TestContextBuilder::new().build().await;
+        let opts =
+            AuthnOptions { session_max_age: Duration::from_secs(4182), ..Default::default() };
+        let mut context = TestContextBuilder::new().with_opts(opts).build().await;
 
         context.create_whoami_user().await;
 
@@ -73,6 +88,7 @@ mod tests {
 
         assert!(context.session_exists(&response.access_token).await);
         assert!(context.user_exists(&context.whoami()).await);
+        assert_eq!(4182, response.session_max_age.as_secs());
     }
 
     #[tokio::test]
