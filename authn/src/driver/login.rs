@@ -21,6 +21,7 @@ use crate::model::{AccessToken, Password, Session};
 use iii_iv_core::db::DbError;
 use iii_iv_core::driver::{DriverError, DriverResult};
 use iii_iv_core::model::Username;
+use std::sync::Arc;
 
 impl AuthnDriver {
     /// Logs a user with `username` and `password`.
@@ -54,12 +55,17 @@ impl AuthnDriver {
         }
 
         let access_token = AccessToken::generate();
-        let session = Session::new(access_token, username.clone(), now);
+        let session = Session::new(access_token.clone(), username.clone(), now);
         db::put_session(tx.ex(), &session).await?;
 
         db::update_user(tx.ex(), username.clone(), now).await?;
 
         tx.commit().await.unwrap();
+
+        let mut cache = self.sessions_cache.lock().await;
+        let previous = cache.insert(access_token, Ok(Arc::from(user)));
+        assert!(previous.is_none(), "The session has not yet been returned to the client");
+
         Ok(session)
     }
 }
@@ -210,5 +216,29 @@ mod tests {
             Err(DriverError::NotActivated) => (),
             e => panic!("{:?}", e),
         }
+    }
+
+    #[tokio::test]
+    async fn test_login_inserts_session_into_cache() {
+        let context = TestContext::setup(AuthnOptions::default()).await;
+
+        let username = Username::from("hello");
+        let password = Password::from("password");
+
+        db::create_user(
+            &mut context.ex().await,
+            username.clone(),
+            Some(password.clone().validate_and_hash(|_| None).unwrap()),
+            EmailAddress::from("some@example.com"),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(0, context.driver().sessions_cache.lock().await.len());
+        let response = context.driver().login(username.clone(), password).await.unwrap();
+        let driver = context.driver();
+        let cache = driver.sessions_cache.lock().await;
+        assert_eq!(1, cache.len());
+        assert!(cache.contains_key(response.access_token()));
     }
 }
