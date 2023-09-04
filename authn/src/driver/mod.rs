@@ -160,6 +160,11 @@ impl AuthnDriver {
         }
     }
 
+    /// Returns a reference to the authentication options provided at creation time.
+    pub(crate) fn opts(&self) -> &AuthnOptions {
+        &self.opts
+    }
+
     /// Obtains the current time from the driver.
     #[cfg(test)]
     pub(crate) fn now_utc(&self) -> OffsetDateTime {
