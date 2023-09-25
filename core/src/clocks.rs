@@ -46,6 +46,7 @@ impl Clock for SystemClock {
 pub mod testutils {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::Duration;
     use time::{Date, Month, Time};
 
     /// A clock that returns a monotonically increasing instant every time it is queried.
@@ -68,7 +69,41 @@ pub mod testutils {
         }
     }
 
+    /// A clock that returns a preconfigured instant and that can be modified at will.
+    ///
+    /// Only supports second-level precision.
+    pub struct SettableClock {
+        /// Current fake time.
+        now: AtomicU64,
+    }
+
+    impl SettableClock {
+        /// Creates a new clock that returns `now` until reconfigured with `set`.
+        pub fn new(now: OffsetDateTime) -> Self {
+            Self { now: AtomicU64::new(now.unix_timestamp() as u64) }
+        }
+
+        /// Sets the new value of `now` that the clock returns.
+        pub fn set(&self, now: OffsetDateTime) {
+            self.now.store(now.unix_timestamp() as u64, Ordering::SeqCst);
+        }
+
+        /// Advances the current time by `delta`.
+        pub fn advance(&self, delta: Duration) {
+            let seconds = delta.as_secs();
+            self.now.fetch_add(seconds, Ordering::SeqCst);
+        }
+    }
+
+    impl Clock for SettableClock {
+        fn now_utc(&self) -> OffsetDateTime {
+            let now = self.now.load(Ordering::SeqCst);
+            OffsetDateTime::from_unix_timestamp(now as i64).unwrap()
+        }
+    }
+
     /// Creates an `OffsetDateTime` with the given values, assuming UTC.
+    // TODO(jmmv): Remove in favor of the datetime!() macro from the time crate.
     pub fn utc_datetime(
         year: i32,
         month: u8,

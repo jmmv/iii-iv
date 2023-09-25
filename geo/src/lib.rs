@@ -30,6 +30,9 @@ mod azure;
 pub use azure::{AzureGeoLocator, AzureGeoLocatorOptions};
 mod caching;
 pub use caching::{CachingGeoLocator, CachingGeoLocatorOptions};
+pub(crate) mod counter;
+mod ipapi;
+pub use ipapi::FreeIpApiGeoLocator;
 #[cfg(any(test, feature = "testutils"))]
 mod mock;
 #[cfg(any(test, feature = "testutils"))]
