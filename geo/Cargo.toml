@@ -15,15 +15,17 @@ async-trait = "0.1"
 bytes = "1.0"
 derivative = "2.2"
 futures = "0.3"
+iii-iv-core = { path = "../core" }
 log = "0.4"
 lru_time_cache = "0.11"
 reqwest = { version = "0.11", default-features = false, features = ["rustls-tls"] }
 serde = "1"
 serde_json = "1"
-iii-iv-core = { path = "../core" }
+time = "0.3"
 
 [dev-dependencies]
 iii-iv-core = { path = "../core", features = ["testutils"] }
 serde_test = "1"
 temp-env = "0.3.2"
+time = { version = "0.3", features = ["macros"] }
 tokio = { version = "1", features = ["rt", "macros", "rt-multi-thread"] }
