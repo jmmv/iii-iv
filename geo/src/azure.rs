@@ -19,23 +19,11 @@ use crate::{CountryIsoCode, GeoLocator, GeoResult};
 use async_trait::async_trait;
 use bytes::Buf;
 use derivative::Derivative;
-use futures::lock::Mutex;
-use iii_iv_core::env::get_optional_var;
 use iii_iv_core::env::get_required_var;
-use log::warn;
-use lru_time_cache::LruCache;
 use reqwest::{Client, Response, StatusCode};
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::net::IpAddr;
-use std::sync::Arc;
-use std::time::Duration;
-
-/// Default maximum amount of time to keep cached entries in memory.
-const DEFAULT_CACHE_TTL_SECONDS: u64 = 60 * 60;
-
-/// Default maximum number of responses to keep cached in memory.
-const DEFAULT_CACHE_CAPACITY: usize = 10 * 1024;
 
 /// Converts a `reqwest::Error` to an `io::Error`.
 fn reqwest_error_to_io_error(e: reqwest::Error) -> io::Error {
@@ -73,7 +61,7 @@ async fn http_response_to_io_error(response: Response) -> io::Error {
 
 /// Request to the Azure Maps service to geolocate an IP address.
 #[derive(Serialize)]
-struct LocateRequest<'a, 'b> {
+struct LocateRequest<'a> {
     /// Desired format of the response.
     format: &'static str,
 
@@ -82,11 +70,11 @@ struct LocateRequest<'a, 'b> {
     api_version: &'static str,
 
     /// The IP to geolocate.
-    ip: &'a str,
+    ip: String,
 
     /// The Azure Maps key to use.
     #[serde(rename = "subscription-key")]
-    subscription_key: &'b str,
+    subscription_key: &'a str,
 }
 
 /// Country region information as encoded within `LocateResponse`.
@@ -118,28 +106,15 @@ pub struct AzureGeoLocatorOptions {
     /// The API key to use to contact Azure Maps.
     #[derivative(Debug = "ignore")]
     pub key: String,
-
-    /// The TTL for the entries in the cache.
-    pub cache_ttl: Duration,
-
-    /// The cache capacity in number of entries.
-    pub cache_capacity: usize,
 }
 
 impl AzureGeoLocatorOptions {
     /// Creates a set of options from from environment variables whose name is prefixed with the
     /// given `prefix`.
     ///
-    /// This will use variables such as `<prefix>_KEY`, `<prefix>_CACHE_TTL` and
-    /// `<prefix>_CACHE_CAPACITY`.
+    /// This will use variables such as `<prefix>_KEY`.
     pub fn from_env(prefix: &str) -> Result<Self, String> {
-        Ok(Self {
-            key: get_required_var::<String>(prefix, "KEY")?,
-            cache_ttl: get_optional_var::<Duration>(prefix, "CACHE_TTL")?
-                .unwrap_or_else(|| Duration::from_secs(DEFAULT_CACHE_TTL_SECONDS)),
-            cache_capacity: get_optional_var::<usize>(prefix, "CACHE_CAPACITY")?
-                .unwrap_or(DEFAULT_CACHE_CAPACITY),
-        })
+        Ok(Self { key: get_required_var::<String>(prefix, "KEY")? })
     }
 }
 
@@ -151,24 +126,24 @@ pub struct AzureGeoLocator {
 
     /// Asynchronous HTTP client with which to issue the service requests.
     client: Client,
-
-    /// Cache of successful responses.
-    cache: Arc<Mutex<LruCache<IpAddr, Option<CountryIsoCode>>>>,
 }
 
 impl AzureGeoLocator {
     /// Creates a new Azure Maps-backed geolocator using `opts` for configuration.
     pub fn new(opts: AzureGeoLocatorOptions) -> Self {
-        let cache =
-            LruCache::with_expiry_duration_and_capacity(opts.cache_ttl, opts.cache_capacity);
-        Self { key: opts.key, client: Client::default(), cache: Arc::from(Mutex::from(cache)) }
+        Self { key: opts.key, client: Client::default() }
     }
+}
 
-    /// Same as `locate` but takes an IP as a string.  Useful for testing purposes only as this
-    /// allows feeding invalid IPs to the server and bypasses the cache.
-    async fn locate_raw(&self, ip: &str) -> GeoResult<Option<CountryIsoCode>> {
-        let request =
-            LocateRequest { format: "json", api_version: "1.0", ip, subscription_key: &self.key };
+#[async_trait]
+impl GeoLocator for AzureGeoLocator {
+    async fn locate(&self, ip: &IpAddr) -> GeoResult<Option<CountryIsoCode>> {
+        let request = LocateRequest {
+            format: "json",
+            api_version: "1.0",
+            ip: ip.to_string(),
+            subscription_key: &self.key,
+        };
         let response = self
             .client
             .get("https://atlas.microsoft.com/geolocation/ip/json")
@@ -183,7 +158,7 @@ impl AzureGeoLocator {
 
                 match response.ip.parse::<IpAddr>() {
                     Ok(response_ip) => {
-                        if ip != response_ip.to_string() {
+                        if ip != &response_ip {
                             return Err(io::Error::new(
                                 io::ErrorKind::InvalidData,
                                 format!(
@@ -214,74 +189,25 @@ impl AzureGeoLocator {
     }
 }
 
-#[async_trait]
-impl GeoLocator for AzureGeoLocator {
-    async fn locate(&self, ip: &IpAddr) -> GeoResult<Option<CountryIsoCode>> {
-        {
-            let mut cache = self.cache.lock().await;
-            if let Some(code) = cache.get(ip) {
-                return Ok(code.clone());
-            };
-        }
-
-        let code = self.locate_raw(&ip.to_string()).await?;
-
-        let mut cache = self.cache.lock().await;
-        if let Some(old_code) = cache.insert(*ip, code.clone()) {
-            if old_code != code {
-                warn!(
-                    "Cache insertion race detected with inconsistent values: {:?} != {:?}",
-                    old_code, code
-                );
-            }
-        }
-        Ok(code)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env;
-    use std::net::Ipv4Addr;
 
     #[test]
     pub fn test_azuregeolocatoroptions_from_env_all_present() {
-        let overrides = [
-            ("AZURE_MAPS_KEY", Some("the-key")),
-            ("AZURE_MAPS_CACHE_TTL", Some("3d")),
-            ("AZURE_MAPS_CACHE_CAPACITY", Some("1024")),
-        ];
+        let overrides = [("AZURE_MAPS_KEY", Some("the-key"))];
         temp_env::with_vars(overrides, || {
             let opts = AzureGeoLocatorOptions::from_env("AZURE_MAPS").unwrap();
-            assert_eq!(
-                AzureGeoLocatorOptions {
-                    key: "the-key".to_owned(),
-                    cache_ttl: Duration::from_secs(3 * 24 * 60 * 60),
-                    cache_capacity: 1024,
-                },
-                opts
-            );
+            assert_eq!(AzureGeoLocatorOptions { key: "the-key".to_owned() }, opts);
         });
     }
 
     #[test]
     pub fn test_azuregeolocatoroptions_from_env_use_defaults() {
-        let overrides = [
-            ("AZURE_MAPS_KEY", Some("the-key")),
-            ("AZURE_MAPS_CACHE_TTL", None),
-            ("AZURE_MAPS_CACHE_CAPACITY", None),
-        ];
+        let overrides = [("AZURE_MAPS_KEY", Some("the-key"))];
         temp_env::with_vars(overrides, || {
             let opts = AzureGeoLocatorOptions::from_env("AZURE_MAPS").unwrap();
-            assert_eq!(
-                AzureGeoLocatorOptions {
-                    key: "the-key".to_owned(),
-                    cache_ttl: Duration::from_secs(DEFAULT_CACHE_TTL_SECONDS),
-                    cache_capacity: DEFAULT_CACHE_CAPACITY,
-                },
-                opts
-            );
+            assert_eq!(AzureGeoLocatorOptions { key: "the-key".to_owned() }, opts);
         });
     }
 
@@ -318,57 +244,6 @@ mod tests {
                 .unwrap()
                 .as_str()
         );
-    }
-
-    #[tokio::test]
-    #[ignore = "Requires environment configuration and is expensive"]
-    async fn test_cache() {
-        let key = env::var("AZURE_MAPS_KEY").unwrap();
-        let mut geolocator = AzureGeoLocator::new(AzureGeoLocatorOptions {
-            key,
-            cache_ttl: Duration::from_secs(1000000),
-            cache_capacity: 10,
-        });
-
-        for i in 0..5 {
-            let ip = IpAddr::V4(Ipv4Addr::new(212, 170, 36, 79 + i));
-            assert_eq!("ES", geolocator.locate(&ip).await.unwrap().unwrap().as_str());
-
-            let ip = IpAddr::V4(Ipv4Addr::new(185, 2, 66, 42 + i));
-            assert_eq!("IE", geolocator.locate(&ip).await.unwrap().unwrap().as_str());
-        }
-
-        geolocator.key = "invalid key".to_string();
-
-        // Query an IP we have already seen, which should be served from the cache and not hit
-        // errors due to the invalid key.
-        let ip = IpAddr::V4(Ipv4Addr::new(212, 170, 36, 79));
-        assert_eq!("ES", geolocator.locate(&ip).await.unwrap().unwrap().as_str());
-
-        // Force the cache to evict an entry by querying a new IP, which we expect to result in an
-        // error when contacting the backend.
-        let ip = IpAddr::V4(Ipv4Addr::new(212, 170, 36, 90));
-        geolocator.locate(&ip).await.unwrap_err();
-
-        geolocator.key = env::var("AZURE_MAPS_KEY").unwrap();
-
-        // And now ensure that the faulty query would have been valid if it hadn't been by the
-        // bad key, and that we do not cache errors.
-        let ip = IpAddr::V4(Ipv4Addr::new(212, 170, 36, 90));
-        assert_eq!("ES", geolocator.locate(&ip).await.unwrap().unwrap().as_str());
-    }
-
-    #[tokio::test]
-    #[ignore = "Requires environment configuration and is expensive"]
-    async fn test_invalid_ip() {
-        let geolocator = setup();
-        match geolocator.locate_raw("1.2.3.256").await {
-            Err(e) => {
-                assert_eq!(io::ErrorKind::InvalidInput, e.kind());
-                assert!(e.to_string().contains("IP address is not valid"));
-            }
-            e => panic!("{:?}", e),
-        }
     }
 
     #[tokio::test]

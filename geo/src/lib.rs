@@ -28,6 +28,8 @@ use std::net::IpAddr;
 
 mod azure;
 pub use azure::{AzureGeoLocator, AzureGeoLocatorOptions};
+mod caching;
+pub use caching::{CachingGeoLocator, CachingGeoLocatorOptions};
 #[cfg(any(test, feature = "testutils"))]
 mod mock;
 #[cfg(any(test, feature = "testutils"))]
