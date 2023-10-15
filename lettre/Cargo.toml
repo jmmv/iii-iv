@@ -11,25 +11,24 @@ default = []
 testutils = ["dep:futures", "dep:quoted_printable"]
 
 [dependencies]
-async-trait = "0.1"
-axum = "0.6"
-derivative = "2.2"
-futures = { version = "0.3", optional = true }
-http = "0.2.8"
-quoted_printable = { version = "0.5", optional = true }
-serde_json = "1"
-thiserror = "1.0"
-time = "0.3"
+async-trait = { workspace = true }
+axum = { workspace = true }
+derivative = { workspace = true }
+futures = { workspace = true, optional = true }
+http = { workspace = true }
 iii-iv-core = { path = "../core" }
+quoted_printable = { workspace = true, optional = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
 
 [dependencies.lettre]
-version = "0.10.0-rc.6"
-default-features = false
+workspace = true
 features = ["builder", "hostname", "pool", "rustls-tls", "smtp-transport", "tokio1-rustls-tls"]
 
 [dev-dependencies]
-futures = "0.3"
+futures = { workspace = true }
 iii-iv-core = { path = "../core", features = ["testutils"] }
-quoted_printable = "0.5"
-temp-env = "0.3.2"
-tokio = { version = "1", features = ["macros"] }
+quoted_printable = { workspace = true }
+temp-env = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }
