@@ -10,7 +10,7 @@ publish = false
 default = ["postgres"]
 postgres = ["iii-iv-core/postgres", "sqlx/postgres"]
 sqlite = ["iii-iv-core/sqlite", "sqlx/sqlite"]
-testutils = ["dep:url", "iii-iv-core/sqlite", "iii-iv-core/testutils", "iii-iv-lettre/testutils"]
+testutils = ["dep:url", "iii-iv-core/sqlite", "iii-iv-core/testutils", "iii-iv-smtp/testutils"]
 
 [dependencies]
 async-trait = { workspace = true }
@@ -21,7 +21,7 @@ derivative = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }
 iii-iv-core = { path = "../core" }
-iii-iv-lettre = { path = "../lettre" }
+iii-iv-smtp = { path = "../smtp" }
 log = { workspace = true }
 lru_time_cache = { workspace = true }
 rand = { workspace = true }
@@ -38,7 +38,7 @@ features = ["runtime-tokio-rustls", "time"]
 [dev-dependencies]
 futures = { workspace = true }
 iii-iv-core = { path = "../core", features = ["sqlite", "testutils"] }
-iii-iv-lettre = { path = "../lettre", features = ["testutils"] }
+iii-iv-smtp = { path = "../smtp", features = ["testutils"] }
 temp-env = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros", "rt-multi-thread"] }
 url = { workspace = true }

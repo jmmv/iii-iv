@@ -26,7 +26,7 @@ use iii_iv_core::db::Executor;
 use iii_iv_core::model::EmailAddress;
 use iii_iv_core::model::Username;
 use iii_iv_core::rest::BaseUrls;
-use iii_iv_lettre::testutils::RecorderSmtpMailer;
+use iii_iv_smtp::testutils::RecorderSmtpMailer;
 use std::sync::Arc;
 
 /// State of a running test.

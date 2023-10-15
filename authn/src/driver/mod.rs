@@ -24,7 +24,7 @@ use iii_iv_core::db::{Db, DbError, TxExecutor};
 use iii_iv_core::driver::{DriverError, DriverResult};
 use iii_iv_core::env::get_optional_var;
 use iii_iv_core::rest::BaseUrls;
-use iii_iv_lettre::{EmailTemplate, SmtpMailer};
+use iii_iv_smtp::{EmailTemplate, SmtpMailer};
 use log::warn;
 use lru_time_cache::LruCache;
 use std::sync::Arc;
