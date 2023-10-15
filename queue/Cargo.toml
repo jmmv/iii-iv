@@ -13,30 +13,30 @@ sqlite = ["iii-iv-core/sqlite", "sqlx/sqlite", "sqlx/time", "sqlx/uuid"]
 testutils = []
 
 [dependencies]
-async-trait = "0.1"
-axum = "0.6"
-derivative = "2.2"
-futures = "0.3"
+async-trait = { workspace = true }
+axum = { workspace = true }
+derivative = { workspace = true }
+futures = { workspace = true }
 iii-iv-core = { path = "../core" }
-log = "0.4"
-serde = "1"
-serde_json = "1"
-time = "0.3"
-tokio = "1"
-uuid = { version = "1.0", default-features = false, features = ["serde", "std", "v4"] }
+log = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+uuid = { workspace = true }
 
 [dependencies.sqlx]
-version = "0.7"
+workspace = true
 optional = true
 features = ["runtime-tokio-rustls", "time"]
 
 [dev-dependencies]
 iii-iv-core = { path = "../core", features = ["sqlite", "testutils"] }
-rand = "0.8"
-serde = { version = "1", features = ["derive"] }
-time = { version = "0.3", features = ["formatting"] }
-tokio = { version = "1", features = ["rt", "macros", "rt-multi-thread"] }
+rand = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+time = { workspace = true, features = ["formatting"] }
+tokio = { workspace = true, features = ["rt", "macros", "rt-multi-thread"] }
 
 [dev-dependencies.sqlx]
-version = "0.7"
+workspace = true
 features = ["runtime-tokio-rustls", "sqlite", "time", "uuid"]

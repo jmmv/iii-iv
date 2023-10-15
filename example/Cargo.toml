@@ -7,29 +7,28 @@ edition = "2021"
 publish = false
 
 [dependencies]
-async-session = "3"
-async-trait = "0.1"
-axum = "0.6"
-derive-getters = "0.2.0"
-env_logger = "0.8"
-futures = "0.3"
-hyper = { version = "0.14", features = ["full"] }
-log = "0.4"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite"] }
-thiserror = "1.0"
-tokio = { version = "1", features = ["rt", "macros", "rt-multi-thread"] }
-tower-http = { version = "0.3", features = ["cors"] }
-url = { version = "2.3", features = ["serde"] }
+async-session = { workspace = true }
+async-trait = { workspace = true }
+axum = { workspace = true }
+derive-getters = { workspace = true }
+env_logger = { workspace = true }
+futures = { workspace = true }
+hyper = { workspace = true }
+log = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
+sqlx = { workspace = true, features = ["runtime-tokio-rustls", "sqlite"] }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt", "macros", "rt-multi-thread"] }
+tower-http = { workspace = true }
+url = { workspace = true, features = ["serde"] }
 
 [dependencies.iii-iv-core]
 path = "../core"
 features = ["postgres"]
 
 [dependencies.derive_more]
-version = "0.99.0"
-default-features = false
+workspace = true
 features = ["as_ref", "constructor"]
 
 [dev-dependencies.iii-iv-core]

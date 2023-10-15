@@ -11,21 +11,21 @@ default = []
 testutils = []
 
 [dependencies]
-async-trait = "0.1"
-bytes = "1.0"
-derivative = "2.2"
-futures = "0.3"
+async-trait = { workspace = true }
+bytes = { workspace = true }
+derivative = { workspace = true }
+futures = { workspace = true }
 iii-iv-core = { path = "../core" }
-log = "0.4"
-lru_time_cache = "0.11"
-reqwest = { version = "0.11", default-features = false, features = ["rustls-tls"] }
-serde = "1"
-serde_json = "1"
-time = "0.3"
+log = { workspace = true }
+lru_time_cache = { workspace = true }
+reqwest = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
+time = { workspace = true }
 
 [dev-dependencies]
 iii-iv-core = { path = "../core", features = ["testutils"] }
-serde_test = "1"
-temp-env = "0.3.2"
-time = { version = "0.3", features = ["macros"] }
-tokio = { version = "1", features = ["rt", "macros", "rt-multi-thread"] }
+serde_test = { workspace = true }
+temp-env = { workspace = true }
+time = { workspace = true, features = ["macros"] }
+tokio = { workspace = true, features = ["rt", "macros", "rt-multi-thread"] }
