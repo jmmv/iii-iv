@@ -24,6 +24,15 @@ use lettre::Message;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+#[cfg(test)]
+use {
+    super::SmtpDriver,
+    crate::db::init_schema,
+    iii_iv_core::clocks::testutils::SettableClock,
+    iii_iv_core::db::{sqlite, Db, Executor},
+    time::macros::datetime,
+};
+
 /// Mailer that captures outgoing messages.
 #[derive(Clone, Default)]
 pub struct RecorderSmtpMailer {
@@ -39,6 +48,12 @@ impl RecorderSmtpMailer {
     pub async fn inject_error_for<E: Into<EmailAddress>>(&self, email: E) {
         let mut errors = self.errors.lock().await;
         errors.insert(email.into());
+    }
+
+    /// Expects that no messages were sent.
+    pub async fn expect_no_messages(&self) {
+        let inboxes = self.inboxes.lock().await;
+        assert_eq!(0, inboxes.len(), "Expected to find no messages");
     }
 
     /// Expects that messages were sent to `exp_to` and nobody else, and returns the list of
@@ -83,6 +98,43 @@ impl SmtpMailer for RecorderSmtpMailer {
     }
 }
 
+/// Container for the state required to run a driver test.
+#[cfg(test)]
+pub(crate) struct TestContext {
+    pub(crate) driver: SmtpDriver<RecorderSmtpMailer>,
+    pub(crate) db: Arc<dyn Db + Send + Sync>,
+    pub(crate) clock: Arc<SettableClock>,
+    pub(crate) mailer: RecorderSmtpMailer,
+}
+
+#[cfg(test)]
+impl TestContext {
+    pub(crate) async fn setup(max_daily_emails: Option<usize>) -> Self {
+        let _can_fail = env_logger::builder().is_test(true).try_init();
+
+        let db = Arc::from(sqlite::testutils::setup().await);
+        let mut ex = db.ex().await.unwrap();
+        init_schema(&mut ex).await.unwrap();
+
+        let clock = Arc::from(SettableClock::new(datetime!(2023-10-17 06:00:00 UTC)));
+
+        let mailer = RecorderSmtpMailer::default();
+
+        let driver = SmtpDriver {
+            transport: mailer.clone(),
+            db: db.clone(),
+            clock: clock.clone(),
+            max_daily_emails,
+        };
+
+        Self { driver, db, clock, mailer }
+    }
+
+    pub(crate) async fn ex(&mut self) -> Executor {
+        self.db.ex().await.unwrap()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -116,6 +168,24 @@ mod tests {
         assert!(inboxes.contains_key(&to1));
         assert!(!inboxes.contains_key(&to2));
         assert!(inboxes.contains_key(&to3));
+    }
+
+    #[tokio::test]
+    async fn test_recorder_expect_no_messages_ok() {
+        let mailer = RecorderSmtpMailer::default();
+        mailer.expect_no_messages().await;
+    }
+
+    #[tokio::test]
+    async fn test_recorder_expect_no_messages_fail() {
+        #[tokio::main(flavor = "current_thread")]
+        async fn do_test() {
+            let to1 = EmailAddress::from("to1@example.com");
+            let mailer = RecorderSmtpMailer::default();
+            mailer.send(new_message(&to1)).await.unwrap();
+            mailer.expect_no_messages().await; // Will panic.
+        }
+        assert!(catch_unwind(do_test).is_err());
     }
 
     #[tokio::test]

@@ -7,13 +7,16 @@ edition = "2021"
 publish = false
 
 [features]
-default = []
-testutils = ["dep:futures", "dep:quoted_printable"]
+default = ["postgres"]
+postgres = ["dep:sqlx", "iii-iv-core/postgres", "sqlx/postgres"]
+sqlite = ["dep:sqlx", "iii-iv-core/sqlite", "sqlx/sqlite"]
+testutils = ["dep:futures", "dep:env_logger", "dep:quoted_printable", "iii-iv-core/sqlite"]
 
 [dependencies]
 async-trait = { workspace = true }
 axum = { workspace = true }
 derivative = { workspace = true }
+env_logger = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
 http = { workspace = true }
 iii-iv-core = { path = "../core" }
@@ -26,9 +29,20 @@ time = { workspace = true }
 workspace = true
 features = ["builder", "hostname", "pool", "rustls-tls", "smtp-transport", "tokio1-rustls-tls"]
 
+[dependencies.sqlx]
+version = "0.7"
+optional = true
+features = ["runtime-tokio-rustls", "time"]
+
 [dev-dependencies]
+env_logger = { workspace = true }
 futures = { workspace = true }
-iii-iv-core = { path = "../core", features = ["testutils"] }
+iii-iv-core = { path = "../core", features = ["sqlite", "testutils"] }
 quoted_printable = { workspace = true }
 temp-env = { workspace = true }
-tokio = { workspace = true, features = ["macros"] }
+time = { workspace = true, features = ["macros"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[dev-dependencies.sqlx]
+workspace = true
+features = ["runtime-tokio-rustls", "sqlite", "time"]
