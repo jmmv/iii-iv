@@ -4,8 +4,8 @@ members = [
     "core",
     "example",
     "geo",
-    "lettre",
     "queue",
+    "smtp",
 ]
 resolver = "2"
 
