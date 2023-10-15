@@ -18,7 +18,8 @@
 use crate::driver::DriverResult;
 use iii_iv_core::model::{EmailAddress, Username};
 use iii_iv_core::rest::BaseUrls;
-use iii_iv_smtp::{EmailTemplate, SmtpMailer};
+use iii_iv_smtp::driver::SmtpMailer;
+use iii_iv_smtp::model::EmailTemplate;
 
 /// Sends the activation code `code` for `username` to the given `email` address.
 ///
@@ -51,7 +52,8 @@ pub(crate) mod testutils {
     //! Utilities to help testing services that integrate with the `authn` features.
 
     use super::*;
-    use iii_iv_smtp::testutils::{parse_message, RecorderSmtpMailer};
+    use iii_iv_smtp::driver::testutils::RecorderSmtpMailer;
+    use iii_iv_smtp::model::testutils::parse_message;
     use url::Url;
 
     /// Creates an email activation template to capture activation codes during tests.
@@ -105,7 +107,8 @@ pub(crate) mod testutils {
 mod tests {
     use super::testutils::*;
     use super::*;
-    use iii_iv_smtp::testutils::*;
+    use iii_iv_smtp::driver::testutils::RecorderSmtpMailer;
+    use iii_iv_smtp::model::testutils::parse_message;
 
     #[tokio::test]
     async fn test_send_activation_code() {

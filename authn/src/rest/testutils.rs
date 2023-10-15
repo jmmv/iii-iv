@@ -32,7 +32,7 @@ use {
     iii_iv_core::clocks::testutils::MonotonicClock,
     iii_iv_core::db::{Db, DbError},
     iii_iv_core::rest::BaseUrls,
-    iii_iv_smtp::testutils::RecorderSmtpMailer,
+    iii_iv_smtp::driver::testutils::RecorderSmtpMailer,
     std::sync::Arc,
 };
 
