@@ -58,16 +58,29 @@ pub(super) fn result_to_status(
 
 /// Parses a status `code`/`reason` pair as extracted from the database into a `TaskResult`.
 ///
-/// If the task is still running, there is no result yet.
+/// If the task is still running, there is no result yet, unless the task has been deferred after
+/// a retry, in which case there will be a result.
 ///
 /// The `id` is used for error reporting reasons only.
 pub(super) fn status_to_result(
     id: Uuid,
     code: i8,
     reason: Option<String>,
+    runs: i16,
+    only_after: Option<OffsetDateTime>,
 ) -> DbResult<Option<TaskResult>> {
     match code {
-        x if x == (TaskStatus::Runnable as i8) => Ok(None),
+        x if x == (TaskStatus::Runnable as i8) => match (runs, only_after) {
+            (0, _) => Ok(None),
+            (runs, Some(only_after)) => match reason {
+                Some(reason) => Ok(Some(TaskResult::Retry(only_after, reason))),
+                None => Err(DbError::DataIntegrityError(format!(
+                    "Task {} is Retry with runs={} but status_reason is missing",
+                    id, runs
+                ))),
+            },
+            (_, None) => Ok(None),
+        },
 
         x if x == (TaskStatus::Done as i8) => Ok(Some(TaskResult::Done(reason))),
 
@@ -123,27 +136,81 @@ mod tests {
 
     #[test]
     fn test_status_to_result_runnable_is_none() {
-        match status_to_result(Uuid::new_v4(), TaskStatus::Runnable as i8, None) {
+        match status_to_result(Uuid::new_v4(), TaskStatus::Runnable as i8, None, 3, None) {
             Ok(None) => (),
             r => panic!("Unexpected result: {:?}", r),
         }
 
-        match status_to_result(Uuid::new_v4(), TaskStatus::Runnable as i8, Some("foo".to_owned())) {
+        match status_to_result(
+            Uuid::new_v4(),
+            TaskStatus::Runnable as i8,
+            Some("foo".to_owned()),
+            0,
+            None,
+        ) {
             Ok(None) => (),
             r => panic!("Unexpected result: {:?}", r),
         }
     }
 
     #[test]
+    fn test_status_to_result_runnable_in_the_future_is_none() {
+        let now = datetime!(2023-10-19 15:50:00 UTC);
+
+        match status_to_result(Uuid::new_v4(), TaskStatus::Runnable as i8, None, 0, Some(now)) {
+            Ok(None) => (),
+            r => panic!("Unexpected result: {:?}", r),
+        }
+
+        match status_to_result(
+            Uuid::new_v4(),
+            TaskStatus::Runnable as i8,
+            Some("foo".to_owned()),
+            0,
+            Some(now),
+        ) {
+            Ok(None) => (),
+            r => panic!("Unexpected result: {:?}", r),
+        }
+    }
+
+    #[test]
+    fn test_status_to_result_retry_after_failure() {
+        let now = datetime!(2023-10-19 15:50:00 UTC);
+
+        match status_to_result(Uuid::new_v4(), TaskStatus::Runnable as i8, None, 1, Some(now)) {
+            Err(DbError::DataIntegrityError(_)) => (),
+            r => panic!("Unexpected result: {:?}", r),
+        }
+
+        assert_eq!(
+            Ok(Some(TaskResult::Retry(now, "foo".to_owned()))),
+            status_to_result(
+                Uuid::new_v4(),
+                TaskStatus::Runnable as i8,
+                Some("foo".to_owned()),
+                1,
+                Some(now),
+            )
+        );
+    }
+
+    #[test]
     fn test_status_to_result_done_may_have_reason() {
         assert_eq!(
             Ok(Some(TaskResult::Done(None))),
-            status_to_result(Uuid::new_v4(), TaskStatus::Done as i8, None)
+            status_to_result(Uuid::new_v4(), TaskStatus::Done as i8, None, 123, None)
         );
 
         assert_eq!(
             Ok(Some(TaskResult::Done(Some("msg".to_owned())))),
-            status_to_result(Uuid::new_v4(), TaskStatus::Done as i8, Some("msg".to_owned()))
+            status_to_result(
+                Uuid::new_v4(),
+                TaskStatus::Done as i8,
+                Some("msg".to_owned()),
+                0,
+                None
+            )
         );
     }
 
@@ -151,10 +218,16 @@ mod tests {
     fn test_status_to_result_failed_must_have_reason() {
         assert_eq!(
             Ok(Some(TaskResult::Failed("msg".to_owned()))),
-            status_to_result(Uuid::new_v4(), TaskStatus::Failed as i8, Some("msg".to_owned()))
+            status_to_result(
+                Uuid::new_v4(),
+                TaskStatus::Failed as i8,
+                Some("msg".to_owned()),
+                0,
+                None
+            )
         );
 
-        match status_to_result(Uuid::new_v4(), TaskStatus::Failed as i8, None) {
+        match status_to_result(Uuid::new_v4(), TaskStatus::Failed as i8, None, 1, None) {
             Err(DbError::DataIntegrityError(_)) => (),
             r => panic!("Unexpected result: {:?}", r),
         }
@@ -164,10 +237,16 @@ mod tests {
     fn test_status_to_result_abandoned_must_have_reason() {
         assert_eq!(
             Ok(Some(TaskResult::Abandoned("msg".to_owned()))),
-            status_to_result(Uuid::new_v4(), TaskStatus::Abandoned as i8, Some("msg".to_owned()))
+            status_to_result(
+                Uuid::new_v4(),
+                TaskStatus::Abandoned as i8,
+                Some("msg".to_owned()),
+                1,
+                None
+            )
         );
 
-        match status_to_result(Uuid::new_v4(), TaskStatus::Abandoned as i8, None) {
+        match status_to_result(Uuid::new_v4(), TaskStatus::Abandoned as i8, None, 0, None) {
             Err(DbError::DataIntegrityError(_)) => (),
             r => panic!("Unexpected result: {:?}", r),
         }
@@ -175,12 +254,12 @@ mod tests {
 
     #[test]
     fn test_status_to_result_unknown_code() {
-        match status_to_result(Uuid::new_v4(), 123, None) {
+        match status_to_result(Uuid::new_v4(), 123, None, 0, None) {
             Err(DbError::DataIntegrityError(e)) => assert!(e.contains("unknown")),
             r => panic!("Unexpected result: {:?}", r),
         }
 
-        match status_to_result(Uuid::new_v4(), 123, Some("foo".to_owned())) {
+        match status_to_result(Uuid::new_v4(), 123, Some("foo".to_owned()), 0, None) {
             Err(DbError::DataIntegrityError(e)) => assert!(e.contains("unknown")),
             r => panic!("Unexpected result: {:?}", r),
         }

@@ -518,7 +518,10 @@ mod tests {
             context.notify_workers(1).await;
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
-        assert_eq!(None, context.client.poll(&mut context.ex().await, id).await.unwrap());
+        match context.client.poll(&mut context.ex().await, id).await {
+            Ok(Some(TaskResult::Retry(_, _))) => (),
+            e => panic!("{:?}", e),
+        }
 
         context.advance_clock(delay * 2);
 
@@ -556,7 +559,10 @@ mod tests {
             context.notify_workers(1).await;
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
-        assert_eq!(None, context.client.poll(&mut context.ex().await, id).await.unwrap());
+        match context.client.poll(&mut context.ex().await, id).await {
+            Ok(Some(TaskResult::Retry(_, _))) => (),
+            e => panic!("{:?}", e),
+        }
 
         context.advance_clock(Duration::from_secs(1));
 
@@ -600,5 +606,49 @@ mod tests {
         let state = state.get(&123).unwrap();
         assert_eq!(4, state.deferred);
         assert!(!state.done);
+    }
+
+    #[tokio::test]
+    async fn test_wait_once_returns_retries() {
+        let opts = WorkerOptions { max_runs: 5, ..Default::default() };
+        let mut context = TestContext::setup_one_connected(opts.clone()).await;
+
+        let delay = Duration::from_secs(60);
+        let task = MockTask { id: 123, defer: Some((2, delay)), ..Default::default() };
+        let id = context.client.enqueue(&mut context.ex().await, &task).await.unwrap();
+
+        // Wait until we know the task has asked to retry the `defer` times we configured.
+        loop {
+            {
+                let state = context.state.lock().await;
+                assert!(state.len() <= 1);
+                if let Some(state) = state.get(&123) {
+                    assert!(!state.done);
+                    if state.deferred == task.defer.unwrap().0 {
+                        break;
+                    }
+                }
+            }
+            context.advance_clock(delay);
+            context.notify_workers(1).await;
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+
+        for _ in 0..2 {
+            let result =
+                context.client.wait_once(context.db.clone(), id, Duration::from_millis(1)).await;
+            match result {
+                Ok(TaskResult::Retry(_, _)) => (),
+                e => panic!("{:?}", e),
+            }
+        }
+        let result = context.client.wait(context.db.clone(), id, Duration::from_millis(1)).await;
+        assert_eq!(Ok(TaskResult::Done(None)), result);
+
+        let state = context.state.lock().await;
+        assert_eq!(1, state.len());
+        let state = state.get(&123).unwrap();
+        assert_eq!(2, state.deferred);
+        assert!(state.done);
     }
 }
