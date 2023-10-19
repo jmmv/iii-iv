@@ -137,7 +137,31 @@ where
     }
 
     /// Waits for task `id` until it has completed execution by polling its state every `period`.
+    ///
+    /// In other words: wait for tasks to be fully done, and in particular, if a task asks to be
+    /// retried, wait for all necessary retries to happen until the task is done.  Use `wait_once`
+    /// instead to return on the first retry attempt.
     pub async fn wait(
+        &mut self,
+        db: Arc<dyn Db + Send + Sync>,
+        id: Uuid,
+        period: Duration,
+    ) -> DriverResult<TaskResult> {
+        loop {
+            match self.poll(&mut db.ex().await?, id).await? {
+                None | Some(TaskResult::Retry(_, _)) => (),
+                Some(result) => break Ok(result),
+            }
+
+            self.maybe_notify_worker().await;
+
+            tokio::time::sleep(period).await;
+        }
+    }
+
+    /// Waits for task `id` until it has completed execution or until it has attempted to run but
+    /// has decided to retry by polling its state every `period`.
+    pub async fn wait_once(
         &mut self,
         db: Arc<dyn Db + Send + Sync>,
         id: Uuid,

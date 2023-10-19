@@ -161,9 +161,15 @@ pub(crate) async fn get_result(ex: &mut Executor, id: Uuid) -> DbResult<Option<T
         #[cfg(feature = "postgres")]
         Executor::Postgres(ref mut ex) => {
             let query_str = "
-                SELECT status_code, status_reason
+                SELECT status_code, status_reason, runs, only_after
                 FROM tasks
-                WHERE id = $1 AND status_code != $2
+                WHERE id = $1 AND (
+                    status_code != $2
+                    OR (
+                        status_code = $2 AND status_reason IS NOT NULL
+                        AND runs > 0 AND only_after IS NOT NULL
+                    )
+                )
             ";
             match sqlx::query(query_str)
                 .bind(id)
@@ -176,6 +182,9 @@ pub(crate) async fn get_result(ex: &mut Executor, id: Uuid) -> DbResult<Option<T
                     let code: i16 = row.try_get("status_code").map_err(postgres::map_sqlx_error)?;
                     let reason: Option<String> =
                         row.try_get("status_reason").map_err(postgres::map_sqlx_error)?;
+                    let runs: i16 = row.try_get("runs").map_err(postgres::map_sqlx_error)?;
+                    let only_after: Option<OffsetDateTime> =
+                        row.try_get("only_after").map_err(postgres::map_sqlx_error)?;
 
                     let code = match i8::try_from(code) {
                         Ok(code) => code,
@@ -187,7 +196,7 @@ pub(crate) async fn get_result(ex: &mut Executor, id: Uuid) -> DbResult<Option<T
                         }
                     };
 
-                    let result = status_to_result(id, code, reason)?
+                    let result = status_to_result(id, code, reason, runs, only_after)?
                         .expect("Must not have queried runnable tasks");
                     Ok(Some(result))
                 }
@@ -198,12 +207,19 @@ pub(crate) async fn get_result(ex: &mut Executor, id: Uuid) -> DbResult<Option<T
         #[cfg(any(feature = "sqlite", test))]
         Executor::Sqlite(ref mut ex) => {
             let query_str = "
-                SELECT status_code, status_reason
+                SELECT status_code, status_reason, runs, only_after_sec, only_after_nsec
                 FROM tasks
-                WHERE id = ? AND status_code != ?
+                WHERE id = ? AND (
+                    status_code != ?
+                    OR (
+                        status_code = ? AND status_reason IS NOT NULL
+                        AND runs > 0 AND only_after_sec IS NOT NULL
+                    )
+                )
             ";
             match sqlx::query(query_str)
                 .bind(id)
+                .bind(TaskStatus::Runnable as i8)
                 .bind(TaskStatus::Runnable as i8)
                 .fetch_optional(ex)
                 .await
@@ -213,8 +229,24 @@ pub(crate) async fn get_result(ex: &mut Executor, id: Uuid) -> DbResult<Option<T
                     let code: i8 = row.try_get("status_code").map_err(sqlite::map_sqlx_error)?;
                     let reason: Option<String> =
                         row.try_get("status_reason").map_err(sqlite::map_sqlx_error)?;
+                    let runs: i16 = row.try_get("runs").map_err(postgres::map_sqlx_error)?;
+                    let only_after_sec: Option<i64> =
+                        row.try_get("only_after_sec").map_err(sqlite::map_sqlx_error)?;
+                    let only_after_nsec: Option<i64> =
+                        row.try_get("only_after_nsec").map_err(sqlite::map_sqlx_error)?;
 
-                    let result = status_to_result(id, code, reason)?
+                    let only_after = match (only_after_sec, only_after_nsec) {
+                        (Some(sec), Some(nsec)) => Some(sqlite::build_timestamp(sec, nsec)?),
+                        (None, None) => None,
+                        (_, _) => {
+                            return Err(DbError::DataIntegrityError(format!(
+                                "Inconsistent only_after sec ({:?}) and nsec ({:?}) values",
+                                only_after_sec, only_after_nsec
+                            )));
+                        }
+                    };
+
+                    let result = status_to_result(id, code, reason, runs, only_after)?
                         .expect("Must not have queried runnable tasks");
                     Ok(Some(result))
                 }
@@ -239,9 +271,12 @@ pub(crate) async fn get_results_since(
         #[cfg(feature = "postgres")]
         Executor::Postgres(ref mut ex) => {
             let query_str = "
-                SELECT id, status_code, status_reason
+                SELECT id, status_code, status_reason, runs, only_after
                 FROM tasks
-                WHERE status_code != $1 AND updated >= $2
+                WHERE (
+                    status_code != $1
+                    OR (status_code = $1 AND runs > 0 AND only_after IS NOT NULL)
+                ) AND updated >= $2
                 ORDER BY updated ASC
             ";
             let mut rows =
@@ -252,6 +287,9 @@ pub(crate) async fn get_results_since(
                 let code: i16 = row.try_get("status_code").map_err(postgres::map_sqlx_error)?;
                 let reason: Option<String> =
                     row.try_get("status_reason").map_err(postgres::map_sqlx_error)?;
+                let runs: i16 = row.try_get("runs").map_err(postgres::map_sqlx_error)?;
+                let only_after: Option<OffsetDateTime> =
+                    row.try_get("only_after").map_err(postgres::map_sqlx_error)?;
 
                 let code = match i8::try_from(code) {
                     Ok(code) => code,
@@ -263,7 +301,7 @@ pub(crate) async fn get_results_since(
                     }
                 };
 
-                let result = status_to_result(id, code, reason)?
+                let result = status_to_result(id, code, reason, runs, only_after)?
                     .expect("Must not have queried runnable tasks");
                 results.push((id, result));
             }
@@ -274,14 +312,16 @@ pub(crate) async fn get_results_since(
             let (since_sec, since_nsec) = sqlite::unpack_timestamp(since);
 
             let query_str = "
-                SELECT id, status_code, status_reason
+                SELECT id, status_code, status_reason, runs, only_after_sec, only_after_nsec
                 FROM tasks
-                WHERE
+                WHERE (
                     status_code != ?
-                    AND (updated_sec >= ? OR (updated_sec = ? AND updated_nsec >= ?))
+                    OR (status_code = ? AND runs > 0 AND only_after_sec IS NOT NULL)
+                ) AND (updated_sec >= ? OR (updated_sec = ? AND updated_nsec >= ?))
                 ORDER BY updated_sec ASC, updated_nsec ASC
             ";
             let mut rows = sqlx::query(query_str)
+                .bind(TaskStatus::Runnable as i8)
                 .bind(TaskStatus::Runnable as i8)
                 .bind(since_sec)
                 .bind(since_sec)
@@ -293,8 +333,24 @@ pub(crate) async fn get_results_since(
                 let code: i8 = row.try_get("status_code").map_err(sqlite::map_sqlx_error)?;
                 let reason: Option<String> =
                     row.try_get("status_reason").map_err(sqlite::map_sqlx_error)?;
+                let runs: i16 = row.try_get("runs").map_err(postgres::map_sqlx_error)?;
+                let only_after_sec: Option<i64> =
+                    row.try_get("only_after_sec").map_err(sqlite::map_sqlx_error)?;
+                let only_after_nsec: Option<i64> =
+                    row.try_get("only_after_nsec").map_err(sqlite::map_sqlx_error)?;
 
-                let result = status_to_result(id, code, reason)?
+                let only_after = match (only_after_sec, only_after_nsec) {
+                    (Some(sec), Some(nsec)) => Some(sqlite::build_timestamp(sec, nsec)?),
+                    (None, None) => None,
+                    (_, _) => {
+                        return Err(DbError::DataIntegrityError(format!(
+                            "Inconsistent only_after sec ({:?}) and msec ({:?}) values",
+                            only_after_sec, only_after_nsec
+                        )));
+                    }
+                };
+
+                let result = status_to_result(id, code, reason, runs, only_after)?
                     .expect("Must not have queried runnable tasks");
                 results.push((id, result));
             }
