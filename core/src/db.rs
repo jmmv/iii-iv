@@ -119,6 +119,25 @@ pub trait Db {
     async fn begin(&self) -> DbResult<TxExecutor>;
 }
 
+/// Parses a `COUNT` result as a `usize`.
+pub fn count_as_usize(count: i64) -> DbResult<usize> {
+    match usize::try_from(count) {
+        Ok(count) => Ok(count),
+        Err(_) => Err(DbError::BackendError(
+            "COUNT should have returned a positive value that fits in usize".to_owned(),
+        )),
+    }
+}
+
+/// Helper to verify that an insert and/or update opeeration affected just one row.
+pub fn ensure_one_upsert(rows_affected: u64) -> DbResult<()> {
+    if rows_affected != 1 {
+        Err(DbError::BackendError(format!("Expected 1 new/modified row but got {}", rows_affected)))
+    } else {
+        Ok(())
+    }
+}
+
 /// Macros to help instantiate tests for multiple database systems.
 #[cfg(any(test, feature = "testutils"))]
 pub mod testutils {
