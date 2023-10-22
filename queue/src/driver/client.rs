@@ -21,7 +21,7 @@ use crate::model::TaskResult;
 use derivative::Derivative;
 use futures::lock::Mutex;
 use iii_iv_core::clocks::Clock;
-use iii_iv_core::db::{Db, Executor};
+use iii_iv_core::db::{Db, DbError, Executor};
 use iii_iv_core::driver::{DriverError, DriverResult};
 use log::warn;
 use serde::Serialize;
@@ -148,12 +148,18 @@ where
         period: Duration,
     ) -> DriverResult<TaskResult> {
         loop {
-            match self.poll(&mut db.ex().await?, id).await? {
-                None | Some(TaskResult::Retry(_, _)) => (),
-                Some(result) => break Ok(result),
-            }
+            match db.ex().await {
+                Ok(mut ex) => {
+                    match self.poll(&mut ex, id).await? {
+                        None | Some(TaskResult::Retry(_, _)) => (),
+                        Some(result) => break Ok(result),
+                    }
 
-            self.maybe_notify_worker().await;
+                    self.maybe_notify_worker().await;
+                }
+                Err(DbError::Unavailable) => (),
+                Err(e) => return Err(e.into()),
+            };
 
             tokio::time::sleep(period).await;
         }
@@ -168,11 +174,17 @@ where
         period: Duration,
     ) -> DriverResult<TaskResult> {
         loop {
-            if let Some(result) = self.poll(&mut db.ex().await?, id).await? {
-                break Ok(result);
-            }
+            match db.ex().await {
+                Ok(mut ex) => {
+                    if let Some(result) = self.poll(&mut ex, id).await? {
+                        break Ok(result);
+                    }
 
-            self.maybe_notify_worker().await;
+                    self.maybe_notify_worker().await;
+                }
+                Err(DbError::Unavailable) => (),
+                Err(e) => return Err(e.into()),
+            };
 
             tokio::time::sleep(period).await;
         }
