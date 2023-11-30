@@ -38,7 +38,7 @@ pub struct MockGeoLocator {
 
 impl MockGeoLocator {
     /// Mock country code that causes this geolocator to return an error for a query.
-    pub const RETURN_ERROR: &str = "..";
+    pub const RETURN_ERROR: &'static str = "..";
 
     /// Creates a new mock geolocator based on a list of `(ip, code)` pairs.
     ///
