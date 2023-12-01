@@ -19,11 +19,12 @@ use crate::model::{ExecError, ExecResult};
 use crate::rest::worker_cron_app;
 use axum::Router;
 use futures::lock::Mutex;
-use iii_iv_core::clocks::testutils::MonotonicClock;
+use iii_iv_core::clocks::testutils::SettableClock;
 use iii_iv_core::clocks::Clock;
 use iii_iv_core::db::{Db, Executor};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use time::macros::datetime;
 
 /// A task definition for testing purposes.
 #[derive(Deserialize, Serialize)]
@@ -58,7 +59,7 @@ impl TestContext {
     pub(super) async fn setup() -> TestContext {
         let db = Arc::from(iii_iv_core::db::sqlite::testutils::setup().await);
         db::init_schema(&mut db.ex().await.unwrap()).await.unwrap();
-        let clock = Arc::from(MonotonicClock::new(100000));
+        let clock = Arc::from(SettableClock::new(datetime!(2023-12-01 05:50:00 UTC)));
 
         let worker = {
             let opts = WorkerOptions::default();

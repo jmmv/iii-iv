@@ -19,18 +19,25 @@ use crate::db;
 use crate::driver::email::testutils::{get_latest_activation_code, make_test_activation_template};
 use crate::driver::{AuthnDriver, AuthnOptions};
 use crate::model::{AccessToken, Password};
-use iii_iv_core::clocks::Clock;
+use iii_iv_core::clocks::testutils::SettableClock;
 use iii_iv_core::db::Db;
-#[cfg(test)]
-use iii_iv_core::db::Executor;
 use iii_iv_core::model::EmailAddress;
 use iii_iv_core::model::Username;
 use iii_iv_core::rest::BaseUrls;
 use iii_iv_smtp::driver::testutils::RecorderSmtpMailer;
 use std::sync::Arc;
+#[cfg(test)]
+use {
+    iii_iv_core::clocks::Clock, iii_iv_core::db::Executor, std::time::Duration,
+    time::macros::datetime, time::OffsetDateTime,
+};
 
 /// State of a running test.
 pub struct TestContext {
+    /// The clock used by the test.
+    #[cfg(test)]
+    pub(super) clock: Arc<dyn Clock + Send + Sync>,
+
     /// The SMTP mailer to capture authentication flow request messages.
     mailer: Arc<RecorderSmtpMailer>,
 
@@ -44,7 +51,7 @@ impl TestContext {
     #[cfg(test)]
     pub(crate) async fn setup(opts: AuthnOptions) -> Self {
         let db = Arc::from(iii_iv_core::db::sqlite::testutils::setup().await);
-        let clock = Arc::from(iii_iv_core::clocks::testutils::MonotonicClock::new(100000));
+        let clock = Arc::from(SettableClock::new(datetime!(2023-12-01 05:50:00 UTC)));
         Self::setup_with(opts, db, clock, "the-realm").await
     }
 
@@ -63,7 +70,7 @@ impl TestContext {
         ));
         let driver = AuthnDriver::new(
             db,
-            clock,
+            clock.clone(),
             mailer.clone(),
             make_test_activation_template(),
             base_urls,
@@ -71,7 +78,11 @@ impl TestContext {
             opts,
         );
 
-        TestContext { mailer, driver }
+        #[cfg(not(test))]
+        let context = TestContext { mailer, driver };
+        #[cfg(test)]
+        let context = TestContext { clock, mailer, driver };
+        context
     }
 
     /// Syntactic sugar to create a user ifor testing purposes.
@@ -124,5 +135,15 @@ impl TestContext {
         exp_username: &Username,
     ) -> Option<u64> {
         get_latest_activation_code(&self.mailer, email, exp_username).await
+    }
+
+    /// Returns "now" with an offset in seconds, which can be positive or negative.
+    #[cfg(test)]
+    pub(crate) fn now_delta(&self, secs: i64) -> OffsetDateTime {
+        if secs > 0 {
+            self.clock.now_utc() + Duration::from_secs(secs as u64)
+        } else {
+            self.clock.now_utc() - Duration::from_secs((-secs) as u64)
+        }
     }
 }

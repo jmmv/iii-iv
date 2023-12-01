@@ -250,7 +250,6 @@ mod tests {
     use super::*;
     use iii_iv_core::driver::DriverError;
     use iii_iv_core::model::Username;
-    use time::OffsetDateTime;
 
     #[test]
     pub fn test_options_from_env_all_all_missing() {
@@ -305,7 +304,7 @@ mod tests {
         let token = context.do_test_login(Username::from("username")).await;
         assert!(context
             .driver()
-            .get_session(&mut tx, OffsetDateTime::from_unix_timestamp(100000).unwrap(), token)
+            .get_session(&mut tx, context.clock.now_utc(), token)
             .await
             .is_ok());
     }
@@ -318,36 +317,18 @@ mod tests {
         let token = context.do_test_login(Username::from("username")).await;
         assert!(context
             .driver()
-            .get_session(
-                &mut tx,
-                OffsetDateTime::from_unix_timestamp(100000).unwrap(),
-                token.clone()
-            )
+            .get_session(&mut tx, context.clock.now_utc(), token.clone())
             .await
             .is_ok());
 
-        for i in [98000_i64, 100500, 180000].iter() {
-            assert!(context
-                .driver()
-                .get_session(
-                    &mut tx,
-                    OffsetDateTime::from_unix_timestamp(*i).unwrap(),
-                    token.clone()
-                )
-                .await
-                .is_ok());
+        for i in [-50 * 60, 10 * 60, 23 * 3600].into_iter() {
+            let now = context.now_delta(i);
+            assert!(context.driver().get_session(&mut tx, now, token.clone()).await.is_ok());
         }
 
-        for i in [0_i64, 90000, 200000].iter() {
-            match context
-                .driver()
-                .get_session(
-                    &mut tx,
-                    OffsetDateTime::from_unix_timestamp(*i).unwrap(),
-                    token.clone(),
-                )
-                .await
-            {
+        for i in [-2 * 3600, 25 * 3600].into_iter() {
+            let now = context.now_delta(i);
+            match context.driver().get_session(&mut tx, now, token.clone()).await {
                 Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("expired")),
                 e => panic!("{:?}", e),
             }
@@ -362,42 +343,26 @@ mod tests {
         let token = context.do_test_login(Username::from("username")).await;
         assert!(context
             .driver()
-            .get_session(
-                &mut tx,
-                OffsetDateTime::from_unix_timestamp(100000).unwrap(),
-                token.clone()
-            )
+            .get_session(&mut tx, context.clock.now_utc(), token.clone())
             .await
             .is_ok());
 
         assert!(context
             .driver()
-            .get_session(
-                &mut tx,
-                OffsetDateTime::from_unix_timestamp(100500).unwrap(),
-                token.clone()
-            )
+            .get_session(&mut tx, context.now_delta(20 * 3600), token.clone())
             .await
             .is_ok());
 
         match context
             .driver()
-            .get_session(
-                &mut tx,
-                OffsetDateTime::from_unix_timestamp(90000).unwrap(),
-                token.clone(),
-            )
+            .get_session(&mut tx, context.now_delta(-2 * 3600), token.clone())
             .await
         {
             Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("expired")),
             e => panic!("{:?}", e),
         }
 
-        match context
-            .driver()
-            .get_session(&mut tx, OffsetDateTime::from_unix_timestamp(0).unwrap(), token)
-            .await
-        {
+        match context.driver().get_session(&mut tx, context.now_delta(-48 * 3600), token).await {
             Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("expired")),
             e => panic!("{:?}", e),
         }
@@ -414,9 +379,9 @@ mod tests {
         };
         let context = TestContext::setup(opts).await;
 
-        let now = OffsetDateTime::from_unix_timestamp(100000).unwrap();
+        let now = context.clock.now_utc();
         let last_login1 = now;
-        let last_login2 = OffsetDateTime::from_unix_timestamp(900000).unwrap();
+        let last_login2 = context.clock.now_utc() + Duration::from_secs(10 * 3600);
 
         let token = context.do_test_login(Username::from("user")).await;
         let other = context.do_test_login(Username::from("other")).await;
@@ -454,8 +419,8 @@ mod tests {
         };
         let context = TestContext::setup(opts).await;
 
-        let now = OffsetDateTime::from_unix_timestamp(100000).unwrap();
-        let future = OffsetDateTime::from_unix_timestamp(10000000).unwrap();
+        let now = context.clock.now_utc();
+        let future = context.clock.now_utc() + Duration::from_secs(25 * 3600);
 
         let token = context.do_test_login(Username::from("user")).await;
         let other = context.do_test_login(Username::from("other")).await;
