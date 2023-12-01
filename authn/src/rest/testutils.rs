@@ -29,11 +29,12 @@ use {
     crate::driver::email::testutils::{get_latest_activation_code, make_test_activation_template},
     crate::driver::{AuthnDriver, AuthnOptions},
     crate::rest::app,
-    iii_iv_core::clocks::testutils::MonotonicClock,
+    iii_iv_core::clocks::testutils::SettableClock,
     iii_iv_core::db::{Db, DbError},
     iii_iv_core::rest::BaseUrls,
     iii_iv_smtp::driver::testutils::RecorderSmtpMailer,
     std::sync::Arc,
+    time::macros::datetime,
 };
 
 /// Creates an active test user by directly modifying the backing database.
@@ -225,7 +226,7 @@ impl TestContextBuilder {
     pub(crate) async fn build(self) -> TestContext {
         let db = Arc::from(iii_iv_core::db::sqlite::testutils::setup().await);
         db::init_schema(&mut db.ex().await.unwrap()).await.unwrap();
-        let clock = Arc::from(MonotonicClock::new(100000));
+        let clock = Arc::from(SettableClock::new(datetime!(2023-12-01 05:50:00 UTC)));
         let mailer = Arc::from(RecorderSmtpMailer::default());
 
         let driver = AuthnDriver::new(

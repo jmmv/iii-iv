@@ -96,7 +96,7 @@ mod tests {
                     "Task should not have completed because we didn't poll the worker yet"
                 );
             }
-            tokio::time::sleep(Duration::from_millis(1)).await;
+            context.clock.sleep(Duration::from_millis(1)).await;
         }
 
         let response = OneShotBuilder::new(context.app(), route())

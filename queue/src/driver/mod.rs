@@ -27,13 +27,14 @@ mod testutils {
     use crate::db;
     use crate::model::{ExecError, ExecResult};
     use futures::lock::Mutex;
-    use iii_iv_core::clocks::testutils::MonotonicClock;
+    use iii_iv_core::clocks::testutils::SettableClock;
     use iii_iv_core::clocks::Clock;
     use iii_iv_core::db::{Db, Executor};
     use serde::{Deserialize, Serialize};
     use std::collections::HashMap;
     use std::sync::Arc;
     use std::time::Duration;
+    use time::macros::datetime;
 
     /// A queue client backed by mock entities.
     type MockClient = Client<MockTask>;
@@ -140,7 +141,7 @@ mod testutils {
         pub(super) workers: Vec<Arc<Mutex<Worker<MockTask>>>>,
 
         /// The clock used to track task state changes.
-        pub(super) clock: Arc<dyn Clock>,
+        pub(super) clock: Arc<SettableClock>,
 
         /// The shared task state updated by task execution for all tasks.
         pub(super) state: TaskStateById,
@@ -152,7 +153,7 @@ mod testutils {
         pub(super) async fn setup_one_connected(opts: WorkerOptions) -> Self {
             let db = Arc::from(iii_iv_core::db::sqlite::testutils::setup().await);
             db::init_schema(&mut db.ex().await.unwrap()).await.unwrap();
-            let clock = Arc::from(MonotonicClock::new(100000));
+            let clock = Arc::from(SettableClock::new(datetime!(2023-12-01 05:50:00 UTC)));
 
             let state = TaskStateById::default();
             let client = Client::new(clock.clone());
@@ -180,7 +181,7 @@ mod testutils {
         ) -> Self {
             let db = Arc::from(iii_iv_core::db::sqlite::testutils::setup().await);
             db::init_schema(&mut db.ex().await.unwrap()).await.unwrap();
-            let clock = Arc::from(MonotonicClock::new(100000));
+            let clock = Arc::from(SettableClock::new(datetime!(2023-12-01 05:50:00 UTC)));
 
             let state = TaskStateById::default();
             let client = Client::new(clock.clone());
@@ -215,16 +216,6 @@ mod testutils {
                 self.workers[i].lock().await.notify().await.unwrap();
             }
         }
-
-        /// Advances the fake monotonic clock by `secs`.
-        pub(super) fn advance_clock(&mut self, d: Duration) {
-            assert!(d.as_nanos() % 1000000000 == 0, "Cannot handle sub-second advances");
-            // The `MonotonicClock` we use increases by 1 every time we query it.
-            // TODO(jmmv): This behavior is weird.  It'd be nicer if the fake clock was settable.
-            for _ in 0..d.as_secs() {
-                self.clock.now_utc();
-            }
-        }
     }
 }
 
@@ -233,6 +224,7 @@ mod tests {
     use super::*;
     use crate::driver::testutils::*;
     use crate::model::TaskResult;
+    use iii_iv_core::clocks::Clock;
     use std::time::Duration;
 
     async fn do_stress_test(num_workers: usize, num_tasks: u16, batch_size: u16) {
@@ -362,7 +354,7 @@ mod tests {
                 panic!("Task completed but it should have not");
             }
 
-            tokio::time::sleep(Duration::from_millis(1)).await;
+            context.clock.sleep(Duration::from_millis(1)).await;
             context.notify_workers(1).await;
         }
 
@@ -391,7 +383,7 @@ mod tests {
                     break;
                 }
             }
-            tokio::time::sleep(Duration::from_millis(1)).await;
+            context.clock.sleep(Duration::from_millis(1)).await;
         }
     }
 
@@ -419,7 +411,7 @@ mod tests {
                     panic!("The chained task completed but it should not have run");
                 }
             }
-            tokio::time::sleep(Duration::from_millis(1)).await;
+            context.clock.sleep(Duration::from_millis(1)).await;
         }
 
         // Explicitly run a second iteration.
@@ -435,7 +427,7 @@ mod tests {
                     break;
                 }
             }
-            tokio::time::sleep(Duration::from_millis(1)).await;
+            context.clock.sleep(Duration::from_millis(1)).await;
         }
     }
 
@@ -475,10 +467,10 @@ mod tests {
                     panic!("The deferred tasks completed but they should not have run");
                 }
             }
-            tokio::time::sleep(Duration::from_millis(1)).await;
+            context.clock.sleep(Duration::from_millis(1)).await;
         }
 
-        context.advance_clock(Duration::from_secs(120));
+        context.clock.advance(Duration::from_secs(120));
 
         // The tasks will complete now that enough time has passed.
         let result =
@@ -514,20 +506,19 @@ mod tests {
                     }
                 }
             }
-            context.advance_clock(delay);
             context.notify_workers(1).await;
-            tokio::time::sleep(Duration::from_millis(1)).await;
+            context.clock.sleep(Duration::from_secs(1)).await;
         }
         match context.client.poll(&mut context.ex().await, id).await {
             Ok(Some(TaskResult::Retry(_, _))) => (),
             e => panic!("{:?}", e),
         }
 
-        context.advance_clock(delay * 2);
+        context.clock.advance(delay * 2);
 
         // The task will complete now that it is not in the deferred state any more, so wait for it.
         let result =
-            context.client.wait(context.db.clone(), id, Duration::from_millis(1)).await.unwrap();
+            context.client.wait(context.db.clone(), id, Duration::from_secs(1)).await.unwrap();
         assert_eq!(TaskResult::Done(None), result);
 
         let state = context.state.lock().await;
@@ -546,7 +537,7 @@ mod tests {
         let id = context.client.enqueue(&mut context.ex().await, &task).await.unwrap();
 
         // Make sure the task does not run if not enough time has passed.
-        context.advance_clock(opts.retry_delay - Duration::from_secs(1));
+        context.clock.advance(opts.retry_delay - Duration::from_secs(1));
         for _ in 0..10 {
             {
                 let state = context.state.lock().await;
@@ -557,18 +548,18 @@ mod tests {
                 }
             }
             context.notify_workers(1).await;
-            tokio::time::sleep(Duration::from_millis(1)).await;
+            context.clock.sleep(Duration::from_secs(1)).await;
         }
         match context.client.poll(&mut context.ex().await, id).await {
             Ok(Some(TaskResult::Retry(_, _))) => (),
             e => panic!("{:?}", e),
         }
 
-        context.advance_clock(Duration::from_secs(1));
+        context.clock.advance(Duration::from_secs(1));
 
         // The task will complete now that it is not in the deferred state any more, so wait for it.
         let result =
-            context.client.wait(context.db.clone(), id, Duration::from_millis(1)).await.unwrap();
+            context.client.wait(context.db.clone(), id, Duration::from_secs(1)).await.unwrap();
         assert_eq!(TaskResult::Done(None), result);
 
         let state = context.state.lock().await;
@@ -591,11 +582,11 @@ mod tests {
         };
         let id = context.client.enqueue(&mut context.ex().await, &task).await.unwrap();
 
-        context.advance_clock(delay * u32::from(opts.max_runs));
+        context.clock.advance(delay * u32::from(opts.max_runs));
 
         // The task will complete now that it is not in the deferred state any more, so wait for it.
         let result =
-            context.client.wait(context.db.clone(), id, Duration::from_millis(1)).await.unwrap();
+            context.client.wait(context.db.clone(), id, Duration::from_secs(1)).await.unwrap();
         assert_eq!(
             TaskResult::Abandoned("Attempted to run 5 times, but max_runs is 5".to_owned()),
             result
@@ -629,20 +620,19 @@ mod tests {
                     }
                 }
             }
-            context.advance_clock(delay);
             context.notify_workers(1).await;
-            tokio::time::sleep(Duration::from_millis(1)).await;
+            context.clock.sleep(Duration::from_secs(1)).await;
         }
 
         for _ in 0..2 {
             let result =
-                context.client.wait_once(context.db.clone(), id, Duration::from_millis(1)).await;
+                context.client.wait_once(context.db.clone(), id, Duration::from_secs(1)).await;
             match result {
                 Ok(TaskResult::Retry(_, _)) => (),
                 e => panic!("{:?}", e),
             }
         }
-        let result = context.client.wait(context.db.clone(), id, Duration::from_millis(1)).await;
+        let result = context.client.wait(context.db.clone(), id, Duration::from_secs(1)).await;
         assert_eq!(Ok(TaskResult::Done(None)), result);
 
         let state = context.state.lock().await;

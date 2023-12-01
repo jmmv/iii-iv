@@ -161,7 +161,7 @@ where
                 Err(e) => return Err(e.into()),
             };
 
-            tokio::time::sleep(period).await;
+            self.clock.sleep(period).await;
         }
     }
 
@@ -186,7 +186,7 @@ where
                 Err(e) => return Err(e.into()),
             };
 
-            tokio::time::sleep(period).await;
+            self.clock.sleep(period).await;
         }
     }
 
@@ -232,7 +232,7 @@ where
             self.maybe_notify_worker().await;
 
             since += period;
-            tokio::time::sleep(period).await;
+            self.clock.sleep(period).await;
         }
         Ok(results)
     }

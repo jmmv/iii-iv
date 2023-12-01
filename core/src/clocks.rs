@@ -61,11 +61,13 @@ pub mod testutils {
     use time::{Date, Month, Time};
 
     /// A clock that returns a monotonically increasing instant every time it is queried.
+    #[deprecated(note = "Use SettableClock instead")]
     pub struct MonotonicClock {
         /// Current fake time.
         now: AtomicU64,
     }
 
+    #[allow(deprecated)]
     impl MonotonicClock {
         /// Creates a new clock whose "now" start time is `now`.
         pub fn new(now: u64) -> Self {
@@ -73,6 +75,7 @@ pub mod testutils {
         }
     }
 
+    #[allow(deprecated)]
     #[async_trait]
     impl Clock for MonotonicClock {
         fn now_utc(&self) -> OffsetDateTime {
@@ -156,6 +159,7 @@ pub mod testutils {
         use std::panic::catch_unwind;
         use time::macros::datetime;
 
+        #[allow(deprecated)]
         #[test]
         fn test_monotonicclock() {
             let clock = MonotonicClock::new(123);
@@ -164,6 +168,7 @@ pub mod testutils {
             assert_eq!(OffsetDateTime::from_unix_timestamp(125).unwrap(), clock.now_utc());
         }
 
+        #[allow(deprecated)]
         #[tokio::test]
         async fn test_monotonicclock_sleep_advances_time() {
             let clock = MonotonicClock::new(123);
