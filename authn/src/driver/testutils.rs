@@ -19,7 +19,7 @@ use crate::db;
 use crate::driver::email::testutils::{get_latest_activation_code, make_test_activation_template};
 use crate::driver::{AuthnDriver, AuthnOptions};
 use crate::model::{AccessToken, Password};
-use iii_iv_core::clocks::testutils::SettableClock;
+use iii_iv_core::clocks::Clock;
 use iii_iv_core::db::Db;
 use iii_iv_core::model::EmailAddress;
 use iii_iv_core::model::Username;
@@ -28,7 +28,7 @@ use iii_iv_smtp::driver::testutils::RecorderSmtpMailer;
 use std::sync::Arc;
 #[cfg(test)]
 use {
-    iii_iv_core::clocks::Clock, iii_iv_core::db::Executor, std::time::Duration,
+    iii_iv_core::clocks::testutils::SettableClock, iii_iv_core::db::Executor, std::time::Duration,
     time::macros::datetime, time::OffsetDateTime,
 };
 

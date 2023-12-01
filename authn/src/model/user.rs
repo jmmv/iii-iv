@@ -91,7 +91,7 @@ impl User {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use iii_iv_core::clocks::testutils::utc_datetime;
+    use time::macros::datetime;
 
     #[test]
     fn test_user_getters() {
@@ -104,10 +104,10 @@ mod tests {
 
         let user = user
             .with_activation_code(Some(123))
-            .with_last_login(utc_datetime(2022, 4, 2, 5, 38, 0))
+            .with_last_login(datetime!(2022-04-02 05:38:00 UTC))
             .with_password(HashedPassword::new("password-hash"));
         assert_eq!(Some(123), user.activation_code());
         assert_eq!(Some(&HashedPassword::new("password-hash")), user.password());
-        assert_eq!(Some(utc_datetime(2022, 4, 2, 5, 38, 0)), user.last_login());
+        assert_eq!(Some(datetime!(2022-04-02 05:38:00 UTC)), user.last_login());
     }
 }
