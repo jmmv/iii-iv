@@ -15,18 +15,25 @@
 
 //! Collection of clock implementations.
 
+use async_trait::async_trait;
+use std::time::Duration;
 use time::OffsetDateTime;
 
 /// Generic definition of a clock.
+#[async_trait]
 pub trait Clock {
     /// Returns the current UTC time.
     fn now_utc(&self) -> OffsetDateTime;
+
+    /// Pauses execution of the current task for `duration`.
+    async fn sleep(&self, duration: Duration);
 }
 
 /// Clock implementation that uses the system clock.
 #[derive(Clone, Default)]
 pub struct SystemClock {}
 
+#[async_trait]
 impl Clock for SystemClock {
     fn now_utc(&self) -> OffsetDateTime {
         let nanos = OffsetDateTime::now_utc().unix_timestamp_nanos();
@@ -38,6 +45,10 @@ impl Clock for SystemClock {
 
         OffsetDateTime::from_unix_timestamp_nanos(nanos)
             .expect("nanos must be in range because they come from the current timestamp")
+    }
+
+    async fn sleep(&self, duration: Duration) {
+        tokio::time::sleep(duration).await
     }
 }
 
@@ -62,10 +73,16 @@ pub mod testutils {
         }
     }
 
+    #[async_trait]
     impl Clock for MonotonicClock {
         fn now_utc(&self) -> OffsetDateTime {
             let now = self.now.fetch_add(1, Ordering::SeqCst);
             OffsetDateTime::from_unix_timestamp(now as i64).unwrap()
+        }
+
+        async fn sleep(&self, _duration: Duration) {
+            self.now_utc(); // Advance the clock.
+            tokio::task::yield_now().await;
         }
     }
 
@@ -103,10 +120,16 @@ pub mod testutils {
         }
     }
 
+    #[async_trait]
     impl Clock for SettableClock {
         fn now_utc(&self) -> OffsetDateTime {
             let now_us = self.now_us.load(Ordering::SeqCst);
             OffsetDateTime::from_unix_timestamp_nanos(now_us as i128 * 1000).unwrap()
+        }
+
+        async fn sleep(&self, duration: Duration) {
+            self.advance(duration);
+            tokio::task::yield_now().await;
         }
     }
 
@@ -141,6 +164,16 @@ pub mod testutils {
             assert_eq!(OffsetDateTime::from_unix_timestamp(125).unwrap(), clock.now_utc());
         }
 
+        #[tokio::test]
+        async fn test_monotonicclock_sleep_advances_time() {
+            let clock = MonotonicClock::new(123);
+            let before = clock.now_utc();
+            // Sleep for an unreasonable period to ensure we don't block for long.
+            clock.sleep(Duration::from_secs(3600)).await;
+            let after = clock.now_utc();
+            assert!(after > before);
+        }
+
         #[test]
         fn test_settableclock_microsecond_precision_supported() {
             let now = datetime!(2023-12-01 10:15:00.123456 UTC);
@@ -173,6 +206,14 @@ pub mod testutils {
                 clock.advance(Duration::from_nanos(1));
             })
             .unwrap_err();
+        }
+
+        #[tokio::test]
+        async fn test_settableclock_sleep_advances_time() {
+            let clock = SettableClock::new(datetime!(2023-12-01 10:40:00 UTC));
+            // Sleep for an unreasonable period to ensure we don't block for long.
+            clock.sleep(Duration::from_secs(3600)).await;
+            assert_eq!(datetime!(2023-12-01 11:40:00 UTC), clock.now_utc());
         }
 
         #[test]
