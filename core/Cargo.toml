@@ -13,14 +13,12 @@ postgres = [
     "dep:log",
     "dep:rand",
     "dep:regex",
-    "dep:tokio",
     "sqlx/postgres",
     "sqlx/runtime-tokio-rustls",
 ]
 sqlite = [
     "dep:futures",
     "dep:log",
-    "dep:tokio",
     "sqlx/sqlite",
     "sqlx/runtime-tokio-rustls",
 ]
@@ -60,7 +58,7 @@ serde = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }
-tokio = { workspace = true, optional = true }
+tokio = { workspace = true }
 tower = { workspace = true, optional = true }
 url = { workspace = true }
 
