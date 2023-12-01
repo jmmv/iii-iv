@@ -17,9 +17,9 @@
 
 use crate::db::*;
 use crate::model::{AccessToken, HashedPassword, Session, User};
-use iii_iv_core::clocks::testutils::utc_datetime;
 use iii_iv_core::db::{DbError, Executor};
 use iii_iv_core::model::{EmailAddress, Username};
+use time::macros::datetime;
 
 /// Syntactic sugar to create a user with default settings given only its username.
 async fn create_simple_user(ex: &mut Executor, username: &'static str) -> User {
@@ -85,18 +85,18 @@ async fn test_users_update_ok(ex: &mut Executor) {
     )
     .await
     .unwrap();
-    update_user(ex, Username::from("some-username"), utc_datetime(2022, 4, 2, 5, 50, 10))
+    update_user(ex, Username::from("some-username"), datetime!(2022-04-02 05:50:10 UTC))
         .await
         .unwrap();
 
     let exp_user = User::new(Username::from("some-username"), EmailAddress::from("a@example.com"))
         .with_password(HashedPassword::new("some-hash"))
-        .with_last_login(utc_datetime(2022, 4, 2, 5, 50, 10));
+        .with_last_login(datetime!(2022-04-02 05:50:10 UTC));
     assert_eq!(exp_user, get_user_by_username(ex, Username::from("some-username")).await.unwrap());
 }
 
 async fn test_users_update_not_found(ex: &mut Executor) {
-    match update_user(ex, Username::from("foo"), utc_datetime(2022, 4, 2, 6, 32, 0))
+    match update_user(ex, Username::from("foo"), datetime!(2022-04-02 06:32:00 UTC))
         .await
         .unwrap_err()
     {
@@ -153,7 +153,7 @@ async fn test_sessions_ok(ex: &mut Executor) {
     let session1 = Session::new(
         AccessToken::generate(),
         Username::from("testuser1"),
-        utc_datetime(2022, 5, 17, 6, 29, 28),
+        datetime!(2022-05-17 06:29:28 UTC),
     );
     put_session(ex, &session1).await.unwrap();
 
@@ -161,7 +161,7 @@ async fn test_sessions_ok(ex: &mut Executor) {
     let session2 = Session::new(
         AccessToken::generate(),
         Username::from("testuser1"),
-        utc_datetime(2022, 5, 17, 6, 29, 28),
+        datetime!(2022-05-17 06:29:28 UTC),
     );
     put_session(ex, &session2).await.unwrap();
 
@@ -170,7 +170,7 @@ async fn test_sessions_ok(ex: &mut Executor) {
 
     // Mark one of the sessions as deleted.
     let access_token1 = session1.access_token().clone();
-    delete_session(ex, session1, utc_datetime(2022, 5, 26, 8, 38, 10)).await.unwrap();
+    delete_session(ex, session1, datetime!(2022-05-26 08:38:10 UTC)).await.unwrap();
     match get_session(ex, &access_token1).await {
         Err(DbError::NotFound) => (),
         e => panic!("{:?}", e),
@@ -185,7 +185,7 @@ async fn test_sessions_missing(ex: &mut Executor) {
     let session = Session::new(
         AccessToken::generate(),
         Username::from("testuser1"),
-        utc_datetime(2022, 5, 17, 6, 29, 28),
+        datetime!(2022-05-17 06:29:28 UTC),
     );
     put_session(ex, &session).await.unwrap();
 

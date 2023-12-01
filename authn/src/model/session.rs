@@ -66,13 +66,13 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use iii_iv_core::clocks::testutils::utc_datetime;
+    use time::macros::datetime;
 
     #[test]
     fn test_session() {
         let token = AccessToken::generate();
         let username = Username::new("foo").unwrap();
-        let login_time = utc_datetime(2022, 5, 17, 6, 46, 53);
+        let login_time = datetime!(2022-05-17 06:46:53 UTC);
         let session = Session::new(token.clone(), username.clone(), login_time);
         assert_eq!(&token, session.access_token());
         assert_eq!(&username, session.username());

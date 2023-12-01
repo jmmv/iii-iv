@@ -137,7 +137,7 @@ pub mod testutils {
     }
 
     /// Creates an `OffsetDateTime` with the given values, assuming UTC.
-    // TODO(jmmv): Remove in favor of the datetime!() macro from the time crate.
+    #[deprecated(note = "Use time::macros::datetime instead")]
     pub fn utc_datetime(
         year: i32,
         month: u8,
@@ -222,6 +222,7 @@ pub mod testutils {
         }
 
         #[test]
+        #[allow(deprecated)]
         fn test_utc_datetime() {
             let exp = Date::from_calendar_date(2022, Month::January, 18)
                 .unwrap()
