@@ -71,34 +71,42 @@ pub mod testutils {
 
     /// A clock that returns a preconfigured instant and that can be modified at will.
     ///
-    /// Only supports second-level precision.
+    /// Only supports microsecond-level precision.
     pub struct SettableClock {
-        /// Current fake time.
-        now: AtomicU64,
+        /// Current fake time in microseconds.
+        now_us: AtomicU64,
     }
 
     impl SettableClock {
         /// Creates a new clock that returns `now` until reconfigured with `set`.
         pub fn new(now: OffsetDateTime) -> Self {
-            Self { now: AtomicU64::new(now.unix_timestamp() as u64) }
+            let now_ns = now.unix_timestamp_nanos();
+            assert!(now_ns % 1000 == 0, "Nanosecond precision not supported");
+            let now_us = u64::try_from(now_ns / 1000).unwrap();
+            Self { now_us: AtomicU64::new(now_us) }
         }
 
         /// Sets the new value of `now` that the clock returns.
         pub fn set(&self, now: OffsetDateTime) {
-            self.now.store(now.unix_timestamp() as u64, Ordering::SeqCst);
+            let now_ns = now.unix_timestamp_nanos();
+            assert!(now_ns % 1000 == 0, "Nanosecond precision not supported");
+            let now_us = u64::try_from(now_ns / 1000).unwrap();
+            self.now_us.store(now_us, Ordering::SeqCst);
         }
 
         /// Advances the current time by `delta`.
         pub fn advance(&self, delta: Duration) {
-            let seconds = delta.as_secs();
-            self.now.fetch_add(seconds, Ordering::SeqCst);
+            let delta_ns = delta.as_nanos();
+            assert!(delta_ns % 1000 == 0, "Nanosecond precision not supported");
+            let delta_us = u64::try_from(delta_ns / 1000).unwrap();
+            self.now_us.fetch_add(delta_us, Ordering::SeqCst);
         }
     }
 
     impl Clock for SettableClock {
         fn now_utc(&self) -> OffsetDateTime {
-            let now = self.now.load(Ordering::SeqCst);
-            OffsetDateTime::from_unix_timestamp(now as i64).unwrap()
+            let now_us = self.now_us.load(Ordering::SeqCst);
+            OffsetDateTime::from_unix_timestamp_nanos(now_us as i128 * 1000).unwrap()
         }
     }
 
@@ -122,6 +130,8 @@ pub mod testutils {
     #[cfg(test)]
     mod tests {
         use super::*;
+        use std::panic::catch_unwind;
+        use time::macros::datetime;
 
         #[test]
         fn test_monotonicclock() {
@@ -129,6 +139,40 @@ pub mod testutils {
             assert_eq!(OffsetDateTime::from_unix_timestamp(123).unwrap(), clock.now_utc());
             assert_eq!(OffsetDateTime::from_unix_timestamp(124).unwrap(), clock.now_utc());
             assert_eq!(OffsetDateTime::from_unix_timestamp(125).unwrap(), clock.now_utc());
+        }
+
+        #[test]
+        fn test_settableclock_microsecond_precision_supported() {
+            let now = datetime!(2023-12-01 10:15:00.123456 UTC);
+            let clock = SettableClock::new(now);
+            assert_eq!(now, clock.now_utc());
+
+            let now = datetime!(2023-12-01 10:15:00.987654 UTC);
+            clock.set(now);
+            assert_eq!(now, clock.now_utc());
+
+            let now = datetime!(2023-12-01 10:15:00.987655 UTC);
+            clock.advance(Duration::from_nanos(1000));
+            assert_eq!(now, clock.now_utc());
+        }
+
+        #[test]
+        fn test_settableclock_nanosecond_precision_unsupported() {
+            catch_unwind(|| {
+                SettableClock::new(datetime!(2023-12-01 10:20:00.123456001 UTC));
+            })
+            .unwrap_err();
+
+            let clock = SettableClock::new(datetime!(2023-12-01 10:20:00 UTC));
+            catch_unwind(|| {
+                clock.set(datetime!(2023-12-01 10:20:00.123456001 UTC));
+            })
+            .unwrap_err();
+
+            catch_unwind(|| {
+                clock.advance(Duration::from_nanos(1));
+            })
+            .unwrap_err();
         }
 
         #[test]
