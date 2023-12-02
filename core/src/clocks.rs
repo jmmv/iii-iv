@@ -58,36 +58,6 @@ pub mod testutils {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::Duration;
-    use time::{Date, Month, Time};
-
-    /// A clock that returns a monotonically increasing instant every time it is queried.
-    #[deprecated(note = "Use SettableClock instead")]
-    pub struct MonotonicClock {
-        /// Current fake time.
-        now: AtomicU64,
-    }
-
-    #[allow(deprecated)]
-    impl MonotonicClock {
-        /// Creates a new clock whose "now" start time is `now`.
-        pub fn new(now: u64) -> Self {
-            Self { now: AtomicU64::new(now) }
-        }
-    }
-
-    #[allow(deprecated)]
-    #[async_trait]
-    impl Clock for MonotonicClock {
-        fn now_utc(&self) -> OffsetDateTime {
-            let now = self.now.fetch_add(1, Ordering::SeqCst);
-            OffsetDateTime::from_unix_timestamp(now as i64).unwrap()
-        }
-
-        async fn sleep(&self, _duration: Duration) {
-            self.now_utc(); // Advance the clock.
-            tokio::task::yield_now().await;
-        }
-    }
 
     /// A clock that returns a preconfigured instant and that can be modified at will.
     ///
@@ -136,48 +106,11 @@ pub mod testutils {
         }
     }
 
-    /// Creates an `OffsetDateTime` with the given values, assuming UTC.
-    #[deprecated(note = "Use time::macros::datetime instead")]
-    pub fn utc_datetime(
-        year: i32,
-        month: u8,
-        day: u8,
-        hour: u8,
-        minute: u8,
-        second: u8,
-    ) -> OffsetDateTime {
-        let month = Month::try_from(month).expect("Hardcoded month must be valid");
-        Date::from_calendar_date(year, month, day)
-            .expect("Hardcoded dates must be valid")
-            .with_time(Time::from_hms(hour, minute, second).expect("Hardcoded times must be valid"))
-            .assume_utc()
-    }
-
     #[cfg(test)]
     mod tests {
         use super::*;
         use std::panic::catch_unwind;
         use time::macros::datetime;
-
-        #[allow(deprecated)]
-        #[test]
-        fn test_monotonicclock() {
-            let clock = MonotonicClock::new(123);
-            assert_eq!(OffsetDateTime::from_unix_timestamp(123).unwrap(), clock.now_utc());
-            assert_eq!(OffsetDateTime::from_unix_timestamp(124).unwrap(), clock.now_utc());
-            assert_eq!(OffsetDateTime::from_unix_timestamp(125).unwrap(), clock.now_utc());
-        }
-
-        #[allow(deprecated)]
-        #[tokio::test]
-        async fn test_monotonicclock_sleep_advances_time() {
-            let clock = MonotonicClock::new(123);
-            let before = clock.now_utc();
-            // Sleep for an unreasonable period to ensure we don't block for long.
-            clock.sleep(Duration::from_secs(3600)).await;
-            let after = clock.now_utc();
-            assert!(after > before);
-        }
 
         #[test]
         fn test_settableclock_microsecond_precision_supported() {
@@ -219,16 +152,6 @@ pub mod testutils {
             // Sleep for an unreasonable period to ensure we don't block for long.
             clock.sleep(Duration::from_secs(3600)).await;
             assert_eq!(datetime!(2023-12-01 11:40:00 UTC), clock.now_utc());
-        }
-
-        #[test]
-        #[allow(deprecated)]
-        fn test_utc_datetime() {
-            let exp = Date::from_calendar_date(2022, Month::January, 18)
-                .unwrap()
-                .with_time(Time::from_hms(17, 45, 2).unwrap())
-                .assume_utc();
-            assert_eq!(exp, utc_datetime(2022, 1, 18, 17, 45, 2));
         }
     }
 }
