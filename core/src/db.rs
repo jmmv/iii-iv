@@ -117,6 +117,11 @@ pub trait Db {
     /// It is the responsibility of the caller to call `commit` on the returned executor.  Otherwise
     /// the transaction is rolled back on drop.
     async fn begin(&self) -> DbResult<TxExecutor>;
+
+    /// Closes the connection to the pool.
+    ///
+    /// The caller can never do anything useful on error, so this doesn't return them.
+    async fn close(&self);
 }
 
 /// Parses a `COUNT` result as a `usize`.
@@ -153,7 +158,14 @@ pub mod testutils {
             $(#[$extra])?
             async fn $name() {
                 $crate::db::testutils::paste! {
-                    $module :: [< $name >]($setup).await;
+                    let db = {
+                        let (db, arg) = $setup;
+                        $module :: [< $name >](arg).await;
+                        db
+                    };
+                    // arg must be dropped at this point to not hog a potential connection to the
+                    // database, which would deadlock the close await.
+                    db.close().await;
                 }
             }
         }
@@ -164,9 +176,10 @@ pub mod testutils {
     /// Instantiates a collection of tests for a specific database system.
     ///
     /// The database implementation to run the tests against is determined by the `setup`
-    /// expression, which needs to return a database object parameterized with the desired
-    /// transaction type.  The returned database should also have been initialized with the
-    /// desired schema.
+    /// expression, which needs to return a database object and the argument to pass to the
+    /// tests.  The first database object might be the same as the argument, but the duplication
+    /// is necessary to allow closing the pool. The returned database should also have been
+    /// initialized with the desired schema.
     ///
     /// The `extra` metadata parameter can be used to tag the generated tests.
     #[macro_export]
@@ -228,14 +241,14 @@ mod tests {
         }
     }
 
-    pub(super) async fn test_direct_execution(db: Box<dyn Db>) {
+    pub(super) async fn test_direct_execution(db: Arc<dyn Db>) {
         let mut ex = db.ex().await.unwrap();
         exec(&mut ex, "CREATE TABLE test (i INTEGER)").await.unwrap();
         exec(&mut ex, "INSERT INTO test (i) VALUES (3)").await.unwrap();
         assert_eq!(1, query_i64(&mut ex, "count", "SELECT COUNT(*) AS count FROM test").await);
     }
 
-    pub(super) async fn test_tx_commit(db: Box<dyn Db>) {
+    pub(super) async fn test_tx_commit(db: Arc<dyn Db>) {
         exec(&mut db.ex().await.unwrap(), "CREATE TABLE test (i INTEGER)").await.unwrap();
 
         let mut tx = db.begin().await.unwrap();
@@ -249,7 +262,7 @@ mod tests {
         );
     }
 
-    pub(super) async fn test_tx_rollback_on_drop(db: Box<dyn Db>) {
+    pub(super) async fn test_tx_rollback_on_drop(db: Arc<dyn Db>) {
         exec(&mut db.ex().await.unwrap(), "CREATE TABLE test (i INTEGER)").await.unwrap();
 
         {
@@ -264,17 +277,15 @@ mod tests {
         );
     }
 
-    pub(super) async fn test_multiple_txs(db: Box<dyn Db>) {
+    pub(super) async fn test_multiple_txs(db: Arc<dyn Db>) {
         let tx1 = db.begin().await.unwrap();
         let tx2 = db.begin().await.unwrap();
         tx1.commit().await.unwrap();
         tx2.commit().await.unwrap();
     }
 
-    pub(super) async fn test_begin_tx_after_drop(db: Box<dyn Db>) {
-        let db: Arc<dyn Db> = Arc::from(db);
-
-        let tx1 = db.clone().begin().await.unwrap();
+    pub(super) async fn test_begin_tx_after_commit(db: Arc<dyn Db>) {
+        let tx1 = db.begin().await.unwrap();
         tx1.commit().await.unwrap();
 
         let tx2 = db.begin().await.unwrap();
@@ -291,7 +302,7 @@ mod tests {
                 $setup,
                 $crate::db::tests,
                 test_multiple_txs,
-                test_begin_tx_after_drop
+                test_begin_tx_after_commit
             );
         }
     ];

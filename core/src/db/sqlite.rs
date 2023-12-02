@@ -19,6 +19,7 @@ use crate::db::{Db, DbError, DbResult, Executor, TxExecutor};
 use async_trait::async_trait;
 use futures::future::BoxFuture;
 use futures::TryStreamExt;
+use log::warn;
 use sqlx::pool::PoolConnection;
 use sqlx::sqlite::{Sqlite, SqlitePool};
 use sqlx::Transaction;
@@ -242,13 +243,9 @@ impl SqliteDb {
 
 impl Drop for SqliteDb {
     fn drop(&mut self) {
-        let pool = self.pool.clone();
-        tokio::task::spawn_blocking(move || {
-            let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-            rt.block_on(async move {
-                pool.close().await;
-            });
-        });
+        if !self.pool.is_closed() {
+            warn!("Dropping connection without having called close() first");
+        }
     }
 }
 
@@ -262,6 +259,10 @@ impl Db for SqliteDb {
     async fn begin(&self) -> DbResult<TxExecutor> {
         let tx = self.pool.begin().await.map_err(map_sqlx_error)?;
         Ok(TxExecutor(Executor::Sqlite(SqliteExecutor::TxExec(tx))))
+    }
+
+    async fn close(&self) {
+        self.pool.close().await;
     }
 }
 
@@ -354,10 +355,17 @@ mod tests {
     use super::testutils::*;
     use super::*;
     use crate::db::tests::{generate_db_ro_concurrent_tests, generate_db_rw_tests};
+    use std::sync::Arc;
 
-    generate_db_ro_concurrent_tests!(Box::from(setup().await));
+    generate_db_ro_concurrent_tests!({
+        let db = Arc::from(setup().await);
+        (db.clone(), db)
+    });
 
-    generate_db_rw_tests!(Box::from(setup().await));
+    generate_db_rw_tests!({
+        let db = Arc::from(setup().await);
+        (db.clone(), db)
+    });
 
     #[test]
     fn test_build_unpack_duration_zero() {

@@ -222,6 +222,7 @@ mod postgres {
     use crate::db::init_schema;
     use iii_iv_core::db::postgres::PostgresDb;
     use iii_iv_core::db::Db;
+    use std::sync::Arc;
 
     async fn setup() -> PostgresDb {
         let db = iii_iv_core::db::postgres::testutils::setup().await;
@@ -230,7 +231,10 @@ mod postgres {
     }
 
     generate_db_tests!(
-        &mut setup().await.ex().await.unwrap(),
+        {
+            let db = Arc::from(setup().await);
+            (db.clone(), &mut db.ex().await.unwrap())
+        },
         #[ignore = "Requires environment configuration and is expensive"]
     );
 }
@@ -240,6 +244,7 @@ mod sqlite {
     use crate::db::init_schema;
     use iii_iv_core::db::sqlite::SqliteDb;
     use iii_iv_core::db::Db;
+    use std::sync::Arc;
 
     async fn setup() -> SqliteDb {
         let db = iii_iv_core::db::sqlite::testutils::setup().await;
@@ -247,5 +252,8 @@ mod sqlite {
         db
     }
 
-    generate_db_tests!(&mut setup().await.ex().await.unwrap());
+    generate_db_tests!({
+        let db = Arc::from(setup().await);
+        (db.clone(), &mut db.ex().await.unwrap())
+    });
 }

@@ -19,6 +19,7 @@ postgres = [
 ]
 sqlite = [
     "dep:futures",
+    "dep:log",
     "dep:tokio",
     "sqlx/sqlite",
     "sqlx/runtime-tokio-rustls",
