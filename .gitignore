@@ -1,4 +1,4 @@
 Cargo.lock
-config.mk
+config.env
 target
 vscode-target

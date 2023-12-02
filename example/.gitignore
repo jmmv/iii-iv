@@ -1,6 +1,5 @@
 Cargo.lock
 build.stamp
-config.env
-perfectschedule
+config.mk
 target/
 vscode-target/

@@ -25,7 +25,7 @@ jobs:
             - uses: mozilla-actions/sccache-action@v0.0.3
             - run: sudo apt update
             - run: sudo apt install pre-commit
-            - run: make lint
+            - run: ./lint.sh
 
     test-individually:
         runs-on: ubuntu-latest
@@ -42,7 +42,7 @@ jobs:
         steps:
             - uses: actions/checkout@v2
             - uses: mozilla-actions/sccache-action@v0.0.3
-            - run: make test-individually
+            - run: ./test.sh all
 
     test-workspace:
         runs-on: ubuntu-latest
@@ -59,4 +59,4 @@ jobs:
         steps:
             - uses: actions/checkout@v2
             - uses: mozilla-actions/sccache-action@v0.0.3
-            - run: make test-workspace
+            - run: ./test.sh
