@@ -328,13 +328,13 @@ pub struct PostgresDb {
 
 impl Drop for PostgresDb {
     fn drop(&mut self) {
-        let pool = self.pool.clone();
-        tokio::task::spawn_blocking(move || {
-            let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-            rt.block_on(async move {
-                pool.close().await;
-            });
-        });
+        if !self.pool.is_closed() {
+            if cfg!(debug_assertions) {
+                panic!("Dropping connection without having called close() first");
+            } else {
+                warn!("Dropping connection without having called close() first");
+            }
+        }
     }
 }
 
@@ -380,6 +380,10 @@ impl Db for PostgresDb {
     async fn begin(&self) -> DbResult<TxExecutor> {
         let tx = retry(|| self.pool.begin(), self.max_retries).await?;
         Ok(TxExecutor(Executor::Postgres(PostgresExecutor::TxExec(tx))))
+    }
+
+    async fn close(&self) {
+        self.pool.close().await;
     }
 }
 
@@ -428,6 +432,7 @@ mod tests {
     use super::*;
     use crate::db::tests::{generate_db_ro_concurrent_tests, generate_db_rw_tests};
     use std::env;
+    use std::sync::Arc;
 
     generate_db_ro_concurrent_tests!(
         {
@@ -437,14 +442,17 @@ mod tests {
             // connections to 1 but we need at least 2 for the concurrent tests to succeed.
             // This means that the tests cannot write to the database because we did not set
             // up the `search_path`.
-            let db = PostgresDb::connect(PostgresOptions::from_env("PGSQL_TEST").unwrap()).unwrap();
-            Box::from(db)
+            let db = Arc::from(PostgresDb::connect(PostgresOptions::from_env("PGSQL_TEST").unwrap()).unwrap());
+            (db.clone(), db)
         },
         #[ignore = "Requires environment configuration and is expensive"]
     );
 
     generate_db_rw_tests!(
-        Box::from(setup().await),
+        {
+            let db = Arc::from(setup().await);
+            (db.clone(), db)
+        },
         #[ignore = "Requires environment configuration and is expensive"]
     );
 
