@@ -46,7 +46,7 @@ run_tests() {
                 info "Testing ${dir} with default features"
                 cargo test ${cargo_args} -- --include-ignored ${test_args}
             else
-                if grep -q "^{feature} = \[" Cargo.toml; then
+                if [ "${dir}" = . ] || grep -q "^{feature} = \[" Cargo.toml; then
                     info "Testing ${dir} with feature=${feature}"
                     cargo test --features="${feature}" ${cargo_args} -- --include-ignored ${test_args}
                 else
