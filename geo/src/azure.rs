@@ -192,6 +192,7 @@ impl GeoLocator for AzureGeoLocator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     pub fn test_azuregeolocatoroptions_from_env_all_present() {
@@ -223,26 +224,40 @@ mod tests {
         AzureGeoLocator::new(AzureGeoLocatorOptions::from_env("AZURE_MAPS").unwrap())
     }
 
+    /// Performs an Azure geolocation query with retries.
+    ///
+    /// I've observed that, sometimes, the queries randomly return a 401 Unauthorized error, but we
+    /// are passing the key correctly.  Retrying might help under this condition and others.
+    async fn geolocate(
+        geolocator: &AzureGeoLocator,
+        ip: &str,
+    ) -> GeoResult<Option<CountryIsoCode>> {
+        let ip = ip.parse().unwrap();
+
+        let mut retries = 5;
+        loop {
+            match geolocator.locate(&ip).await {
+                Ok(result) => return Ok(result),
+                Err(e) => {
+                    if retries == 0 {
+                        return Err(e);
+                    }
+                    retries -= 1;
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+            }
+        }
+    }
+
     #[tokio::test]
     #[ignore = "Requires environment configuration and is expensive"]
     async fn test_ok() {
         let geolocator = setup();
-        assert_eq!(
-            "ES",
-            geolocator.locate(&"212.170.36.79".parse().unwrap()).await.unwrap().unwrap().as_str()
-        );
-        assert_eq!(
-            "IE",
-            geolocator.locate(&"185.2.66.42".parse().unwrap()).await.unwrap().unwrap().as_str()
-        );
+        assert_eq!("ES", geolocate(&geolocator, "212.170.36.79").await.unwrap().unwrap().as_str());
+        assert_eq!("IE", geolocate(&geolocator, "185.2.66.42").await.unwrap().unwrap().as_str());
         assert_eq!(
             "US",
-            geolocator
-                .locate(&"2001:4898:80e8:3c::".parse().unwrap())
-                .await
-                .unwrap()
-                .unwrap()
-                .as_str()
+            geolocate(&geolocator, "2001:4898:80e8:3c::").await.unwrap().unwrap().as_str()
         );
     }
 
@@ -250,6 +265,6 @@ mod tests {
     #[ignore = "Requires environment configuration and is expensive"]
     async fn test_missing() {
         let geolocator = setup();
-        assert_eq!(None, geolocator.locate(&"198.18.0.1".parse().unwrap()).await.unwrap());
+        assert_eq!(None, geolocate(&geolocator, "198.18.0.1").await.unwrap());
     }
 }
