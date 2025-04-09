@@ -24,7 +24,6 @@ sqlite = [
 ]
 testutils = [
     "dep:base64",
-    "dep:bytes",
     "dep:env_logger",
     "dep:http-body",
     "dep:hyper",
@@ -40,7 +39,6 @@ testutils = [
 async-trait = { workspace = true }
 axum = { workspace = true }
 base64 = { workspace = true, optional = true }
-bytes = { workspace = true, optional = true }
 derivative = { workspace = true }
 env_logger = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }

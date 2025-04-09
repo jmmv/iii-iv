@@ -43,6 +43,6 @@ pub async fn serve(
     let driver = Driver::new(db);
     let app = app(driver);
 
-    axum::Server::bind(&bind_addr.into()).serve(app.into_make_service()).await?;
+    axum_server::bind(bind_addr.into()).serve(app.into_make_service()).await?;
     Ok(())
 }
