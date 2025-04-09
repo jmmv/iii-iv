@@ -27,7 +27,7 @@ use iii_iv_core::model::{EmailAddress, Username};
 // TODO(jmmv): This should be hidden via a trait and the user of this crate should be able to
 // choose or supply their own validation rules.
 fn password_validator(s: &str) -> Option<&'static str> {
-    if s.as_bytes().len() < 8 {
+    if s.len() < 8 {
         return Some("Too short");
     }
 

@@ -18,7 +18,6 @@
 use crate::db::{Db, DbError, DbResult, Executor, TxExecutor};
 use async_trait::async_trait;
 use futures::future::BoxFuture;
-use futures::TryStreamExt;
 use log::warn;
 use sqlx::pool::PoolConnection;
 use sqlx::sqlite::{Sqlite, SqlitePool};
@@ -82,13 +81,13 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
         }
     }
 
-    fn execute<'e, 'q: 'e, E: 'q>(
+    fn execute<'e, 'q: 'e, E>(
         self,
         query: E,
     ) -> BoxFuture<'e, Result<<Self::Database as sqlx::Database>::QueryResult, sqlx::Error>>
     where
         'c: 'e,
-        E: sqlx::Execute<'q, Self::Database>,
+        E: 'q + sqlx::Execute<'q, Self::Database>,
     {
         match self {
             SqliteExecutor::PoolExec(conn) => conn.execute(query),
@@ -96,7 +95,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
         }
     }
 
-    fn execute_many<'e, 'q: 'e, E: 'q>(
+    fn execute_many<'e, 'q: 'e, E>(
         self,
         query: E,
     ) -> futures::stream::BoxStream<
@@ -105,7 +104,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
     >
     where
         'c: 'e,
-        E: sqlx::Execute<'q, Self::Database>,
+        E: 'q + sqlx::Execute<'q, Self::Database>,
     {
         match self {
             SqliteExecutor::PoolExec(conn) => conn.execute_many(query),
@@ -113,13 +112,13 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
         }
     }
 
-    fn fetch<'e, 'q: 'e, E: 'q>(
+    fn fetch<'e, 'q: 'e, E>(
         self,
         query: E,
     ) -> futures::stream::BoxStream<'e, Result<<Self::Database as sqlx::Database>::Row, sqlx::Error>>
     where
         'c: 'e,
-        E: sqlx::Execute<'q, Self::Database>,
+        E: 'q + sqlx::Execute<'q, Self::Database>,
     {
         match self {
             SqliteExecutor::PoolExec(conn) => conn.fetch(query),
@@ -127,13 +126,13 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
         }
     }
 
-    fn fetch_all<'e, 'q: 'e, E: 'q>(
+    fn fetch_all<'e, 'q: 'e, E>(
         self,
         query: E,
     ) -> BoxFuture<'e, Result<Vec<<Self::Database as sqlx::Database>::Row>, sqlx::Error>>
     where
         'c: 'e,
-        E: sqlx::Execute<'q, Self::Database>,
+        E: 'q + sqlx::Execute<'q, Self::Database>,
     {
         match self {
             SqliteExecutor::PoolExec(conn) => conn.fetch_all(query),
@@ -141,7 +140,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
         }
     }
 
-    fn fetch_many<'e, 'q: 'e, E: 'q>(
+    fn fetch_many<'e, 'q: 'e, E>(
         self,
         query: E,
     ) -> futures::stream::BoxStream<
@@ -156,7 +155,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
     >
     where
         'c: 'e,
-        E: sqlx::Execute<'q, Self::Database>,
+        E: 'q + sqlx::Execute<'q, Self::Database>,
     {
         match self {
             SqliteExecutor::PoolExec(conn) => conn.fetch_many(query),
@@ -164,13 +163,13 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
         }
     }
 
-    fn fetch_one<'e, 'q: 'e, E: 'q>(
+    fn fetch_one<'e, 'q: 'e, E>(
         self,
         query: E,
     ) -> BoxFuture<'e, Result<<Self::Database as sqlx::Database>::Row, sqlx::Error>>
     where
         'c: 'e,
-        E: sqlx::Execute<'q, Self::Database>,
+        E: 'q + sqlx::Execute<'q, Self::Database>,
     {
         match self {
             SqliteExecutor::PoolExec(conn) => conn.fetch_one(query),
@@ -178,13 +177,13 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
         }
     }
 
-    fn fetch_optional<'e, 'q: 'e, E: 'q>(
+    fn fetch_optional<'e, 'q: 'e, E>(
         self,
         query: E,
     ) -> BoxFuture<'e, Result<Option<<Self::Database as sqlx::Database>::Row>, sqlx::Error>>
     where
         'c: 'e,
-        E: sqlx::Execute<'q, Self::Database>,
+        E: 'q + sqlx::Execute<'q, Self::Database>,
     {
         match self {
             SqliteExecutor::PoolExec(conn) => conn.fetch_optional(query),
@@ -268,10 +267,7 @@ impl Db for SqliteDb {
 
 /// Helper function to initialize the database with a schema.
 pub async fn run_schema(e: &mut SqliteExecutor, schema: &str) -> DbResult<()> {
-    let mut results = sqlx::query(schema).execute_many(e).await;
-    while results.try_next().await.map_err(map_sqlx_error)?.is_some() {
-        // Nothing to do.
-    }
+    sqlx::raw_sql(schema).execute(e).await.map_err(map_sqlx_error)?;
     Ok(())
 }
 

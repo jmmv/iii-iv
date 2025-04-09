@@ -64,6 +64,7 @@ async fn test_multiple_keys(ex: &mut Executor) {
     assert_eq!(entry, get_key(ex, &key2).await.unwrap());
 }
 
+/// Instantiates the database tests for this module.
 #[macro_export]
 macro_rules! generate_db_tests [
     ( $setup:expr $(, #[$extra:meta])? ) => {

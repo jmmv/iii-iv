@@ -78,7 +78,7 @@ impl From<&'static str> for Username {
 /// A deserialization visitor for a `Username`.
 struct UsernameVisitor;
 
-impl<'de> Visitor<'de> for UsernameVisitor {
+impl Visitor<'_> for UsernameVisitor {
     type Value = Username;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {

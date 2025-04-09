@@ -239,7 +239,7 @@ pub mod testutils {
     impl OneShotBuilder {
         /// Creates a new request against a given `method`/`uri` pair served by an `app` router.
         pub fn new<U: AsRef<str>>(app: Router, (method, uri): (http::Method, U)) -> Self {
-            let builder = axum::http::Request::builder().method(method).uri(uri.as_ref());
+            let builder = Request::builder().method(method).uri(uri.as_ref());
             Self { app, builder }
         }
 

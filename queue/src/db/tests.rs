@@ -66,7 +66,7 @@ impl Serialize for MockTask {
 /// A visitor for the `i` field of `MockTask`.
 struct IVisitor;
 
-impl<'de> Visitor<'de> for IVisitor {
+impl Visitor<'_> for IVisitor {
     type Value = u32;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -75,7 +75,7 @@ impl<'de> Visitor<'de> for IVisitor {
 
     fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
     where
-        E: serde::de::Error,
+        E: de::Error,
     {
         let v = u32::try_from(v).expect("Value must have fit");
         if v == MockTask::TRIGGER_DE_ERROR {

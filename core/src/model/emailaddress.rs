@@ -77,7 +77,7 @@ impl From<&str> for EmailAddress {
 /// Visitor to deserialize an `EmailAddress` from a string.
 struct EmailAddressVisitor;
 
-impl<'de> Visitor<'de> for EmailAddressVisitor {
+impl Visitor<'_> for EmailAddressVisitor {
     type Value = EmailAddress;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
