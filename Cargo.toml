@@ -37,7 +37,7 @@ serde_json = "1"
 serde_test = "1"
 serde_urlencoded = "0.7"
 serde = { version = "1", features = ["derive"] }
-sqlx = "0.7"
+sqlx = "0.8"
 temp-env = "0.3.6"
 thiserror = "2.0"
 time = "0.3"
