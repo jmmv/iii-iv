@@ -20,8 +20,8 @@
 #![warn(unused, unused_extern_crates, unused_import_braces, unused_qualifications)]
 #![warn(unsafe_code)]
 
-use iii_iv_core::db::postgres::{PostgresDb, PostgresOptions};
 use iii_iv_core::db::Db;
+use iii_iv_core::db::postgres::{PostgresDb, PostgresOptions};
 use iii_iv_example::db::init_schema;
 use iii_iv_example::serve;
 use std::env;

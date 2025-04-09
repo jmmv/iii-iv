@@ -211,12 +211,12 @@ mod tests {
     pub async fn exec(ex: &mut Executor, query: &str) -> DbResult<()> {
         match ex {
             #[cfg(feature = "postgres")]
-            Executor::Postgres(ref mut ex) => {
+            Executor::Postgres(ex) => {
                 let _result = sqlx::query(query).execute(ex).await.unwrap();
             }
 
             #[cfg(feature = "sqlite")]
-            Executor::Sqlite(ref mut ex) => {
+            Executor::Sqlite(ex) => {
                 let _result = sqlx::query(query).execute(ex).await.unwrap();
             }
         }
@@ -228,13 +228,13 @@ mod tests {
     async fn query_i64(ex: &mut Executor, column: &str, query: &str) -> i64 {
         match ex {
             #[cfg(feature = "postgres")]
-            Executor::Postgres(ref mut ex) => {
+            Executor::Postgres(ex) => {
                 let row = sqlx::query(query).fetch_one(ex).await.unwrap();
                 row.try_get(column).unwrap()
             }
 
             #[cfg(feature = "sqlite")]
-            Executor::Sqlite(ref mut ex) => {
+            Executor::Sqlite(ex) => {
                 let row = sqlx::query(query).fetch_one(ex).await.unwrap();
                 row.try_get(column).unwrap()
             }

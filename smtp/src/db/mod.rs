@@ -23,7 +23,7 @@ use iii_iv_core::db::postgres;
 use iii_iv_core::db::sqlite::build_timestamp;
 #[cfg(any(feature = "sqlite", test))]
 use iii_iv_core::db::sqlite::{self, unpack_timestamp};
-use iii_iv_core::db::{count_as_usize, ensure_one_upsert, DbResult, Executor};
+use iii_iv_core::db::{DbResult, Executor, count_as_usize, ensure_one_upsert};
 use lettre::Message;
 use sqlx::Row;
 use time::{Date, OffsetDateTime};
@@ -35,12 +35,10 @@ mod tests;
 pub async fn init_schema(ex: &mut Executor) -> DbResult<()> {
     match ex {
         #[cfg(feature = "postgres")]
-        Executor::Postgres(ref mut ex) => {
-            postgres::run_schema(ex, include_str!("postgres.sql")).await
-        }
+        Executor::Postgres(ex) => postgres::run_schema(ex, include_str!("postgres.sql")).await,
 
         #[cfg(any(feature = "sqlite", test))]
-        Executor::Sqlite(ref mut ex) => sqlite::run_schema(ex, include_str!("sqlite.sql")).await,
+        Executor::Sqlite(ex) => sqlite::run_schema(ex, include_str!("sqlite.sql")).await,
 
         #[allow(unused)]
         _ => unreachable!(),
@@ -50,7 +48,7 @@ pub async fn init_schema(ex: &mut Executor) -> DbResult<()> {
 /// Counts how many emails were sent on `day`.
 pub(crate) async fn count_email_log(ex: &mut Executor, day: Date) -> DbResult<usize> {
     let total: i64 = match ex {
-        Executor::Postgres(ref mut ex) => {
+        Executor::Postgres(ex) => {
             let from = day.midnight().assume_utc();
             let to = from + time::Duration::DAY;
 
@@ -66,7 +64,7 @@ pub(crate) async fn count_email_log(ex: &mut Executor, day: Date) -> DbResult<us
         }
 
         #[cfg(any(test, feature = "sqlite"))]
-        Executor::Sqlite(ref mut ex) => {
+        Executor::Sqlite(ex) => {
             let from = day.midnight().assume_utc();
             let to = from + time::Duration::DAY;
 
@@ -108,7 +106,7 @@ type EmailLogEntry = (OffsetDateTime, Vec<u8>, Option<String>);
 pub(crate) async fn get_email_log(ex: &mut Executor) -> DbResult<Vec<EmailLogEntry>> {
     let mut entries = vec![];
     match ex {
-        Executor::Postgres(ref mut ex) => {
+        Executor::Postgres(ex) => {
             let query_str = "SELECT sent, message, result FROM email_log";
             let mut rows = sqlx::query(query_str).fetch(ex);
             while let Some(row) = rows.try_next().await.map_err(postgres::map_sqlx_error)? {
@@ -122,7 +120,7 @@ pub(crate) async fn get_email_log(ex: &mut Executor) -> DbResult<Vec<EmailLogEnt
         }
 
         #[cfg(any(test, feature = "sqlite"))]
-        Executor::Sqlite(ref mut ex) => {
+        Executor::Sqlite(ex) => {
             let query_str = "SELECT sent_sec, sent_nsec, message, result FROM email_log";
             let mut rows = sqlx::query(query_str).fetch(ex);
             while let Some(row) = rows.try_next().await.map_err(sqlite::map_sqlx_error)? {
@@ -151,7 +149,7 @@ pub(crate) async fn put_email_log(
     now: OffsetDateTime,
 ) -> DbResult<i64> {
     match ex {
-        Executor::Postgres(ref mut ex) => {
+        Executor::Postgres(ex) => {
             let query_str = "INSERT INTO email_log (sent, message) VALUES ($1, $2) RETURNING id";
             let row = sqlx::query(query_str)
                 .bind(now)
@@ -164,7 +162,7 @@ pub(crate) async fn put_email_log(
         }
 
         #[cfg(any(test, feature = "sqlite"))]
-        Executor::Sqlite(ref mut ex) => {
+        Executor::Sqlite(ex) => {
             let (now_sec, now_nsec) = unpack_timestamp(now);
 
             let query_str = "INSERT INTO email_log (sent_sec, sent_nsec, message) VALUES (?, ?, ?)";
@@ -186,7 +184,7 @@ pub(crate) async fn put_email_log(
 /// Records the result of sending an email.
 pub(crate) async fn update_email_log(ex: &mut Executor, id: i64, result: &str) -> DbResult<()> {
     match ex {
-        Executor::Postgres(ref mut ex) => {
+        Executor::Postgres(ex) => {
             let query_str = "UPDATE email_log SET result = $1 WHERE id = $2";
             let done = sqlx::query(query_str)
                 .bind(result)
@@ -199,7 +197,7 @@ pub(crate) async fn update_email_log(ex: &mut Executor, id: i64, result: &str) -
         }
 
         #[cfg(any(test, feature = "sqlite"))]
-        Executor::Sqlite(ref mut ex) => {
+        Executor::Sqlite(ex) => {
             let query_str = "UPDATE email_log SET result = ? WHERE id = ?";
             let done = sqlx::query(query_str)
                 .bind(result)

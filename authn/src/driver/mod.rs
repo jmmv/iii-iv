@@ -189,7 +189,7 @@ impl AuthnDriver {
         let session = match db::get_session(tx.ex(), &token).await {
             Ok(session) => session,
             Err(DbError::NotFound) => {
-                return Err(DriverError::Unauthorized("Invalid session".to_owned()))
+                return Err(DriverError::Unauthorized("Invalid session".to_owned()));
             }
             Err(e) => return Err(e.into()),
         };
@@ -302,11 +302,9 @@ mod tests {
         let mut tx = context.db().begin().await.unwrap();
 
         let token = context.do_test_login(Username::from("username")).await;
-        assert!(context
-            .driver()
-            .get_session(&mut tx, context.clock.now_utc(), token)
-            .await
-            .is_ok());
+        assert!(
+            context.driver().get_session(&mut tx, context.clock.now_utc(), token).await.is_ok()
+        );
     }
 
     #[tokio::test]
@@ -315,11 +313,13 @@ mod tests {
         let mut tx = context.db().begin().await.unwrap();
 
         let token = context.do_test_login(Username::from("username")).await;
-        assert!(context
-            .driver()
-            .get_session(&mut tx, context.clock.now_utc(), token.clone())
-            .await
-            .is_ok());
+        assert!(
+            context
+                .driver()
+                .get_session(&mut tx, context.clock.now_utc(), token.clone())
+                .await
+                .is_ok()
+        );
 
         for i in [-50 * 60, 10 * 60, 23 * 3600].into_iter() {
             let now = context.now_delta(i);
@@ -341,17 +341,21 @@ mod tests {
         let mut tx = context.db().begin().await.unwrap();
 
         let token = context.do_test_login(Username::from("username")).await;
-        assert!(context
-            .driver()
-            .get_session(&mut tx, context.clock.now_utc(), token.clone())
-            .await
-            .is_ok());
+        assert!(
+            context
+                .driver()
+                .get_session(&mut tx, context.clock.now_utc(), token.clone())
+                .await
+                .is_ok()
+        );
 
-        assert!(context
-            .driver()
-            .get_session(&mut tx, context.now_delta(20 * 3600), token.clone())
-            .await
-            .is_ok());
+        assert!(
+            context
+                .driver()
+                .get_session(&mut tx, context.now_delta(20 * 3600), token.clone())
+                .await
+                .is_ok()
+        );
 
         match context
             .driver()

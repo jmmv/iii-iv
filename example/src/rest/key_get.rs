@@ -17,9 +17,9 @@
 
 use crate::driver::Driver;
 use crate::model::Key;
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
-use axum::Json;
 use iii_iv_core::rest::{EmptyBody, RestError};
 
 /// API handler.

@@ -17,8 +17,8 @@
 
 use crate::driver::AuthnDriver;
 use crate::model::Password;
-use axum::extract::State;
 use axum::Json;
+use axum::extract::State;
 use iii_iv_core::model::{EmailAddress, Username};
 use iii_iv_core::rest::RestError;
 use serde::{Deserialize, Serialize};

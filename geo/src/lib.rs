@@ -115,7 +115,7 @@ pub trait GeoLocator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_test::{assert_de_tokens_error, assert_tokens, Token};
+    use serde_test::{Token, assert_de_tokens_error, assert_tokens};
 
     #[test]
     fn test_country_iso_code_ser_de_ok() {

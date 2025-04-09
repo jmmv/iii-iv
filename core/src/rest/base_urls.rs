@@ -99,7 +99,6 @@ impl BaseUrls {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env;
 
     /// Constructs a URL from a valid raw string for testing purposes.
     fn url(s: &'static str) -> Url {
@@ -121,24 +120,29 @@ mod tests {
 
     #[test]
     pub fn test_new_validates_backend() {
-        assert!(BaseUrls::new(url("http://example.com/bad"), None)
-            .unwrap_err()
-            .contains("/bad' cannot be a base"));
+        assert!(
+            BaseUrls::new(url("http://example.com/bad"), None)
+                .unwrap_err()
+                .contains("/bad' cannot be a base")
+        );
     }
 
     #[test]
     pub fn test_new_validates_frontend() {
-        assert!(BaseUrls::new(url("http://example.com/ok/"), Some(url("http://example.com/bad")))
-            .unwrap_err()
-            .contains("/bad' cannot be a base"));
+        assert!(
+            BaseUrls::new(url("http://example.com/ok/"), Some(url("http://example.com/bad")))
+                .unwrap_err()
+                .contains("/bad' cannot be a base")
+        );
     }
 
     #[test]
     pub fn test_from_env_required_present() {
-        let overrides = [("TEST_BACKEND_BASE_URL", Some("https://backend.example.com/api/"))];
+        let overrides = [
+            ("TEST_BACKEND_BASE_URL", Some("https://backend.example.com/api/")),
+            ("TEST_FRONTEND_BASE_URL", None::<&str>),
+        ];
         temp_env::with_vars(overrides, || {
-            env::remove_var("TEST_FRONTEND_BASE_URL");
-
             let opts = BaseUrls::from_env("TEST").unwrap();
             assert_eq!(
                 BaseUrls { backend: url("https://backend.example.com/api/"), frontend: None },

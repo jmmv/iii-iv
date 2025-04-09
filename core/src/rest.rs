@@ -32,12 +32,12 @@
 use crate::driver::DriverError;
 use crate::model::ModelError;
 use async_trait::async_trait;
+use axum::Json;
 use axum::body::HttpBody;
 use axum::extract::{FromRequest, Request};
 use axum::http::header::AsHeaderName;
 use axum::http::{HeaderMap, HeaderValue};
 use axum::response::IntoResponse;
-use axum::Json;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -214,12 +214,12 @@ pub fn get_unique_header<K: AsHeaderName + Copy>(
 #[cfg(feature = "testutils")]
 pub mod testutils {
     use super::*;
-    use axum::http::{self, HeaderName};
     use axum::Router;
-    use base64::engine::general_purpose;
+    use axum::http::{self, HeaderName};
     use base64::Engine;
-    use serde::de::DeserializeOwned;
+    use base64::engine::general_purpose;
     use serde::Serialize;
+    use serde::de::DeserializeOwned;
     use tower::util::ServiceExt;
 
     /// Maximum body size for testing purposes.

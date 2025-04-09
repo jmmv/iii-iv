@@ -29,7 +29,7 @@ use {
     super::SmtpDriver,
     crate::db::init_schema,
     iii_iv_core::clocks::testutils::SettableClock,
-    iii_iv_core::db::{sqlite, Db, Executor},
+    iii_iv_core::db::{Db, Executor, sqlite},
     time::macros::datetime,
 };
 

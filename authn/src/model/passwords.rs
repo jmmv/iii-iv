@@ -112,10 +112,12 @@ mod tests {
 
     #[test]
     fn test_password_error() {
-        assert!(Password::new(
-            "this password is way too long to be valid because of bcrypt restrictions"
-        )
-        .is_err());
+        assert!(
+            Password::new(
+                "this password is way too long to be valid because of bcrypt restrictions"
+            )
+            .is_err()
+        );
     }
 
     #[test]

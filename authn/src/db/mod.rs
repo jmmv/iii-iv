@@ -22,11 +22,11 @@ use iii_iv_core::db::postgres;
 use iii_iv_core::db::sqlite::{self, build_timestamp, unpack_timestamp};
 use iii_iv_core::db::{DbError, DbResult, Executor};
 use iii_iv_core::model::{EmailAddress, Username};
+use sqlx::Row;
 #[cfg(feature = "postgres")]
 use sqlx::postgres::PgRow;
 #[cfg(any(feature = "sqlite", test))]
 use sqlx::sqlite::SqliteRow;
-use sqlx::Row;
 use time::OffsetDateTime;
 
 #[cfg(test)]
@@ -36,12 +36,10 @@ mod tests;
 pub async fn init_schema(ex: &mut Executor) -> DbResult<()> {
     match ex {
         #[cfg(feature = "postgres")]
-        Executor::Postgres(ref mut ex) => {
-            postgres::run_schema(ex, include_str!("postgres.sql")).await
-        }
+        Executor::Postgres(ex) => postgres::run_schema(ex, include_str!("postgres.sql")).await,
 
         #[cfg(any(feature = "sqlite", test))]
-        Executor::Sqlite(ref mut ex) => sqlite::run_schema(ex, include_str!("sqlite.sql")).await,
+        Executor::Sqlite(ex) => sqlite::run_schema(ex, include_str!("sqlite.sql")).await,
 
         #[allow(unused)]
         _ => unreachable!(),
@@ -136,7 +134,7 @@ impl TryFrom<SqliteRow> for User {
             (_, _) => {
                 return Err(DbError::DataIntegrityError(
                     "Inconsistent values for last_login".to_owned(),
-                ))
+                ));
             }
         }
         Ok(user)
@@ -153,7 +151,7 @@ pub async fn create_user(
 ) -> DbResult<User> {
     let rows_affected = match ex {
         #[cfg(feature = "postgres")]
-        Executor::Postgres(ref mut ex) => {
+        Executor::Postgres(ex) => {
             let query_str = "INSERT INTO users (username, password, email) VALUES ($1, $2, $3)";
             let done = sqlx::query(query_str)
                 .bind(username.as_str())
@@ -166,7 +164,7 @@ pub async fn create_user(
         }
 
         #[cfg(any(feature = "sqlite", test))]
-        Executor::Sqlite(ref mut ex) => {
+        Executor::Sqlite(ex) => {
             let query_str = "INSERT INTO users (username, password, email) VALUES (?, ?, ?)";
             let done = sqlx::query(query_str)
                 .bind(username.as_str())
@@ -196,7 +194,7 @@ pub async fn create_user(
 pub async fn get_user_by_username(ex: &mut Executor, username: Username) -> DbResult<User> {
     match ex {
         #[cfg(feature = "postgres")]
-        Executor::Postgres(ref mut ex) => {
+        Executor::Postgres(ex) => {
             let query_str = "SELECT * FROM users WHERE username = $1";
             let raw_user = sqlx::query(query_str)
                 .bind(username.as_str())
@@ -207,7 +205,7 @@ pub async fn get_user_by_username(ex: &mut Executor, username: Username) -> DbRe
         }
 
         #[cfg(any(feature = "sqlite", test))]
-        Executor::Sqlite(ref mut ex) => {
+        Executor::Sqlite(ex) => {
             let query_str = "SELECT * FROM users WHERE username = ?";
             let raw_user = sqlx::query(query_str)
                 .bind(username.as_str())
@@ -230,7 +228,7 @@ pub(crate) async fn update_user(
 ) -> DbResult<()> {
     let rows_affected = match ex {
         #[cfg(feature = "postgres")]
-        Executor::Postgres(ref mut ex) => {
+        Executor::Postgres(ex) => {
             let query_str = "UPDATE users SET last_login = $1 WHERE username = $2";
             let done = sqlx::query(query_str)
                 .bind(last_login)
@@ -242,7 +240,7 @@ pub(crate) async fn update_user(
         }
 
         #[cfg(any(feature = "sqlite", test))]
-        Executor::Sqlite(ref mut ex) => {
+        Executor::Sqlite(ex) => {
             let (last_login_secs, last_login_nsecs) = unpack_timestamp(last_login);
 
             let query_str = "
@@ -280,7 +278,7 @@ pub(crate) async fn set_user_activation_code(
 
     let rows_affected = match ex {
         #[cfg(feature = "postgres")]
-        Executor::Postgres(ref mut ex) => {
+        Executor::Postgres(ex) => {
             let query_str = "UPDATE users SET activation_code = $1 WHERE username = $2";
             let done = sqlx::query(query_str)
                 .bind(i64_code)
@@ -292,7 +290,7 @@ pub(crate) async fn set_user_activation_code(
         }
 
         #[cfg(any(feature = "sqlite", test))]
-        Executor::Sqlite(ref mut ex) => {
+        Executor::Sqlite(ex) => {
             let query_str = "UPDATE users SET activation_code = ? WHERE username = ?";
             let done = sqlx::query(query_str)
                 .bind(i64_code)
@@ -322,7 +320,7 @@ pub(crate) async fn get_session(
 ) -> DbResult<Session> {
     match ex {
         #[cfg(feature = "postgres")]
-        Executor::Postgres(ref mut ex) => {
+        Executor::Postgres(ex) => {
             let query_str = "
                 SELECT access_token, username, login_time
                 FROM sessions
@@ -336,7 +334,7 @@ pub(crate) async fn get_session(
         }
 
         #[cfg(any(feature = "sqlite", test))]
-        Executor::Sqlite(ref mut ex) => {
+        Executor::Sqlite(ex) => {
             let query_str = "
                 SELECT access_token, username, login_time_secs, login_time_nsecs
                 FROM sessions
@@ -361,7 +359,7 @@ pub(crate) async fn get_session(
 pub(crate) async fn put_session(ex: &mut Executor, session: &Session) -> DbResult<()> {
     let rows_affected = match ex {
         #[cfg(feature = "postgres")]
-        Executor::Postgres(ref mut ex) => {
+        Executor::Postgres(ex) => {
             let query_str =
                 "INSERT INTO sessions (access_token, username, login_time) VALUES ($1, $2, $3)";
 
@@ -376,7 +374,7 @@ pub(crate) async fn put_session(ex: &mut Executor, session: &Session) -> DbResul
         }
 
         #[cfg(any(feature = "sqlite", test))]
-        Executor::Sqlite(ref mut ex) => {
+        Executor::Sqlite(ex) => {
             let (login_time_secs, login_time_nsecs) = unpack_timestamp(session.login_time());
 
             let query_str = "
@@ -411,7 +409,7 @@ pub(crate) async fn delete_session(
 ) -> DbResult<()> {
     let rows_affected = match ex {
         #[cfg(feature = "postgres")]
-        Executor::Postgres(ref mut ex) => {
+        Executor::Postgres(ex) => {
             let query_str = "UPDATE sessions SET logout_time = $1 WHERE access_token = $2";
             let done = sqlx::query(query_str)
                 .bind(now)
@@ -423,7 +421,7 @@ pub(crate) async fn delete_session(
         }
 
         #[cfg(any(feature = "sqlite", test))]
-        Executor::Sqlite(ref mut ex) => {
+        Executor::Sqlite(ex) => {
             let (now_secs, now_nsecs) = unpack_timestamp(now);
 
             let query_str = "

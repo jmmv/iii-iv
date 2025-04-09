@@ -29,12 +29,10 @@ pub(crate) mod tests;
 /// Initializes the database schema.
 pub async fn init_schema(ex: &mut Executor) -> DbResult<()> {
     match ex {
-        Executor::Postgres(ref mut ex) => {
-            postgres::run_schema(ex, include_str!("postgres.sql")).await
-        }
+        Executor::Postgres(ex) => postgres::run_schema(ex, include_str!("postgres.sql")).await,
 
         #[cfg(test)]
-        Executor::Sqlite(ref mut ex) => sqlite::run_schema(ex, include_str!("sqlite.sql")).await,
+        Executor::Sqlite(ex) => sqlite::run_schema(ex, include_str!("sqlite.sql")).await,
 
         #[allow(unused)]
         _ => unreachable!(),
