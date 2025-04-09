@@ -10,6 +10,7 @@ publish = false
 async-session = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true }
+axum-server = { workspace = true }
 derive-getters = { workspace = true }
 env_logger = { workspace = true }
 futures = { workspace = true }

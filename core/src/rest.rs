@@ -33,11 +33,11 @@ use crate::driver::DriverError;
 use crate::model::ModelError;
 use async_trait::async_trait;
 use axum::body::HttpBody;
-use axum::extract::FromRequest;
+use axum::extract::{FromRequest, Request};
 use axum::http::header::AsHeaderName;
-use axum::http::{HeaderMap, HeaderValue, Request};
+use axum::http::{HeaderMap, HeaderValue};
 use axum::response::IntoResponse;
-use axum::{BoxError, Json};
+use axum::Json;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -179,16 +179,13 @@ pub(crate) struct ErrorResponse {
 pub struct EmptyBody {}
 
 #[async_trait]
-impl<S, B> FromRequest<S, B> for EmptyBody
+impl<S> FromRequest<S> for EmptyBody
 where
-    B: HttpBody + Send + 'static,
-    B::Data: Send,
-    B::Error: Into<BoxError>,
     S: Send + Sync,
 {
     type Rejection = RestError;
 
-    async fn from_request(req: Request<B>, _: &S) -> Result<Self, Self::Rejection> {
+    async fn from_request(req: Request, _state: &S) -> Result<Self, Self::Rejection> {
         if req.into_body().is_end_stream() {
             Ok(EmptyBody {})
         } else {
@@ -221,10 +218,12 @@ pub mod testutils {
     use axum::Router;
     use base64::engine::general_purpose;
     use base64::Engine;
-    use bytes::Bytes;
     use serde::de::DeserializeOwned;
     use serde::Serialize;
     use tower::util::ServiceExt;
+
+    /// Maximum body size for testing purposes.
+    const MAX_BODY_SIZE: usize = 1024;
 
     /// Builder for a single request to the API server.
     #[must_use]
@@ -339,7 +338,7 @@ pub mod testutils {
     }
 
     /// Type alias for the complex type returned by the `oneshot` function.
-    type HttpResponse = hyper::Response<http_body::combinators::UnsyncBoxBody<Bytes, axum::Error>>;
+    type HttpResponse = hyper::Response<axum::body::Body>;
 
     /// Validator for the outcome of a request sent by a `OneShotBuilder`.
     #[must_use]
@@ -373,7 +372,8 @@ pub mod testutils {
         pub async fn expect_empty(self) {
             self.verify();
 
-            let body = hyper::body::to_bytes(self.response.into_body()).await.unwrap();
+            let body =
+                axum::body::to_bytes(self.response.into_body(), MAX_BODY_SIZE).await.unwrap();
             let body = String::from_utf8(body.to_vec()).unwrap();
             assert!(body.is_empty(), "Body not empty; got {}", body);
         }
@@ -383,7 +383,8 @@ pub mod testutils {
         pub async fn expect_error(self, exp_re: &str) {
             self.verify();
 
-            let body = hyper::body::to_bytes(self.response.into_body()).await.unwrap();
+            let body =
+                axum::body::to_bytes(self.response.into_body(), MAX_BODY_SIZE).await.unwrap();
             let response: ErrorResponse = match serde_json::from_slice(&body) {
                 Ok(response) => response,
                 Err(e) => {
@@ -413,7 +414,8 @@ pub mod testutils {
         pub async fn expect_json<T: DeserializeOwned>(self) -> T {
             self.verify();
 
-            let body = hyper::body::to_bytes(self.response.into_body()).await.unwrap();
+            let body =
+                axum::body::to_bytes(self.response.into_body(), MAX_BODY_SIZE).await.unwrap();
             serde_json::from_slice::<T>(&body).unwrap()
         }
 
@@ -424,7 +426,8 @@ pub mod testutils {
 
             self.verify();
 
-            let body = hyper::body::to_bytes(self.response.into_body()).await.unwrap();
+            let body =
+                axum::body::to_bytes(self.response.into_body(), MAX_BODY_SIZE).await.unwrap();
             let body = String::from_utf8(body.to_vec()).unwrap();
             assert!(
                 !body.contains("\"message\":"),
@@ -438,7 +441,8 @@ pub mod testutils {
         pub async fn take_body_as_text(self) -> String {
             self.verify();
 
-            let body = hyper::body::to_bytes(self.response.into_body()).await.unwrap();
+            let body =
+                axum::body::to_bytes(self.response.into_body(), MAX_BODY_SIZE).await.unwrap();
             String::from_utf8(body.to_vec()).unwrap()
         }
 
