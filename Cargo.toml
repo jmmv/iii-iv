@@ -13,18 +13,18 @@ resolver = "2"
 async-session = "3"
 async-trait = "0.1"
 axum = "0.6"
-base64 = "0.21"
-bcrypt = "0.14"
+base64 = "0.22"
+bcrypt = "0.17"
 bytes = "1.10"
 derivative = "2.2"
-derive-getters = "0.2.1"
-derive_more = { version = "0.99.19", default-features = false }
-env_logger = "0.8"
+derive-getters = "0.5.0"
+derive_more = { version = "2.0.1", default-features = false }
+env_logger = "0.11"
 futures = "0.3"
 http = "0.2.12"
 http-body = "0.4"
 hyper = { version = "0.14", features = ["full"] }
-lettre = { version = "0.10.4", default-features = false }
+lettre = { version = "0.11.15", default-features = false }
 log = "0.4"
 lru_time_cache = "0.11"
 mime = "0.3"
@@ -32,14 +32,14 @@ paste = "1.0"
 quoted_printable = "0.5"
 rand = "0.8"
 regex = "1"
-reqwest = { version = "0.11", default-features = false, features = ["rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 serde_json = "1"
 serde_test = "1"
 serde_urlencoded = "0.7"
 serde = { version = "1", features = ["derive"] }
 sqlx = "0.7"
 temp-env = "0.3.6"
-thiserror = "1.0"
+thiserror = "2.0"
 time = "0.3"
 tokio = "1"
 tower = "0.4"
