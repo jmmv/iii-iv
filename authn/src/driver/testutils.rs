@@ -29,7 +29,7 @@ use std::sync::Arc;
 #[cfg(test)]
 use {
     iii_iv_core::clocks::testutils::SettableClock, iii_iv_core::db::Executor, std::time::Duration,
-    time::macros::datetime, time::OffsetDateTime,
+    time::OffsetDateTime, time::macros::datetime,
 };
 
 /// State of a running test.

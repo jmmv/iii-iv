@@ -19,12 +19,12 @@ use crate::db::{Db, DbError, DbResult, Executor, TxExecutor};
 use crate::env::{get_optional_var, get_required_var};
 use async_trait::async_trait;
 use derivative::Derivative;
-use futures::future::BoxFuture;
 use futures::Future;
+use futures::future::BoxFuture;
 use log::warn;
+use sqlx::Transaction;
 use sqlx::pool::PoolConnection;
 use sqlx::postgres::{PgConnectOptions, PgDatabaseError, PgPool, PgPoolOptions, Postgres};
-use sqlx::Transaction;
 use std::time::Duration;
 
 /// Default value for the `max_retries` configuration property.
@@ -134,7 +134,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
     {
         match self {
             PostgresExecutor::PoolExec(conn) => conn.describe(sql),
-            PostgresExecutor::TxExec(ref mut tx) => tx.describe(sql),
+            PostgresExecutor::TxExec(tx) => tx.describe(sql),
         }
     }
 
@@ -148,7 +148,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
     {
         match self {
             PostgresExecutor::PoolExec(conn) => conn.execute(query),
-            PostgresExecutor::TxExec(ref mut tx) => tx.execute(query),
+            PostgresExecutor::TxExec(tx) => tx.execute(query),
         }
     }
 
@@ -165,7 +165,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
     {
         match self {
             PostgresExecutor::PoolExec(conn) => conn.execute_many(query),
-            PostgresExecutor::TxExec(ref mut tx) => tx.execute_many(query),
+            PostgresExecutor::TxExec(tx) => tx.execute_many(query),
         }
     }
 
@@ -179,7 +179,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
     {
         match self {
             PostgresExecutor::PoolExec(conn) => conn.fetch(query),
-            PostgresExecutor::TxExec(ref mut tx) => tx.fetch(query),
+            PostgresExecutor::TxExec(tx) => tx.fetch(query),
         }
     }
 
@@ -193,7 +193,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
     {
         match self {
             PostgresExecutor::PoolExec(conn) => conn.fetch_all(query),
-            PostgresExecutor::TxExec(ref mut tx) => tx.fetch_all(query),
+            PostgresExecutor::TxExec(tx) => tx.fetch_all(query),
         }
     }
 
@@ -216,7 +216,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
     {
         match self {
             PostgresExecutor::PoolExec(conn) => conn.fetch_many(query),
-            PostgresExecutor::TxExec(ref mut tx) => tx.fetch_many(query),
+            PostgresExecutor::TxExec(tx) => tx.fetch_many(query),
         }
     }
 
@@ -230,7 +230,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
     {
         match self {
             PostgresExecutor::PoolExec(conn) => conn.fetch_one(query),
-            PostgresExecutor::TxExec(ref mut tx) => tx.fetch_one(query),
+            PostgresExecutor::TxExec(tx) => tx.fetch_one(query),
         }
     }
 
@@ -244,7 +244,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
     {
         match self {
             PostgresExecutor::PoolExec(conn) => conn.fetch_optional(query),
-            PostgresExecutor::TxExec(ref mut tx) => tx.fetch_optional(query),
+            PostgresExecutor::TxExec(tx) => tx.fetch_optional(query),
         }
     }
 
@@ -257,7 +257,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
     {
         match self {
             PostgresExecutor::PoolExec(conn) => conn.prepare(query),
-            PostgresExecutor::TxExec(ref mut tx) => tx.prepare(query),
+            PostgresExecutor::TxExec(tx) => tx.prepare(query),
         }
     }
 
@@ -271,7 +271,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
     {
         match self {
             PostgresExecutor::PoolExec(conn) => conn.prepare_with(sql, parameters),
-            PostgresExecutor::TxExec(ref mut tx) => tx.prepare_with(sql, parameters),
+            PostgresExecutor::TxExec(tx) => tx.prepare_with(sql, parameters),
         }
     }
 }
@@ -425,7 +425,6 @@ mod tests {
     use super::testutils::*;
     use super::*;
     use crate::db::tests::{generate_db_ro_concurrent_tests, generate_db_rw_tests};
-    use std::env;
     use std::sync::Arc;
 
     generate_db_ro_concurrent_tests!(
@@ -521,8 +520,15 @@ mod tests {
             ("MISSING_PASSWORD", Some("the-password")),
         ];
         for (var, _) in overrides {
+            // Keep all variables except one.
+            let mut overrides = overrides;
+            for (k, v) in &mut overrides {
+                if *k == var {
+                    *v = None::<&str>;
+                }
+            }
+
             temp_env::with_vars(overrides, || {
-                env::remove_var(var);
                 let err = PostgresOptions::from_env("MISSING").unwrap_err();
                 assert!(err.contains(&format!("{} not present", var)));
             });

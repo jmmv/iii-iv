@@ -16,11 +16,11 @@
 //! Utilities to deal with HTTP authorization.
 
 use crate::model::{AccessToken, Password};
-use base64::engine::general_purpose;
 use base64::Engine;
+use base64::engine::general_purpose;
 use http::header::HeaderMap;
 use iii_iv_core::model::Username;
-use iii_iv_core::rest::{get_unique_header, RestError, RestResult};
+use iii_iv_core::rest::{RestError, RestResult, get_unique_header};
 use std::str;
 
 /// Validates that the `Authorization` HTTP header contains a textual payload for the
@@ -37,14 +37,14 @@ fn get_authorization_header<'a>(
                 scheme: exp_scheme,
                 realm: exp_realm,
                 message: "Missing Authorization header".to_owned(),
-            })
+            });
         }
         Err(e) => {
             return Err(RestError::Unauthorized {
                 scheme: exp_scheme,
                 realm: exp_realm,
                 message: e.to_string(),
-            })
+            });
         }
     };
 
@@ -55,7 +55,7 @@ fn get_authorization_header<'a>(
                 scheme: exp_scheme,
                 realm: exp_realm,
                 message: format!("Bad encoding in Authorization header: {}", e),
-            })
+            });
         }
     };
 
@@ -67,7 +67,7 @@ fn get_authorization_header<'a>(
                 scheme: exp_scheme,
                 realm: exp_realm,
                 message: "Bad Authorization header: missing scheme".to_owned(),
-            })
+            });
         }
     };
     let payload = match fields.next() {
@@ -77,7 +77,7 @@ fn get_authorization_header<'a>(
                 scheme: exp_scheme,
                 realm: exp_realm,
                 message: "Bad Authorization header: missing payload".to_owned(),
-            })
+            });
         }
     };
     assert!(fields.next().is_none());
@@ -107,7 +107,7 @@ pub fn get_basic_auth(
                 scheme: "Basic",
                 realm: exp_realm,
                 message: format!("Bad base64 encoding in payload: {}", e),
-            })
+            });
         }
     };
 
@@ -120,7 +120,7 @@ pub fn get_basic_auth(
                 scheme: "Basic",
                 realm: exp_realm,
                 message: format!("Bad UTF-8 encoding in payload: {}", e),
-            })
+            });
         }
     };
 
@@ -131,7 +131,7 @@ pub fn get_basic_auth(
                 scheme: "Basic",
                 realm: exp_realm,
                 message: "Bad content".to_owned(),
-            })
+            });
         }
     };
 

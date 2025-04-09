@@ -220,8 +220,8 @@ use generate_db_tests;
 mod postgres {
     use super::*;
     use crate::db::init_schema;
-    use iii_iv_core::db::postgres::PostgresDb;
     use iii_iv_core::db::Db;
+    use iii_iv_core::db::postgres::PostgresDb;
     use std::sync::Arc;
 
     async fn setup() -> PostgresDb {
@@ -242,8 +242,8 @@ mod postgres {
 mod sqlite {
     use super::*;
     use crate::db::init_schema;
-    use iii_iv_core::db::sqlite::SqliteDb;
     use iii_iv_core::db::Db;
+    use iii_iv_core::db::sqlite::SqliteDb;
     use std::sync::Arc;
 
     async fn setup() -> SqliteDb {

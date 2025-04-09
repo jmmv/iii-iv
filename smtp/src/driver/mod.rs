@@ -193,7 +193,6 @@ mod tests {
     use super::*;
     use crate::db::get_email_log;
     use futures::future;
-    use std::env;
     use std::time::Duration;
 
     #[test]
@@ -247,8 +246,15 @@ mod tests {
             ("MISSING_PASSWORD", Some("the-password")),
         ];
         for (var, _) in overrides {
+            // Keep all variables except one.
+            let mut overrides = overrides;
+            for (k, v) in &mut overrides {
+                if *k == var {
+                    *v = None::<&str>;
+                }
+            }
+
             temp_env::with_vars(overrides, || {
-                env::remove_var(var);
                 let err = SmtpOptions::from_env("MISSING").unwrap_err();
                 assert!(err.contains(&format!("{} not present", var)));
             });

@@ -73,8 +73,8 @@ impl AuthnDriver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::driver::testutils::*;
     use crate::driver::AuthnOptions;
+    use crate::driver::testutils::*;
     use iii_iv_core::model::EmailAddress;
     use time::OffsetDateTime;
 

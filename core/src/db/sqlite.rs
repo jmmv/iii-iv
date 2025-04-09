@@ -19,9 +19,9 @@ use crate::db::{Db, DbError, DbResult, Executor, TxExecutor};
 use async_trait::async_trait;
 use futures::future::BoxFuture;
 use log::warn;
+use sqlx::Transaction;
 use sqlx::pool::PoolConnection;
 use sqlx::sqlite::{Sqlite, SqlitePool};
-use sqlx::Transaction;
 use std::time::Duration;
 use time::OffsetDateTime;
 
@@ -77,7 +77,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
     {
         match self {
             SqliteExecutor::PoolExec(conn) => conn.describe(sql),
-            SqliteExecutor::TxExec(ref mut tx) => tx.describe(sql),
+            SqliteExecutor::TxExec(tx) => tx.describe(sql),
         }
     }
 
@@ -91,7 +91,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
     {
         match self {
             SqliteExecutor::PoolExec(conn) => conn.execute(query),
-            SqliteExecutor::TxExec(ref mut tx) => tx.execute(query),
+            SqliteExecutor::TxExec(tx) => tx.execute(query),
         }
     }
 
@@ -108,7 +108,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
     {
         match self {
             SqliteExecutor::PoolExec(conn) => conn.execute_many(query),
-            SqliteExecutor::TxExec(ref mut tx) => tx.execute_many(query),
+            SqliteExecutor::TxExec(tx) => tx.execute_many(query),
         }
     }
 
@@ -122,7 +122,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
     {
         match self {
             SqliteExecutor::PoolExec(conn) => conn.fetch(query),
-            SqliteExecutor::TxExec(ref mut tx) => tx.fetch(query),
+            SqliteExecutor::TxExec(tx) => tx.fetch(query),
         }
     }
 
@@ -136,7 +136,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
     {
         match self {
             SqliteExecutor::PoolExec(conn) => conn.fetch_all(query),
-            SqliteExecutor::TxExec(ref mut tx) => tx.fetch_all(query),
+            SqliteExecutor::TxExec(tx) => tx.fetch_all(query),
         }
     }
 
@@ -159,7 +159,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
     {
         match self {
             SqliteExecutor::PoolExec(conn) => conn.fetch_many(query),
-            SqliteExecutor::TxExec(ref mut tx) => tx.fetch_many(query),
+            SqliteExecutor::TxExec(tx) => tx.fetch_many(query),
         }
     }
 
@@ -173,7 +173,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
     {
         match self {
             SqliteExecutor::PoolExec(conn) => conn.fetch_one(query),
-            SqliteExecutor::TxExec(ref mut tx) => tx.fetch_one(query),
+            SqliteExecutor::TxExec(tx) => tx.fetch_one(query),
         }
     }
 
@@ -187,7 +187,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
     {
         match self {
             SqliteExecutor::PoolExec(conn) => conn.fetch_optional(query),
-            SqliteExecutor::TxExec(ref mut tx) => tx.fetch_optional(query),
+            SqliteExecutor::TxExec(tx) => tx.fetch_optional(query),
         }
     }
 
@@ -200,7 +200,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
     {
         match self {
             SqliteExecutor::PoolExec(conn) => conn.prepare(query),
-            SqliteExecutor::TxExec(ref mut tx) => tx.prepare(query),
+            SqliteExecutor::TxExec(tx) => tx.prepare(query),
         }
     }
 
@@ -214,7 +214,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
     {
         match self {
             SqliteExecutor::PoolExec(conn) => conn.prepare_with(sql, parameters),
-            SqliteExecutor::TxExec(ref mut tx) => tx.prepare_with(sql, parameters),
+            SqliteExecutor::TxExec(tx) => tx.prepare_with(sql, parameters),
         }
     }
 }

@@ -3,7 +3,7 @@ name = "iii-iv-queue"
 version = "0.0.0"
 description = "III-IV: Database-backed queue for tasks"
 authors = ["Julio Merino <julio@meroh.net>"]
-edition = "2021"
+edition = "2024"
 publish = false
 
 [features]

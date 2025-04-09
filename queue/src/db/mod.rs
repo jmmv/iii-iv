@@ -15,7 +15,7 @@
 
 //! Database abstractions to manipulate queue tasks.
 
-use crate::db::status::{result_to_status, status_to_result, TaskStatus};
+use crate::db::status::{TaskStatus, result_to_status, status_to_result};
 use crate::model::{RunnableTask, RunningTask, TaskResult};
 use futures::TryStreamExt;
 #[cfg(feature = "postgres")]
@@ -23,8 +23,8 @@ use iii_iv_core::db::postgres;
 #[cfg(any(feature = "sqlite", test))]
 use iii_iv_core::db::sqlite;
 use iii_iv_core::db::{DbError, DbResult, Executor};
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use sqlx::Row;
 use std::time::Duration;
 use time::OffsetDateTime;
@@ -64,12 +64,10 @@ fn ensure_one_update(id: Uuid, affected: u64) -> DbResult<()> {
 /// Initializes the database schema.
 pub async fn init_schema(ex: &mut Executor) -> DbResult<()> {
     match ex {
-        Executor::Postgres(ref mut ex) => {
-            postgres::run_schema(ex, include_str!("postgres.sql")).await
-        }
+        Executor::Postgres(ex) => postgres::run_schema(ex, include_str!("postgres.sql")).await,
 
         #[cfg(any(feature = "sqlite", test))]
-        Executor::Sqlite(ref mut ex) => sqlite::run_schema(ex, include_str!("sqlite.sql")).await,
+        Executor::Sqlite(ex) => sqlite::run_schema(ex, include_str!("sqlite.sql")).await,
 
         #[allow(unused)]
         _ => unreachable!(),
@@ -93,13 +91,13 @@ where
     let json_task = match serde_json::to_string(task) {
         Ok(json) => json,
         Err(e) => {
-            return Err(DbError::BackendError(format!("Cannot serialize task for storage: {}", e)))
+            return Err(DbError::BackendError(format!("Cannot serialize task for storage: {}", e)));
         }
     };
 
     let rows_affected = match ex {
         #[cfg(feature = "postgres")]
-        Executor::Postgres(ref mut ex) => {
+        Executor::Postgres(ex) => {
             let query_str = "
                 INSERT INTO tasks
                     (id, json, status_code, status_reason, runs, created, updated, only_after)
@@ -119,7 +117,7 @@ where
         }
 
         #[cfg(any(feature = "sqlite", test))]
-        Executor::Sqlite(ref mut ex) => {
+        Executor::Sqlite(ex) => {
             let (created_sec, created_nsec) = sqlite::unpack_timestamp(created);
             let only_after = only_after.map(sqlite::unpack_timestamp);
 
@@ -159,7 +157,7 @@ where
 pub(crate) async fn get_result(ex: &mut Executor, id: Uuid) -> DbResult<Option<TaskResult>> {
     match ex {
         #[cfg(feature = "postgres")]
-        Executor::Postgres(ref mut ex) => {
+        Executor::Postgres(ex) => {
             let query_str = "
                 SELECT status_code, status_reason, runs, only_after
                 FROM tasks
@@ -192,7 +190,7 @@ pub(crate) async fn get_result(ex: &mut Executor, id: Uuid) -> DbResult<Option<T
                             return Err(DbError::DataIntegrityError(format!(
                                 "Invalid status_code {}: {}",
                                 code, e
-                            )))
+                            )));
                         }
                     };
 
@@ -205,7 +203,7 @@ pub(crate) async fn get_result(ex: &mut Executor, id: Uuid) -> DbResult<Option<T
         }
 
         #[cfg(any(feature = "sqlite", test))]
-        Executor::Sqlite(ref mut ex) => {
+        Executor::Sqlite(ex) => {
             let query_str = "
                 SELECT status_code, status_reason, runs, only_after_sec, only_after_nsec
                 FROM tasks
@@ -269,7 +267,7 @@ pub(crate) async fn get_results_since(
 
     match ex {
         #[cfg(feature = "postgres")]
-        Executor::Postgres(ref mut ex) => {
+        Executor::Postgres(ex) => {
             let query_str = "
                 SELECT id, status_code, status_reason, runs, only_after
                 FROM tasks
@@ -297,7 +295,7 @@ pub(crate) async fn get_results_since(
                         return Err(DbError::DataIntegrityError(format!(
                             "Invalid status_code {}: {}",
                             code, e
-                        )))
+                        )));
                     }
                 };
 
@@ -308,7 +306,7 @@ pub(crate) async fn get_results_since(
         }
 
         #[cfg(any(feature = "sqlite", test))]
-        Executor::Sqlite(ref mut ex) => {
+        Executor::Sqlite(ex) => {
             let (since_sec, since_nsec) = sqlite::unpack_timestamp(since);
 
             let query_str = "
@@ -390,7 +388,7 @@ where
         let runs = match u8::try_from(runs) {
             Ok(runs) => runs,
             Err(e) => {
-                return Err(DbError::DataIntegrityError(format!("Invalid runs {}: {}", runs, e)))
+                return Err(DbError::DataIntegrityError(format!("Invalid runs {}: {}", runs, e)));
             }
         };
 
@@ -399,7 +397,7 @@ where
 
     match ex {
         #[cfg(feature = "postgres")]
-        Executor::Postgres(ref mut ex) => {
+        Executor::Postgres(ex) => {
             let query_str = "
                 SELECT id, json, runs
                 FROM tasks
@@ -426,7 +424,7 @@ where
         }
 
         #[cfg(any(feature = "sqlite", test))]
-        Executor::Sqlite(ref mut ex) => {
+        Executor::Sqlite(ex) => {
             let max_runtime_msec = {
                 let (max_runtime_sec, max_runtime_nsec) = sqlite::unpack_duration(max_runtime);
                 as_msec("max_runtime", max_runtime_sec, max_runtime_nsec)?
@@ -494,7 +492,7 @@ where
 
     let rows_affected = match ex {
         #[cfg(feature = "postgres")]
-        Executor::Postgres(ref mut ex) => {
+        Executor::Postgres(ex) => {
             let query_str = "
                 UPDATE tasks
                 SET status_code = $1, updated = $2, runs = $3
@@ -516,7 +514,7 @@ where
         }
 
         #[cfg(any(feature = "sqlite", test))]
-        Executor::Sqlite(ref mut ex) => {
+        Executor::Sqlite(ex) => {
             let max_runtime_msec = {
                 let (max_runtime_sec, max_runtime_nsec) = sqlite::unpack_duration(max_runtime);
                 as_msec("max_runtime", max_runtime_sec, max_runtime_nsec)?
@@ -573,7 +571,7 @@ pub(crate) async fn set_task_result(
 
     let rows_affected = match ex {
         #[cfg(feature = "postgres")]
-        Executor::Postgres(ref mut ex) => {
+        Executor::Postgres(ex) => {
             let query_str = "
                 UPDATE tasks
                 SET status_code = $1, status_reason = $2, updated = $3, only_after = $4
@@ -592,7 +590,7 @@ pub(crate) async fn set_task_result(
         }
 
         #[cfg(any(feature = "sqlite", test))]
-        Executor::Sqlite(ref mut ex) => {
+        Executor::Sqlite(ex) => {
             let (updated_sec, updated_nsec) = sqlite::unpack_timestamp(updated);
             let only_after = only_after.map(sqlite::unpack_timestamp);
 

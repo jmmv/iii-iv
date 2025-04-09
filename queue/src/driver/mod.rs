@@ -27,8 +27,8 @@ mod testutils {
     use crate::db;
     use crate::model::{ExecError, ExecResult};
     use futures::lock::Mutex;
-    use iii_iv_core::clocks::testutils::SettableClock;
     use iii_iv_core::clocks::Clock;
+    use iii_iv_core::clocks::testutils::SettableClock;
     use iii_iv_core::db::{Db, Executor};
     use serde::{Deserialize, Serialize};
     use std::collections::HashMap;

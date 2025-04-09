@@ -16,7 +16,7 @@
 //! The `Username` data type.
 
 use crate::model::{ModelError, ModelResult};
-use serde::{de::Visitor, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::Visitor};
 
 /// Maximum length of a username as specified in the schema.
 pub(crate) const USERS_MAX_USERNAME_LENGTH: usize = 32;
@@ -112,7 +112,7 @@ impl<'de> Deserialize<'de> for Username {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_test::{assert_de_tokens_error, assert_tokens, Token};
+    use serde_test::{Token, assert_de_tokens_error, assert_tokens};
 
     #[test]
     fn test_username_ok() {

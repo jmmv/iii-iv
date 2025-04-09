@@ -17,8 +17,8 @@
 
 use iii_iv_core::model::{EmailAddress, ModelError, ModelResult};
 use iii_iv_core::template;
-use lettre::message::header::ContentTransferEncoding;
 use lettre::message::Body;
+use lettre::message::header::ContentTransferEncoding;
 pub use lettre::message::{Mailbox, Message};
 
 /// A template for an email message.

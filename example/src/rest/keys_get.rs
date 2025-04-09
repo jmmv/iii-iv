@@ -16,9 +16,9 @@
 //! API to get all existing keys.
 
 use crate::driver::Driver;
+use axum::Json;
 use axum::extract::State;
 use axum::response::IntoResponse;
-use axum::Json;
 use iii_iv_core::rest::{EmptyBody, RestError};
 
 /// API handler.

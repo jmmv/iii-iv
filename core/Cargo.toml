@@ -3,7 +3,7 @@ name = "iii-iv-core"
 version = "0.0.0"
 description = "III-IV: Core abstractions and types"
 authors = ["Julio Merino <julio@meroh.net>"]
-edition = "2021"
+edition = "2024"
 publish = false
 
 [features]

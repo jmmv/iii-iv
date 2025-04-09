@@ -172,7 +172,7 @@ impl GeoLocator for AzureGeoLocator {
                         return Err(io::Error::new(
                             io::ErrorKind::InvalidData,
                             format!("Invalid {} IP in the response: {}", response.ip, e),
-                        ))
+                        ));
                     }
                 }
 

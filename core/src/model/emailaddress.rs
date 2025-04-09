@@ -117,7 +117,7 @@ impl<'de> Deserialize<'de> for EmailAddress {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_test::{assert_de_tokens_error, assert_tokens, Token};
+    use serde_test::{Token, assert_de_tokens_error, assert_tokens};
 
     #[test]
     fn test_emailaddress_ok() {

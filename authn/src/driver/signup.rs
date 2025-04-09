@@ -16,8 +16,8 @@
 //! Extends the driver with the `signup` method.
 
 use crate::db;
-use crate::driver::email::send_activation_code;
 use crate::driver::AuthnDriver;
+use crate::driver::email::send_activation_code;
 use crate::model::Password;
 use iii_iv_core::db::DbError;
 use iii_iv_core::driver::{DriverError, DriverResult};
@@ -93,8 +93,8 @@ impl AuthnDriver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::driver::testutils::*;
     use crate::driver::AuthnOptions;
+    use crate::driver::testutils::*;
 
     #[tokio::test]
     async fn test_signup_ok() {
