@@ -68,7 +68,7 @@ impl CountryIsoCode {
 /// Visitor to deserialize a `CountryIsoCode` from a string.
 struct CountryIsoCodeVisitor;
 
-impl<'de> Visitor<'de> for CountryIsoCodeVisitor {
+impl Visitor<'_> for CountryIsoCodeVisitor {
     type Value = CountryIsoCode;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {

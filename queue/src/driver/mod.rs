@@ -463,7 +463,7 @@ mod tests {
         for _ in 0..10 {
             {
                 let state = context.state.lock().await;
-                if state.len() > 0 {
+                if !state.is_empty() {
                     panic!("The deferred tasks completed but they should not have run");
                 }
             }

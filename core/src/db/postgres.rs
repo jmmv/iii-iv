@@ -138,13 +138,13 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
         }
     }
 
-    fn execute<'e, 'q: 'e, E: 'q>(
+    fn execute<'e, 'q: 'e, E>(
         self,
         query: E,
     ) -> BoxFuture<'e, Result<<Self::Database as sqlx::Database>::QueryResult, sqlx::Error>>
     where
         'c: 'e,
-        E: sqlx::Execute<'q, Self::Database>,
+        E: 'q + sqlx::Execute<'q, Self::Database>,
     {
         match self {
             PostgresExecutor::PoolExec(conn) => conn.execute(query),
@@ -152,7 +152,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
         }
     }
 
-    fn execute_many<'e, 'q: 'e, E: 'q>(
+    fn execute_many<'e, 'q: 'e, E>(
         self,
         query: E,
     ) -> futures::stream::BoxStream<
@@ -161,7 +161,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
     >
     where
         'c: 'e,
-        E: sqlx::Execute<'q, Self::Database>,
+        E: 'q + sqlx::Execute<'q, Self::Database>,
     {
         match self {
             PostgresExecutor::PoolExec(conn) => conn.execute_many(query),
@@ -169,13 +169,13 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
         }
     }
 
-    fn fetch<'e, 'q: 'e, E: 'q>(
+    fn fetch<'e, 'q: 'e, E>(
         self,
         query: E,
     ) -> futures::stream::BoxStream<'e, Result<<Self::Database as sqlx::Database>::Row, sqlx::Error>>
     where
         'c: 'e,
-        E: sqlx::Execute<'q, Self::Database>,
+        E: 'q + sqlx::Execute<'q, Self::Database>,
     {
         match self {
             PostgresExecutor::PoolExec(conn) => conn.fetch(query),
@@ -183,13 +183,13 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
         }
     }
 
-    fn fetch_all<'e, 'q: 'e, E: 'q>(
+    fn fetch_all<'e, 'q: 'e, E>(
         self,
         query: E,
     ) -> BoxFuture<'e, Result<Vec<<Self::Database as sqlx::Database>::Row>, sqlx::Error>>
     where
         'c: 'e,
-        E: sqlx::Execute<'q, Self::Database>,
+        E: 'q + sqlx::Execute<'q, Self::Database>,
     {
         match self {
             PostgresExecutor::PoolExec(conn) => conn.fetch_all(query),
@@ -197,7 +197,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
         }
     }
 
-    fn fetch_many<'e, 'q: 'e, E: 'q>(
+    fn fetch_many<'e, 'q: 'e, E>(
         self,
         query: E,
     ) -> futures::stream::BoxStream<
@@ -212,7 +212,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
     >
     where
         'c: 'e,
-        E: sqlx::Execute<'q, Self::Database>,
+        E: 'q + sqlx::Execute<'q, Self::Database>,
     {
         match self {
             PostgresExecutor::PoolExec(conn) => conn.fetch_many(query),
@@ -220,13 +220,13 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
         }
     }
 
-    fn fetch_one<'e, 'q: 'e, E: 'q>(
+    fn fetch_one<'e, 'q: 'e, E>(
         self,
         query: E,
     ) -> BoxFuture<'e, Result<<Self::Database as sqlx::Database>::Row, sqlx::Error>>
     where
         'c: 'e,
-        E: sqlx::Execute<'q, Self::Database>,
+        E: 'q + sqlx::Execute<'q, Self::Database>,
     {
         match self {
             PostgresExecutor::PoolExec(conn) => conn.fetch_one(query),
@@ -234,13 +234,13 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
         }
     }
 
-    fn fetch_optional<'e, 'q: 'e, E: 'q>(
+    fn fetch_optional<'e, 'q: 'e, E>(
         self,
         query: E,
     ) -> BoxFuture<'e, Result<Option<<Self::Database as sqlx::Database>::Row>, sqlx::Error>>
     where
         'c: 'e,
-        E: sqlx::Execute<'q, Self::Database>,
+        E: 'q + sqlx::Execute<'q, Self::Database>,
     {
         match self {
             PostgresExecutor::PoolExec(conn) => conn.fetch_optional(query),

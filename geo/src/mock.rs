@@ -82,6 +82,6 @@ impl GeoLocator for MockGeoLocator {
                 ));
             }
         }
-        Ok(country.map(CountryIsoCode::clone))
+        Ok(country.cloned())
     }
 }

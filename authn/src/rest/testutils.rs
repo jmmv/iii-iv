@@ -16,7 +16,7 @@
 //! Utilities to help testing services that integrate with the `authn` features.
 
 use crate::db;
-use crate::model::{AccessToken, HashedPassword, Password, User};
+use crate::model::{AccessToken, Password, User};
 use crate::rest::LoginResponse;
 use axum::Router;
 use iii_iv_core::db::Executor;
@@ -49,14 +49,9 @@ pub async fn create_test_user(
     let user = User::new(username, email)
         .with_password(password)
         .with_last_login(OffsetDateTime::from_unix_timestamp(100100).unwrap());
-    db::create_user(
-        ex,
-        user.username().clone(),
-        user.password().map(HashedPassword::clone),
-        user.email().clone(),
-    )
-    .await
-    .unwrap();
+    db::create_user(ex, user.username().clone(), user.password().cloned(), user.email().clone())
+        .await
+        .unwrap();
     db::update_user(ex, user.username().clone(), user.last_login().unwrap()).await.unwrap();
     user
 }

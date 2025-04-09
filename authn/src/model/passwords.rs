@@ -29,7 +29,7 @@ impl Password {
     /// Creates a new password from a literal string.
     pub fn new<S: Into<String>>(s: S) -> ModelResult<Self> {
         let s = s.into();
-        if s.as_bytes().len() > 56 {
+        if s.len() > 56 {
             return Err(ModelError("Password is too long".to_owned()));
         }
         Ok(Password(s))
@@ -72,7 +72,7 @@ impl From<&'static str> for Password {
 }
 
 impl fmt::Debug for Password {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("scrubbed password")
     }
 }
@@ -95,7 +95,7 @@ impl HashedPassword {
 }
 
 impl fmt::Debug for HashedPassword {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("scrubbed hash")
     }
 }
