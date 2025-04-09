@@ -211,8 +211,9 @@ mod testutils {
 
         /// Notifies `n` workers about the availability of new tasks.
         pub(super) async fn notify_workers(&mut self, n: usize) {
+            debug_assert!(n < usize::from(u16::MAX));
             for _ in 0..n {
-                let i = rand::random::<usize>() % self.workers.len();
+                let i = usize::from(rand::random::<u16>()) % self.workers.len();
                 self.workers[i].lock().await.notify().await.unwrap();
             }
         }
