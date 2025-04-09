@@ -30,7 +30,7 @@ workspace = true
 features = ["builder", "hostname", "pool", "rustls-tls", "smtp-transport", "tokio1-rustls-tls"]
 
 [dependencies.sqlx]
-version = "0.7"
+version = "0.8"
 optional = true
 features = ["runtime-tokio-rustls", "time"]
 

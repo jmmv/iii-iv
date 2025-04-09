@@ -251,10 +251,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
     fn prepare<'e, 'q: 'e>(
         self,
         query: &'q str,
-    ) -> BoxFuture<
-        'e,
-        Result<<Self::Database as sqlx::database::HasStatement<'q>>::Statement, sqlx::Error>,
-    >
+    ) -> BoxFuture<'e, Result<<Self::Database as sqlx::Database>::Statement<'q>, sqlx::Error>>
     where
         'c: 'e,
     {
@@ -268,10 +265,7 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
         self,
         sql: &'q str,
         parameters: &'e [<Self::Database as sqlx::Database>::TypeInfo],
-    ) -> BoxFuture<
-        'e,
-        Result<<Self::Database as sqlx::database::HasStatement<'q>>::Statement, sqlx::Error>,
-    >
+    ) -> BoxFuture<'e, Result<<Self::Database as sqlx::Database>::Statement<'q>, sqlx::Error>>
     where
         'c: 'e,
     {
