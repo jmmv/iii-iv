@@ -50,10 +50,10 @@ impl AccessToken {
 
     /// Generates a new access token.
     pub fn generate() -> Self {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let mut token = String::with_capacity(TOKEN_LENGTH);
         for _ in 0..TOKEN_LENGTH {
-            let i = rng.gen_range(0..(10 + 26 + 26));
+            let i = rng.random_range(0..(10 + 26 + 26));
             let ch = if i < 10 {
                 (b'0' + i) as char
             } else if i < 10 + 26 {
