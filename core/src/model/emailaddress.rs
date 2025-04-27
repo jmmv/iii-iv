@@ -27,7 +27,7 @@ pub(crate) const MAX_EMAIL_LENGTH: usize = 64;
 /// According to the standard, the local part of an email address may be case sensitive but the
 /// domain part is case insensitive.  Given that we only persist email addresses for tracing
 /// purposes, this treats them as case sensitive overall.
-#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(transparent)]
 pub struct EmailAddress(String);
 
