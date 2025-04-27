@@ -21,8 +21,8 @@ jobs:
                   toolchain: stable
                   default: true
                   components: clippy, rustfmt
-            - uses: actions/checkout@v2
-            - uses: mozilla-actions/sccache-action@v0.0.3
+            - uses: actions/checkout@v4
+            - uses: mozilla-actions/sccache-action@v0.0.9
             - run: sudo apt update
             - run: sudo apt install pre-commit
             - run: ./lint.sh
@@ -40,8 +40,8 @@ jobs:
             RUSTC_WRAPPER: "sccache"
             SCCACHE_GHA_ENABLED: "true"
         steps:
-            - uses: actions/checkout@v2
-            - uses: mozilla-actions/sccache-action@v0.0.3
+            - uses: actions/checkout@v4
+            - uses: mozilla-actions/sccache-action@v0.0.9
             - run: ./test.sh all
 
     test-workspace:
@@ -57,6 +57,6 @@ jobs:
             RUSTC_WRAPPER: "sccache"
             SCCACHE_GHA_ENABLED: "true"
         steps:
-            - uses: actions/checkout@v2
-            - uses: mozilla-actions/sccache-action@v0.0.3
+            - uses: actions/checkout@v4
+            - uses: mozilla-actions/sccache-action@v0.0.9
             - run: ./test.sh
