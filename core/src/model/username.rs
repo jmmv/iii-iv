@@ -25,7 +25,7 @@ pub(crate) const USERS_MAX_USERNAME_LENGTH: usize = 32;
 ///
 /// Usernames are case-insensitive and, for simplicity reasons, we force them to be all in
 /// lowercase.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(transparent)]
 pub struct Username(String);
 
