@@ -218,6 +218,7 @@ pub mod testutils {
     use axum::http::{self, HeaderName};
     use base64::Engine;
     use base64::engine::general_purpose;
+    use bytes::Bytes;
     use serde::Serialize;
     use serde::de::DeserializeOwned;
     use tower::util::ServiceExt;
@@ -305,12 +306,32 @@ pub mod testutils {
             ResponseChecker::from(self.app.oneshot(request).await.unwrap())
         }
 
+        /// Finishes building the request and sends it with a binary payload.
+        pub async fn send_bytes(self, bytes: Bytes) -> ResponseChecker {
+            let request = self
+                .builder
+                .header(http::header::CONTENT_TYPE, mime::APPLICATION_OCTET_STREAM.as_ref())
+                .body(axum::body::Body::from(bytes))
+                .unwrap();
+            ResponseChecker::from(self.app.oneshot(request).await.unwrap())
+        }
+
         /// Finishes building the request and sends it with a text payload.
         pub async fn send_text<T: Into<String>>(self, text: T) -> ResponseChecker {
             let request = self
                 .builder
                 .header(http::header::CONTENT_TYPE, mime::TEXT_PLAIN.as_ref())
                 .body(axum::body::Body::from(text.into()))
+                .unwrap();
+            ResponseChecker::from(self.app.oneshot(request).await.unwrap())
+        }
+
+        /// Finishes building the request and sends it with a binary payload.
+        pub async fn send_vec<B: Into<Vec<u8>>>(self, bytes: B) -> ResponseChecker {
+            let request = self
+                .builder
+                .header(http::header::CONTENT_TYPE, mime::APPLICATION_OCTET_STREAM.as_ref())
+                .body(axum::body::Body::from(bytes.into()))
                 .unwrap();
             ResponseChecker::from(self.app.oneshot(request).await.unwrap())
         }
