@@ -95,13 +95,14 @@ mod tests {
     use super::*;
     use crate::driver::AuthnOptions;
     use crate::driver::testutils::*;
+    use crate::model::password;
 
     #[tokio::test]
     async fn test_signup_ok() {
         let context = TestContext::setup(AuthnOptions::default()).await;
 
         let username = Username::from("hello");
-        let password = Password::from("sufficiently0complex");
+        let password = password!("sufficiently0complex");
         let email = EmailAddress::from("foo@example.com");
 
         assert_eq!(
@@ -133,7 +134,7 @@ mod tests {
 
         match context
             .driver()
-            .signup(username.clone(), Password::from("the1password"), email.clone())
+            .signup(username.clone(), password!("the1password"), email.clone())
             .await
         {
             Err(DriverError::AlreadyExists(msg)) => assert!(msg.contains("already registered")),
@@ -155,7 +156,7 @@ mod tests {
 
         match context
             .driver()
-            .signup(Username::from("other"), Password::from("the1password"), email.clone())
+            .signup(Username::from("other"), password!("the1password"), email.clone())
             .await
         {
             Err(DriverError::AlreadyExists(msg)) => assert!(msg.contains("already registered")),

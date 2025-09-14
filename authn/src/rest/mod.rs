@@ -58,6 +58,7 @@ mod tests {
     use super::api_login_post::LoginResponse;
     use super::api_signup_post::SignupRequest;
     use super::testutils::*;
+    use crate::model::password;
     use http::{Method, StatusCode};
     use iii_iv_core::model::{EmailAddress, Username};
     use iii_iv_core::rest::testutils::*;
@@ -68,7 +69,7 @@ mod tests {
 
         let request = SignupRequest {
             username: "the-user".into(),
-            password: "The1234Password".into(),
+            password: password!("The1234Password"),
             email: "new@example.com".into(),
         };
         OneShotBuilder::new(context.app(), (Method::POST, "/api/test/signup"))

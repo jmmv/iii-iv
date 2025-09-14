@@ -16,7 +16,7 @@
 //! Common tests for any database implementation.
 
 use crate::db::*;
-use crate::model::{AccessToken, HashedPassword, Session, User};
+use crate::model::{AccessToken, Session, User, hashed_password};
 use iii_iv_core::db::{DbError, Executor};
 use iii_iv_core::model::{EmailAddress, Username};
 use time::macros::datetime;
@@ -37,14 +37,14 @@ async fn test_users_ok(ex: &mut Executor) {
     let user = create_user(
         ex,
         Username::from("some-username"),
-        Some(HashedPassword::new("some-hash")),
+        Some(hashed_password!("some-hash")),
         EmailAddress::from("a@example.com"),
     )
     .await
     .unwrap();
 
     let exp_user = User::new(Username::from("some-username"), EmailAddress::from("a@example.com"))
-        .with_password(HashedPassword::new("some-hash"));
+        .with_password(hashed_password!("some-hash"));
     assert_eq!(exp_user, user);
 
     let user1 = get_user_by_username(ex, Username::from("some-username")).await.unwrap();
@@ -80,7 +80,7 @@ async fn test_users_update_ok(ex: &mut Executor) {
     create_user(
         ex,
         Username::from("some-username"),
-        Some(HashedPassword::new("some-hash")),
+        Some(hashed_password!("some-hash")),
         EmailAddress::from("a@example.com"),
     )
     .await
@@ -90,7 +90,7 @@ async fn test_users_update_ok(ex: &mut Executor) {
         .unwrap();
 
     let exp_user = User::new(Username::from("some-username"), EmailAddress::from("a@example.com"))
-        .with_password(HashedPassword::new("some-hash"))
+        .with_password(hashed_password!("some-hash"))
         .with_last_login(datetime!(2022-04-02 05:50:10 UTC));
     assert_eq!(exp_user, get_user_by_username(ex, Username::from("some-username")).await.unwrap());
 }
@@ -114,7 +114,7 @@ async fn test_set_user_activation_code_ok(ex: &mut Executor) {
     let mut user = create_user(
         ex,
         Username::from("some-username"),
-        Some(HashedPassword::new("some-hash")),
+        Some(hashed_password!("some-hash")),
         EmailAddress::from("a@example.com"),
     )
     .await

@@ -173,6 +173,7 @@ pub fn get_bearer_auth(headers: &HeaderMap, exp_realm: &'static str) -> RestResu
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::password;
     use http::HeaderValue;
 
     #[test]
@@ -183,7 +184,7 @@ mod tests {
             format!("Basic {}", general_purpose::STANDARD.encode("hello:bye")).parse().unwrap(),
         );
         assert_eq!(
-            (Username::from("hello"), Password::from("bye")),
+            (Username::from("hello"), password!("bye")),
             get_basic_auth(&headers, "the-realm").unwrap()
         );
     }
