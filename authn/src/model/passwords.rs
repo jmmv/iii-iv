@@ -17,22 +17,40 @@
 
 use iii_iv_core::model::{ModelError, ModelResult};
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::fmt;
 
 /// An opaque type to hold a password, protecting it from leaking into logs.
 #[derive(Deserialize, PartialEq, Serialize)]
 #[serde(transparent)]
 #[cfg_attr(any(test, feature = "testutils"), derive(Clone))]
-pub struct Password(String);
+pub struct Password(Cow<'static, str>);
 
 impl Password {
+    /// Checks if a password is valid, and returns an error message if it is not.
+    const fn validate(s: &str) -> Option<&'static str> {
+        if s.len() > 56 {
+            return Some("Password is too long");
+        }
+        None
+    }
+
     /// Creates a new password from a literal string.
     pub fn new<S: Into<String>>(s: S) -> ModelResult<Self> {
         let s = s.into();
-        if s.len() > 56 {
-            return Err(ModelError("Password is too long".to_owned()));
+        if let Some(e) = Password::validate(&s) {
+            return Err(ModelError(e.to_owned()));
         }
-        Ok(Password(s))
+        Ok(Password(Cow::Owned(s)))
+    }
+
+    /// Creates a new password from a hardcoded string, which must be valid.
+    #[cfg(any(test, feature = "testutils"))]
+    pub const fn from_static(s: &'static str) -> Self {
+        if Password::validate(s).is_some() {
+            panic!("Hardcoded password must be valid");
+        }
+        Self(Cow::Borrowed(s))
     }
 
     /// Returns a string view of the password.
@@ -51,23 +69,15 @@ impl Password {
         if let Some(error) = validator(&self.0) {
             return Err(ModelError(format!("Weak password: {}", error)));
         }
-        let hashed =
-            bcrypt::hash(self.0, 10).map_err(|e| ModelError(format!("Password error: {}", e)))?;
+        let hashed = bcrypt::hash(self.0.as_ref(), 10)
+            .map_err(|e| ModelError(format!("Password error: {}", e)))?;
         Ok(HashedPassword::new(hashed))
     }
 
     /// Verifies if this password matches a given `hash`.
     pub fn verify(self, hash: &HashedPassword) -> ModelResult<bool> {
-        bcrypt::verify(self.0, hash.as_str())
+        bcrypt::verify(self.0.as_ref(), hash.as_str())
             .map_err(|e| ModelError(format!("Password error: {}", e)))
-    }
-}
-
-#[cfg(any(test, feature = "testutils"))]
-impl From<&'static str> for Password {
-    /// Creates a new password from a hardcoded string, which must be valid.
-    fn from(s: &'static str) -> Self {
-        Password::new(s).expect("Hardcoded passwords must be valid")
     }
 }
 
@@ -77,20 +87,37 @@ impl fmt::Debug for Password {
     }
 }
 
+/// Instantiates a password from a static string.
+#[cfg(any(test, feature = "testutils"))]
+#[macro_export]
+macro_rules! __password__ {
+    ( $string:expr ) => {
+        $crate::model::Password::from_static($string)
+    };
+}
+
+#[cfg(any(test, feature = "testutils"))]
+pub use __password__ as password;
+
 /// An opaque type to hold a hashed password, protecting it from leaking into logs.
 #[derive(PartialEq)]
 #[cfg_attr(any(test, feature = "testutils"), derive(Clone))]
-pub struct HashedPassword(String);
+pub struct HashedPassword(Cow<'static, str>);
 
 impl HashedPassword {
     /// Creates a new hashed password from a literal string.
     pub fn new<S: Into<String>>(s: S) -> Self {
-        HashedPassword(s.into())
+        Self(Cow::Owned(s.into()))
+    }
+
+    /// Creates a new hashed password from a hardcoded string, which must be valid.
+    pub const fn from_static(s: &'static str) -> Self {
+        Self(Cow::Borrowed(s))
     }
 
     /// Returns a string view of the hash.
     pub fn as_str(&self) -> &str {
-        &self.0
+        self.0.as_ref()
     }
 }
 
@@ -100,13 +127,25 @@ impl fmt::Debug for HashedPassword {
     }
 }
 
+/// Instantiates a hashed password from a static string.
+#[cfg(any(test, feature = "testutils"))]
+#[macro_export]
+macro_rules! __hashed_password__ {
+    ( $string:expr ) => {
+        $crate::model::HashedPassword::from_static($string)
+    };
+}
+
+#[cfg(any(test, feature = "testutils"))]
+pub use __hashed_password__ as hashed_password;
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_password_ok() {
-        assert_eq!(Password::from("foo"), Password::new("foo").unwrap());
+        assert_eq!(password!("foo"), Password::new("foo").unwrap());
         assert_eq!("bar", Password::new("bar").unwrap().as_str());
     }
 
@@ -122,7 +161,7 @@ mod tests {
 
     #[test]
     fn test_password_validate_and_hash() {
-        let password = Password::from("abcd");
+        let password = password!("abcd");
         password.clone().validate_and_hash(|_| None).unwrap();
         match password.validate_and_hash(|_| Some("the error")) {
             Err(e) => assert_eq!("Weak password: the error", e.0),
@@ -132,8 +171,8 @@ mod tests {
 
     #[test]
     fn test_password_hash_and_verify() {
-        let password1 = Password::from("first password");
-        let password2 = Password::from("second password");
+        let password1 = password!("first password");
+        let password2 = password!("second password");
         let hash1 = password1.clone().validate_and_hash(|_| None).unwrap();
         let hash2 = password2.clone().validate_and_hash(|_| None).unwrap();
 

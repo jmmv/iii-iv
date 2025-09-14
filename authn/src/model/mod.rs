@@ -19,6 +19,8 @@ mod accesstoken;
 pub use accesstoken::AccessToken;
 mod passwords;
 pub use passwords::{HashedPassword, Password};
+#[cfg(any(test, feature = "testutils"))]
+pub use passwords::{hashed_password, password};
 mod session;
 pub use session::Session;
 mod user;

@@ -75,6 +75,7 @@ mod tests {
     use super::*;
     use crate::driver::AuthnOptions;
     use crate::driver::testutils::*;
+    use crate::model::password;
     use iii_iv_core::model::EmailAddress;
     use time::OffsetDateTime;
 
@@ -83,7 +84,7 @@ mod tests {
         let context = TestContext::setup(AuthnOptions::default()).await;
 
         let username = Username::from("hello");
-        let password = Password::from("password");
+        let password = password!("password");
 
         db::create_user(
             &mut context.ex().await,
@@ -112,7 +113,7 @@ mod tests {
         let context = TestContext::setup(AuthnOptions::default()).await;
 
         let username = Username::from("hello");
-        let password = Password::from("password");
+        let password = password!("password");
 
         db::create_user(
             &mut context.ex().await,
@@ -147,7 +148,7 @@ mod tests {
     async fn test_login_unknown_user() {
         let context = TestContext::setup(AuthnOptions::default()).await;
 
-        match context.driver().login(Username::from("foo"), Password::from("bar")).await {
+        match context.driver().login(Username::from("foo"), password!("bar")).await {
             Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("Unknown user")),
             e => panic!("{:?}", e),
         }
@@ -168,7 +169,7 @@ mod tests {
         .await
         .unwrap();
 
-        match context.driver().login(username, Password::from("abc")).await {
+        match context.driver().login(username, password!("abc")).await {
             Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("Invalid password")),
             e => panic!("{:?}", e),
         }
@@ -189,7 +190,7 @@ mod tests {
         .await
         .unwrap();
 
-        match context.driver().login(username, Password::from("irrelevant")).await {
+        match context.driver().login(username, password!("irrelevant")).await {
             Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("Login not allowed")),
             e => panic!("{:?}", e),
         }
@@ -200,7 +201,7 @@ mod tests {
         let context = TestContext::setup(AuthnOptions::default()).await;
 
         let username = Username::from("hello");
-        let password = Password::from("password");
+        let password = password!("password");
 
         let user = db::create_user(
             &mut context.ex().await,
@@ -223,7 +224,7 @@ mod tests {
         let context = TestContext::setup(AuthnOptions::default()).await;
 
         let username = Username::from("hello");
-        let password = Password::from("password");
+        let password = password!("password");
 
         db::create_user(
             &mut context.ex().await,

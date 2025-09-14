@@ -18,7 +18,7 @@
 use crate::db;
 use crate::driver::email::testutils::{get_latest_activation_code, make_test_activation_template};
 use crate::driver::{AuthnDriver, AuthnOptions};
-use crate::model::{AccessToken, Password};
+use crate::model::{AccessToken, password};
 use iii_iv_core::clocks::Clock;
 use iii_iv_core::db::Db;
 use iii_iv_core::model::EmailAddress;
@@ -87,7 +87,7 @@ impl TestContext {
 
     /// Syntactic sugar to create a user ifor testing purposes.
     pub async fn create_active_user(&self, username: &Username) {
-        let password = Password::from("test0password");
+        let password = password!("test0password");
 
         let email = EmailAddress::new(format!("{}@example.com", username.as_str())).unwrap();
         self.driver
@@ -102,7 +102,7 @@ impl TestContext {
 
     /// Syntactic sugar to create and log a user in for testing purposes.
     pub async fn do_test_login(&self, username: Username) -> AccessToken {
-        let password = Password::from("test0password");
+        let password = password!("test0password");
         self.create_active_user(&username).await;
 
         let response = self.driver.clone().login(username, password).await.unwrap();

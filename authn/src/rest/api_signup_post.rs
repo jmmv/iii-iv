@@ -49,6 +49,7 @@ pub(crate) async fn handler(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::password;
     use crate::rest::testutils::*;
     use axum::http;
     use iii_iv_core::{rest::testutils::OneShotBuilder, test_payload_must_be_json};
@@ -63,7 +64,7 @@ mod tests {
 
         let request = SignupRequest {
             username: "new".into(),
-            password: "hello4World".into(),
+            password: password!("hello4World"),
             email: "new@example.com".into(),
         };
         OneShotBuilder::new(context.app(), route()).send_json(request).await.expect_empty().await;
@@ -80,7 +81,7 @@ mod tests {
 
         let request = SignupRequest {
             username: context.whoami(),
-            password: "hello0World".into(),
+            password: password!("hello0World"),
             email: "other@example.com".into(),
         };
         OneShotBuilder::new(context.into_app(), route())
@@ -97,7 +98,7 @@ mod tests {
 
         let request = SignupRequest {
             username: Username::new_invalid("not valid"),
-            password: "hello".into(),
+            password: password!("hello"),
             email: "some@example.com".into(),
         };
         OneShotBuilder::new(context.into_app(), route())
@@ -114,7 +115,7 @@ mod tests {
 
         let request = SignupRequest {
             username: "valid".into(),
-            password: "hello".into(),
+            password: password!("hello"),
             email: EmailAddress::new_invalid("some.example.com"),
         };
         OneShotBuilder::new(context.into_app(), route())

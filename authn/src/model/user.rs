@@ -91,6 +91,7 @@ impl User {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::hashed_password;
     use time::macros::datetime;
 
     #[test]
@@ -105,9 +106,9 @@ mod tests {
         let user = user
             .with_activation_code(Some(123))
             .with_last_login(datetime!(2022-04-02 05:38:00 UTC))
-            .with_password(HashedPassword::new("password-hash"));
+            .with_password(hashed_password!("password-hash"));
         assert_eq!(Some(123), user.activation_code());
-        assert_eq!(Some(&HashedPassword::new("password-hash")), user.password());
+        assert_eq!(Some(&hashed_password!("password-hash")), user.password());
         assert_eq!(Some(datetime!(2022-04-02 05:38:00 UTC)), user.last_login());
     }
 }
