@@ -221,6 +221,7 @@ pub mod testutils {
     use bytes::Bytes;
     use serde::Serialize;
     use serde::de::DeserializeOwned;
+    use std::collections::HashMap;
     use tower::util::ServiceExt;
 
     /// Maximum body size for testing purposes.
@@ -369,15 +370,28 @@ pub mod testutils {
 
         /// Expected HTTP status code in the response above.
         exp_status: http::StatusCode,
+
+        /// Expected HTTP headers in the response above.
+        exp_headers: HashMap<String, String>,
     }
 
     impl From<HttpResponse> for ResponseChecker {
         fn from(response: HttpResponse) -> Self {
-            Self { response, exp_status: http::StatusCode::OK }
+            Self { response, exp_status: http::StatusCode::OK, exp_headers: HashMap::default() }
         }
     }
 
     impl ResponseChecker {
+        /// Expects the resulting headers to contain `name` set to `value`.
+        pub fn expect_header<N: Into<String>, V: Into<String>>(
+            mut self,
+            name: N,
+            value: V,
+        ) -> Self {
+            self.exp_headers.insert(name.into(), value.into());
+            self
+        }
+
         /// Sets the expected exit HTTP status to `status`.
         pub fn expect_status(mut self, status: http::StatusCode) -> Self {
             self.exp_status = status;
@@ -387,6 +401,12 @@ pub mod testutils {
         /// Performs common validation operations on the response.
         pub fn verify(&self) {
             assert_eq!(self.exp_status, self.response.status());
+
+            let headers = self.response.headers();
+            for (name, exp_value) in &self.exp_headers {
+                let value = get_unique_header(headers, name).unwrap().unwrap();
+                assert_eq!(exp_value, value);
+            }
         }
 
         /// Finishes checking the response and expects it to contain an empty body.
