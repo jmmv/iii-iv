@@ -27,7 +27,7 @@ use std::net::IpAddr;
 
 /// Converts a `reqwest::Error` to an `io::Error`.
 fn reqwest_error_to_io_error(e: reqwest::Error) -> io::Error {
-    io::Error::new(io::ErrorKind::Other, format!("{}", e))
+    io::Error::other(format!("{}", e))
 }
 
 /// Converts a `reqwest::Response` to an `io::Error`.  The response should have a non-OK status.
