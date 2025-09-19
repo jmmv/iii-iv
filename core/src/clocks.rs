@@ -87,7 +87,7 @@ pub mod testutils {
         /// Advances the current time by `delta`.
         pub fn advance(&self, delta: Duration) {
             let delta_ns = delta.as_nanos();
-            assert!(delta_ns % 1000 == 0, "Nanosecond precision not supported");
+            assert!(delta_ns.is_multiple_of(1000), "Nanosecond precision not supported");
             let delta_us = u64::try_from(delta_ns / 1000).unwrap();
             self.now_us.fetch_add(delta_us, Ordering::SeqCst);
         }

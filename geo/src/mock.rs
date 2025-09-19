@@ -76,10 +76,7 @@ impl GeoLocator for MockGeoLocator {
         let country = data.get(ip).expect("Must be present").country.as_ref();
         if let Some(country) = country {
             if country.as_str() == Self::RETURN_ERROR {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    "This query is supposed to return an error",
-                ));
+                return Err(io::Error::other("This query is supposed to return an error"));
             }
         }
         Ok(country.cloned())
