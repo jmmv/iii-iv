@@ -43,6 +43,8 @@ use std::fmt;
 
 mod base_urls;
 pub use base_urls::BaseUrls;
+mod cors;
+pub use cors::new_cors_layer;
 
 /// Frontend errors.  These are the errors that are visible to the user on failed requests.
 #[derive(Debug, PartialEq, thiserror::Error)]
