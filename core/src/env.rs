@@ -16,11 +16,10 @@
 //! Utilities to deal with environment variables.
 
 use std::{env, time::Duration};
-
 use url::Url;
 
 /// Result type for environment errors.
-type Result<T> = std::result::Result<T, String>;
+pub(crate) type Result<T> = std::result::Result<T, String>;
 
 /// Wrapper around an environment variable's value to support conversions to other types.
 pub struct Value(String);

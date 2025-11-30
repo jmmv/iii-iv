@@ -60,6 +60,7 @@ thiserror = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
 tower = { workspace = true, optional = true }
+tower-http = { workspace = true }
 url = { workspace = true }
 
 [dev-dependencies]
