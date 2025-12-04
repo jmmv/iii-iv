@@ -52,10 +52,10 @@ pub fn map_sqlx_error(e: sqlx::Error) -> DbError {
 #[cfg_attr(test, derivative(PartialEq))]
 pub struct PostgresOptions {
     /// Host to connect to.
-    pub host: String,
+    pub host: Option<String>,
 
     /// Port to connect to (typically 5432).
-    pub port: u16,
+    pub port: Option<u16>,
 
     /// Database name to connect to.
     pub database: String,
@@ -65,7 +65,7 @@ pub struct PostgresOptions {
 
     /// Password to establish the connection with.
     #[derivative(Debug = "ignore")]
-    pub password: String,
+    pub password: Option<String>,
 
     /// Minimum number of connections to keep open against the database.
     pub min_connections: Option<u32>,
@@ -87,11 +87,11 @@ impl PostgresOptions {
     /// `<prefix>_MAX_CONNECTIONS` and `<prefix>_MAX_RETRIES`.
     pub fn from_env(prefix: &str) -> Result<PostgresOptions, String> {
         Ok(PostgresOptions {
-            host: get_required_var::<String>(prefix, "HOST")?,
-            port: get_required_var::<u16>(prefix, "PORT")?,
+            host: get_optional_var::<String>(prefix, "HOST")?,
+            port: get_optional_var::<u16>(prefix, "PORT")?,
             database: get_required_var::<String>(prefix, "DATABASE")?,
             username: get_required_var::<String>(prefix, "USERNAME")?,
-            password: get_required_var::<String>(prefix, "PASSWORD")?,
+            password: get_optional_var::<String>(prefix, "PASSWORD")?,
             min_connections: get_optional_var::<u32>(prefix, "MIN_CONNECTIONS")?,
             max_connections: get_optional_var::<u32>(prefix, "MAX_CONNECTIONS")?,
             max_retries: get_optional_var::<u16>(prefix, "MAX_RETRIES")?
@@ -346,12 +346,16 @@ impl PostgresDb {
         }
         pool_options = pool_options.acquire_timeout(Duration::from_secs(2));
 
-        let options = PgConnectOptions::new()
-            .host(&opts.host)
-            .port(opts.port)
-            .database(&opts.database)
-            .username(&opts.username)
-            .password(&opts.password);
+        let mut options = PgConnectOptions::new().database(&opts.database).username(&opts.username);
+        if let Some(host) = &opts.host {
+            options = options.host(host);
+        }
+        if let Some(port) = opts.port {
+            options = options.port(port);
+        }
+        if let Some(password) = &opts.password {
+            options = options.password(password);
+        }
 
         let pool = pool_options.connect_lazy_with(options);
         Ok(Self { pool, max_retries: opts.max_retries })
@@ -453,21 +457,21 @@ mod tests {
     pub fn test_postgres_options_from_env_all_required_present() {
         temp_env::with_vars(
             [
-                ("PGSQL_HOST", Some("the-host")),
-                ("PGSQL_PORT", Some("1234")),
+                ("PGSQL_HOST", None),
+                ("PGSQL_PORT", None),
                 ("PGSQL_DATABASE", Some("the-database")),
                 ("PGSQL_USERNAME", Some("the-username")),
-                ("PGSQL_PASSWORD", Some("the-password")),
+                ("PGSQL_PASSWORD", None),
             ],
             || {
                 let opts = PostgresOptions::from_env("PGSQL").unwrap();
                 assert_eq!(
                     PostgresOptions {
-                        host: "the-host".to_owned(),
-                        port: 1234,
+                        host: None,
+                        port: None,
                         database: "the-database".to_owned(),
                         username: "the-username".to_owned(),
-                        password: "the-password".to_owned(),
+                        password: None,
                         min_connections: None,
                         max_connections: None,
                         max_retries: DEFAULT_MAX_RETRIES,
@@ -495,11 +499,11 @@ mod tests {
                 let opts = PostgresOptions::from_env("PGSQL").unwrap();
                 assert_eq!(
                     PostgresOptions {
-                        host: "the-host".to_owned(),
-                        port: 1234,
+                        host: Some("the-host".to_owned()),
+                        port: Some(1234),
                         database: "the-database".to_owned(),
                         username: "the-username".to_owned(),
-                        password: "the-password".to_owned(),
+                        password: Some("the-password".to_owned()),
                         min_connections: Some(10),
                         max_connections: Some(20),
                         max_retries: 30,
@@ -513,11 +517,8 @@ mod tests {
     #[test]
     pub fn test_postgres_options_from_env_missing() {
         let overrides = [
-            ("MISSING_HOST", Some("the-host")),
-            ("MISSING_PORT", Some("1234")),
             ("MISSING_DATABASE", Some("the-database")),
             ("MISSING_USERNAME", Some("the-username")),
-            ("MISSING_PASSWORD", Some("the-password")),
         ];
         for (var, _) in overrides {
             // Keep all variables except one.
