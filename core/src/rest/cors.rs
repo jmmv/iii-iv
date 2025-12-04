@@ -18,7 +18,7 @@
 use crate::env::{Result, get_optional_var};
 use crate::rest::BaseUrls;
 use http::{HeaderName, HeaderValue, Method, header};
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 
 /// Builder for a `CorsLayer` to merge settings form various sources.
 //
@@ -138,7 +138,11 @@ impl CorsLayerBuilder {
     fn build(self) -> CorsLayer {
         let mut layer = CorsLayer::new();
         if !self.allow_origin.is_empty() {
-            layer = layer.allow_origin(self.allow_origin);
+            if self.allow_origin == ["*"] {
+                layer = layer.allow_origin(AllowOrigin::any());
+            } else {
+                layer = layer.allow_origin(self.allow_origin);
+            }
         }
         if self.allow_credentials {
             layer = layer.allow_credentials(true);
@@ -169,7 +173,11 @@ mod tests {
     fn assert_origin(expected: &[&str], layer: &CorsLayer) {
         // This is terrible but `CorsLayer` does not allow peeking into its contents, so...
         let dbg = format!("{:?}", layer);
-        let exp_dbg = format!("allow_origin: List({:?})", expected);
+        let exp_dbg = if expected == ["*"] {
+            "allow_origin: Const(\"*\")".to_owned()
+        } else {
+            format!("allow_origin: List({:?})", expected)
+        };
         assert!(dbg.contains(&exp_dbg), "Substring '{}' not found in '{}'", exp_dbg, dbg);
     }
 
@@ -275,6 +283,24 @@ mod tests {
             assert_credentials(true, &layer);
             assert_methods(Some("PUT,DELETE,GET,PATCH,POST"), &layer);
             assert_headers(Some("x-custom,content-type"), &layer);
+        });
+    }
+
+    #[test]
+    fn test_new_cors_layer_all_origins() {
+        let overrides = [
+            ("PREFIX_CORS_ALLOW_ORIGIN", Some("*")),
+            ("PREFIX_CORS_ALLOW_CREDENTIALS", None),
+            ("PREFIX_CORS_ALLOW_METHODS", None),
+            ("PREFIX_CORS_ALLOW_HEADERS", None),
+        ];
+        temp_env::with_vars(overrides, || {
+            let base_urls = BaseUrls::from_strs("https://backend.example.com", None);
+            let layer = new_cors_layer("PREFIX", &base_urls).unwrap();
+            assert_origin(&["*"], &layer);
+            assert_credentials(false, &layer);
+            assert_methods(None, &layer);
+            assert_headers(None, &layer);
         });
     }
 }
