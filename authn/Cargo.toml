@@ -6,6 +6,9 @@ authors = ["Julio Merino <julio@meroh.net>"]
 edition = "2024"
 publish = false
 
+[lints]
+workspace = true
+
 [features]
 default = ["postgres"]
 postgres = ["iii-iv-core/postgres", "sqlx/postgres"]
