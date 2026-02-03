@@ -51,10 +51,7 @@ macro_rules! generate_db_tests [
     }
 ];
 
-use generate_db_tests;
-
 mod postgres {
-    use super::*;
     use crate::db::init_schema;
     use iii_iv_core::db::Db;
     use iii_iv_core::db::postgres::PostgresDb;
@@ -76,7 +73,6 @@ mod postgres {
 }
 
 mod sqlite {
-    use super::*;
     use crate::db::init_schema;
     use iii_iv_core::db::Db;
     use iii_iv_core::db::sqlite::SqliteDb;
