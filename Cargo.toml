@@ -9,6 +9,20 @@ members = [
 ]
 resolver = "2"
 
+[workspace.lints.rust]
+anonymous_parameters = "warn"
+bad_style = "warn"
+missing_docs = "warn"
+unsafe_code = "warn"
+unused = "warn"
+unused_extern_crates = "warn"
+unused_import_braces = "warn"
+unused_qualifications = "warn"
+
+[workspace.lints.clippy]
+collapsible_if = "allow"
+missing_docs_in_private_items = "warn"
+
 [workspace.dependencies]
 async-session = "3"
 async-trait = "0.1"

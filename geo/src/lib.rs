@@ -15,12 +15,6 @@
 
 //! APIs to access geo-location information.
 
-// Keep these in sync with other top-level files.
-#![allow(clippy::collapsible_if)]
-#![warn(anonymous_parameters, bad_style, clippy::missing_docs_in_private_items, missing_docs)]
-#![warn(unused, unused_extern_crates, unused_import_braces, unused_qualifications)]
-#![warn(unsafe_code)]
-
 use async_trait::async_trait;
 use serde::de::Visitor;
 use serde::{Deserialize, Serialize};

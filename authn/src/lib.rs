@@ -15,12 +15,6 @@
 
 //! Common utilities to implement custom authentication.
 
-// Keep these in sync with other top-level files.
-#![allow(clippy::collapsible_if)]
-#![warn(anonymous_parameters, bad_style, clippy::missing_docs_in_private_items, missing_docs)]
-#![warn(unused, unused_extern_crates, unused_import_braces, unused_qualifications)]
-#![warn(unsafe_code)]
-
 pub mod db;
 pub mod driver;
 pub mod model;
