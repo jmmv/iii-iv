@@ -47,7 +47,7 @@ paste = "1.0"
 quoted_printable = "0.5"
 rand = "0.10"
 regex = "1"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["query", "rustls"] }
 serde_json = "1"
 serde_test = "1"
 serde_urlencoded = "0.7"
