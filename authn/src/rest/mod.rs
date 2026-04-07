@@ -41,12 +41,12 @@ pub fn app(driver: AuthnDriver, activated_template: Option<&'static str>) -> Rou
     use axum::routing::{get, post};
 
     let activate_router = Router::new()
-        .route("/users/:user/activate", get(api_activate_get::handler))
+        .route("/users/{user}/activate", get(api_activate_get::handler))
         .with_state((driver.clone(), activated_template));
 
     Router::new()
         .route("/login", post(api_login_post::handler))
-        .route("/users/:user/logout", post(api_logout_post::handler))
+        .route("/users/{user}/logout", post(api_logout_post::handler))
         .route("/signup", post(api_signup_post::handler))
         .with_state(driver)
         .merge(activate_router)

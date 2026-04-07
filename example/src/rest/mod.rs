@@ -30,7 +30,7 @@ pub(crate) fn app(driver: Driver) -> Router {
     use axum::routing::get;
     Router::new()
         .route(
-            "/api/v1/keys/:key",
+            "/api/v1/keys/{key}",
             get(key_get::handler).put(key_put::handler).delete(key_delete::handler),
         )
         .route("/api/v1/keys", get(keys_get::handler))

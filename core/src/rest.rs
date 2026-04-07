@@ -31,7 +31,6 @@
 
 use crate::driver::DriverError;
 use crate::model::ModelError;
-use async_trait::async_trait;
 use axum::Json;
 use axum::body::HttpBody;
 use axum::extract::{FromRequest, Request};
@@ -180,7 +179,6 @@ pub(crate) struct ErrorResponse {
 /// don't care about.  This future-proofs the service.
 pub struct EmptyBody {}
 
-#[async_trait]
 impl<S> FromRequest<S> for EmptyBody
 where
     S: Send + Sync,
