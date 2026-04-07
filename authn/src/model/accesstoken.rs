@@ -16,7 +16,7 @@
 //! The `AccessToken` data type.
 
 use iii_iv_core::model::{ModelError, ModelResult};
-use rand::Rng;
+use rand::RngExt;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
