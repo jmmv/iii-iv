@@ -312,6 +312,54 @@ pub(crate) async fn set_user_activation_code(
     }
 }
 
+/// Updates the password of an existing user, but only if the old password matches.
+///
+/// Returns `DbError::NotFound` if the user does not exist or if the old password
+/// does not match (to avoid leaking information about whether the user exists).
+pub(crate) async fn update_user_password(
+    ex: &mut Executor,
+    username: Username,
+    expected_old_password: &HashedPassword,
+    new_password: HashedPassword,
+) -> DbResult<()> {
+    let rows_affected = match ex {
+        #[cfg(feature = "postgres")]
+        Executor::Postgres(ex) => {
+            let query_str = "UPDATE users SET password = $1 WHERE username = $2 AND password = $3";
+            let done = sqlx::query(query_str)
+                .bind(new_password.as_str())
+                .bind(username.as_str())
+                .bind(expected_old_password.as_str())
+                .execute(ex)
+                .await
+                .map_err(postgres::map_sqlx_error)?;
+            done.rows_affected()
+        }
+
+        #[cfg(any(feature = "sqlite", test))]
+        Executor::Sqlite(ex) => {
+            let query_str = "UPDATE users SET password = ? WHERE username = ? AND password = ?";
+            let done = sqlx::query(query_str)
+                .bind(new_password.as_str())
+                .bind(username.as_str())
+                .bind(expected_old_password.as_str())
+                .execute(ex)
+                .await
+                .map_err(sqlite::map_sqlx_error)?;
+            done.rows_affected()
+        }
+
+        #[allow(unused)]
+        _ => unreachable!(),
+    };
+
+    match rows_affected {
+        0 => Err(DbError::NotFound),
+        1 => Ok(()),
+        _ => Err(DbError::BackendError("Update affected more than one row".to_owned())),
+    }
+}
+
 /// Gets a session from its access token.  Sessions marked as deleted (logged out) are
 /// ignored.
 pub(crate) async fn get_session(
@@ -446,4 +494,47 @@ pub(crate) async fn delete_session(
         return Err(DbError::BackendError("UPDATE affected more than one row".to_owned()));
     }
     Ok(())
+}
+
+/// Deletes all sessions for a user.
+pub(crate) async fn delete_sessions_for_user(
+    ex: &mut Executor,
+    username: &Username,
+    now: OffsetDateTime,
+) -> DbResult<()> {
+    match ex {
+        #[cfg(feature = "postgres")]
+        Executor::Postgres(ex) => {
+            let query_str =
+                "UPDATE sessions SET logout_time = $1 WHERE username = $2 AND logout_time IS NULL";
+            sqlx::query(query_str)
+                .bind(now)
+                .bind(username.as_str())
+                .execute(ex)
+                .await
+                .map_err(postgres::map_sqlx_error)?;
+            Ok(())
+        }
+
+        #[cfg(any(feature = "sqlite", test))]
+        Executor::Sqlite(ex) => {
+            let (now_secs, now_nsecs) = unpack_timestamp(now);
+
+            let query_str = "
+                UPDATE sessions
+                SET logout_time_secs = ?, logout_time_nsecs = ?
+                WHERE username = ? AND logout_time_secs IS NULL AND logout_time_nsecs IS NULL";
+            sqlx::query(query_str)
+                .bind(now_secs)
+                .bind(now_nsecs)
+                .bind(username.as_str())
+                .execute(ex)
+                .await
+                .map_err(sqlite::map_sqlx_error)?;
+            Ok(())
+        }
+
+        #[allow(unused)]
+        _ => unreachable!(),
+    }
 }

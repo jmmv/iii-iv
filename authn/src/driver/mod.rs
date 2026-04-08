@@ -33,6 +33,7 @@ use std::time::Duration;
 use time::OffsetDateTime;
 
 mod activate;
+mod change_password;
 pub(crate) mod email;
 mod login;
 mod logout;

@@ -148,6 +148,113 @@ async fn test_set_user_activation_code_not_found(ex: &mut Executor) {
     }
 }
 
+async fn test_update_user_password_ok(ex: &mut Executor) {
+    let user = create_user(
+        ex,
+        Username::from("some-username"),
+        Some(hashed_password!("original-hash")),
+        EmailAddress::from("a@example.com"),
+    )
+    .await
+    .unwrap();
+
+    update_user_password(
+        ex,
+        user.username().clone(),
+        &hashed_password!("original-hash"),
+        hashed_password!("new-hash"),
+    )
+    .await
+    .unwrap();
+
+    let read_user = get_user_by_username(ex, user.username().clone()).await.unwrap();
+    assert_eq!(Some(&hashed_password!("new-hash")), read_user.password());
+}
+
+async fn test_update_user_password_not_found(ex: &mut Executor) {
+    create_user(
+        ex,
+        Username::from("some-username"),
+        Some(hashed_password!("original-hash")),
+        EmailAddress::from("a@example.com"),
+    )
+    .await
+    .unwrap();
+
+    match update_user_password(
+        ex,
+        Username::from("nonexistent"),
+        &hashed_password!("original-hash"),
+        hashed_password!("new-hash"),
+    )
+    .await
+    .unwrap_err()
+    {
+        DbError::NotFound => (),
+        e => panic!("{}", e),
+    }
+}
+
+async fn test_update_user_password_wrong_old_password(ex: &mut Executor) {
+    let user = create_user(
+        ex,
+        Username::from("some-username"),
+        Some(hashed_password!("original-hash")),
+        EmailAddress::from("a@example.com"),
+    )
+    .await
+    .unwrap();
+
+    match update_user_password(
+        ex,
+        user.username().clone(),
+        &hashed_password!("wrong-old-hash"),
+        hashed_password!("new-hash"),
+    )
+    .await
+    .unwrap_err()
+    {
+        DbError::NotFound => (),
+        e => panic!("{}", e),
+    }
+
+    let read_user = get_user_by_username(ex, user.username().clone()).await.unwrap();
+    assert_eq!(Some(&hashed_password!("original-hash")), read_user.password());
+}
+
+async fn test_delete_sessions_for_user_ok(ex: &mut Executor) {
+    create_simple_user(ex, "testuser1").await;
+    let session1 = Session::new(
+        AccessToken::generate(),
+        Username::from("testuser1"),
+        datetime!(2022-05-17 06:29:28 UTC),
+    );
+    put_session(ex, &session1).await.unwrap();
+
+    let session2 = Session::new(
+        AccessToken::generate(),
+        Username::from("testuser1"),
+        datetime!(2022-05-17 06:29:28 UTC),
+    );
+    put_session(ex, &session2).await.unwrap();
+
+    assert_eq!(session1, get_session(ex, session1.access_token()).await.unwrap());
+    assert_eq!(session2, get_session(ex, session2.access_token()).await.unwrap());
+
+    delete_sessions_for_user(ex, &Username::from("testuser1"), datetime!(2022-05-26 08:38:10 UTC))
+        .await
+        .unwrap();
+
+    match get_session(ex, session1.access_token()).await {
+        Err(DbError::NotFound) => (),
+        e => panic!("{:?}", e),
+    }
+    match get_session(ex, session2.access_token()).await {
+        Err(DbError::NotFound) => (),
+        e => panic!("{:?}", e),
+    }
+}
+
 async fn test_sessions_ok(ex: &mut Executor) {
     create_simple_user(ex, "testuser1").await;
     let session1 = Session::new(
@@ -209,6 +316,10 @@ macro_rules! generate_db_tests [
             test_users_update_not_found,
             test_set_user_activation_code_ok,
             test_set_user_activation_code_not_found,
+            test_update_user_password_ok,
+            test_update_user_password_not_found,
+            test_update_user_password_wrong_old_password,
+            test_delete_sessions_for_user_ok,
             test_sessions_ok,
             test_sessions_missing
         );

@@ -19,6 +19,7 @@ use crate::driver::AuthnDriver;
 use axum::Router;
 
 mod api_activate_get;
+mod api_change_password_put;
 mod api_login_post;
 mod api_logout_post;
 mod api_signup_post;
@@ -27,6 +28,7 @@ mod httputils;
 pub mod testutils;
 
 pub use api_activate_get::ActivateRequest;
+pub use api_change_password_put::ChangePasswordRequest;
 pub use api_login_post::LoginResponse;
 pub use api_signup_post::SignupRequest;
 pub use httputils::{get_basic_auth, get_bearer_auth, has_bearer_auth};
@@ -38,7 +40,7 @@ pub use httputils::{get_basic_auth, get_bearer_auth, has_bearer_auth};
 /// The `activated_template` HTML template is used when confirming the successful activation of
 /// a new account.
 pub fn app(driver: AuthnDriver, activated_template: Option<&'static str>) -> Router {
-    use axum::routing::{get, post};
+    use axum::routing::{get, post, put};
 
     let activate_router = Router::new()
         .route("/users/{user}/activate", get(api_activate_get::handler))
@@ -47,6 +49,7 @@ pub fn app(driver: AuthnDriver, activated_template: Option<&'static str>) -> Rou
     Router::new()
         .route("/login", post(api_login_post::handler))
         .route("/users/{user}/logout", post(api_logout_post::handler))
+        .route("/users/{user}/password", put(api_change_password_put::handler))
         .route("/signup", post(api_signup_post::handler))
         .with_state(driver)
         .merge(activate_router)
