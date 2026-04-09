@@ -30,7 +30,6 @@ contributions if you have any.
 *   Proven foundations: `sqlx` for database access, `axum` as the web framework,
     and `tokio` as the async runtime.
 *   Configuration via environment variables.
-*   Optional deployment to Azure functions.
 
 ## What's in the name?
 

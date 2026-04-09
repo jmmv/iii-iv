@@ -15,11 +15,8 @@
 
 //! Common REST endpoints to interact with the queue.
 //!
-//! In order to use these endpoints, you must copy the contents of the `functions`
-//! directory supplied with this crate into the functions that your Azure Functions
-//! deployment provides.  You will need a similar triggering mechanism for other
-//! runtimes.  Note that the runtime must enforce a maximum execution time for the
-//! process to guarantee correctness.
+//! The runtime exposing the queue task execution endpoints must enforce a maximum
+//! execution time for the process to guarantee correctness.
 
 use crate::driver::Worker;
 use axum::Router;
