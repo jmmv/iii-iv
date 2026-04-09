@@ -429,6 +429,7 @@ mod tests {
     use super::testutils::*;
     use super::*;
     use crate::db::tests::{generate_db_ro_concurrent_tests, generate_db_rw_tests};
+    use serial_test::serial;
     use std::sync::Arc;
 
     generate_db_ro_concurrent_tests!(
@@ -454,6 +455,7 @@ mod tests {
     );
 
     #[test]
+    #[serial(PGSQL)]
     pub fn test_postgres_options_from_env_all_required_present() {
         temp_env::with_vars(
             [
@@ -483,6 +485,7 @@ mod tests {
     }
 
     #[test]
+    #[serial(PGSQL)]
     pub fn test_postgres_options_from_env_all_required_and_optional_present() {
         temp_env::with_vars(
             [
@@ -515,6 +518,7 @@ mod tests {
     }
 
     #[test]
+    #[serial(PGSQL_MISSING)]
     pub fn test_postgres_options_from_env_missing() {
         let overrides = [
             ("MISSING_DATABASE", Some("the-database")),
@@ -537,6 +541,7 @@ mod tests {
     }
 
     #[test]
+    #[serial(PGSQL_MISSING)]
     pub fn test_postgres_options_bad_port_type() {
         let overrides = [
             ("MISSING_HOST", Some("the-host")),

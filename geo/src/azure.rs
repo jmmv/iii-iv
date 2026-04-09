@@ -192,9 +192,11 @@ impl GeoLocator for AzureGeoLocator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
     use std::time::Duration;
 
     #[test]
+    #[serial(AZURE_MAPS_KEY)]
     pub fn test_azuregeolocatoroptions_from_env_all_present() {
         let overrides = [("AZURE_MAPS_KEY", Some("the-key"))];
         temp_env::with_vars(overrides, || {
@@ -204,6 +206,7 @@ mod tests {
     }
 
     #[test]
+    #[serial(AZURE_MAPS_KEY)]
     pub fn test_azuregeolocatoroptions_from_env_use_defaults() {
         let overrides = [("AZURE_MAPS_KEY", Some("the-key"))];
         temp_env::with_vars(overrides, || {
@@ -213,6 +216,7 @@ mod tests {
     }
 
     #[test]
+    #[serial(AZURE_MAPS_KEY)]
     pub fn test_azuregeolocatoroptions_from_env_missing() {
         temp_env::with_var_unset("AZURE_MAPS_KEY", || {
             let err = AzureGeoLocatorOptions::from_env("AZURE_MAPS").unwrap_err();
@@ -250,6 +254,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial(AZURE_MAPS_KEY)]
     #[ignore = "Requires environment configuration and is expensive"]
     async fn test_ok() {
         let geolocator = setup();
@@ -262,6 +267,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial(AZURE_MAPS_KEY)]
     #[ignore = "Requires environment configuration and is expensive"]
     async fn test_missing() {
         let geolocator = setup();

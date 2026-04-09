@@ -99,6 +99,7 @@ impl BaseUrls {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     /// Constructs a URL from a valid raw string for testing purposes.
     fn url(s: &'static str) -> Url {
@@ -137,6 +138,7 @@ mod tests {
     }
 
     #[test]
+    #[serial(TEST_BACKEND_BASE_URL)]
     pub fn test_from_env_required_present() {
         let overrides = [
             ("TEST_BACKEND_BASE_URL", Some("https://backend.example.com/api/")),
@@ -152,6 +154,7 @@ mod tests {
     }
 
     #[test]
+    #[serial(TEST_BACKEND_BASE_URL)]
     pub fn test_from_env_all_present() {
         let overrides = [
             ("TEST_BACKEND_BASE_URL", Some("https://backend.example.com/api/")),
@@ -170,6 +173,7 @@ mod tests {
     }
 
     #[test]
+    #[serial(TEST_BACKEND_BASE_URL)]
     pub fn test_from_env_missing() {
         temp_env::with_var_unset("TEST_BACKEND_BASE_URL", || {
             let err = BaseUrls::from_env("TEST").unwrap_err();
@@ -178,6 +182,7 @@ mod tests {
     }
 
     #[test]
+    #[serial(TEST_BACKEND_BASE_URL)]
     pub fn test_from_env_calls_new_for_validation() {
         let overrides = [("TEST_BACKEND_BASE_URL", Some("https://example.com/api"))];
         temp_env::with_vars(overrides, || {

@@ -71,6 +71,7 @@ env_logger = { workspace = true }
 paste = { workspace = true }
 rand = { workspace = true }
 serde_test = { workspace = true }
+serial_test = { workspace = true }
 temp-env = { workspace = true }
 time = { workspace = true, features = ["macros"] }
 tokio = { workspace = true, features = ["macros"] }

@@ -114,8 +114,10 @@ where
 mod tests {
     use super::*;
     use crate::MockGeoLocator;
+    use serial_test::serial;
 
     #[test]
+    #[serial(CACHING)]
     pub fn test_options_from_env_all_present() {
         let overrides = [("CACHING_TTL", Some("3d")), ("CACHING_CAPACITY", Some("1024"))];
         temp_env::with_vars(overrides, || {
@@ -131,6 +133,7 @@ mod tests {
     }
 
     #[test]
+    #[serial(CACHING)]
     pub fn test_options_from_env_use_defaults() {
         let overrides = ["CACHING_TTL", "CACHING_CAPACITY"];
         temp_env::with_vars_unset(overrides, || {

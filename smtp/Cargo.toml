@@ -42,6 +42,7 @@ env_logger = { workspace = true }
 futures = { workspace = true }
 iii-iv-core = { path = "../core", features = ["sqlite", "testutils"] }
 quoted_printable = { workspace = true }
+serial_test = { workspace = true }
 temp-env = { workspace = true }
 time = { workspace = true, features = ["macros"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

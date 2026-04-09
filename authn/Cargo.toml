@@ -42,6 +42,7 @@ features = ["runtime-tokio-rustls", "time"]
 futures = { workspace = true }
 iii-iv-core = { path = "../core", features = ["sqlite", "testutils"] }
 iii-iv-smtp = { path = "../smtp", features = ["testutils"] }
+serial_test = { workspace = true }
 temp-env = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros", "rt-multi-thread"] }
 url = { workspace = true }

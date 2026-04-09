@@ -193,9 +193,11 @@ mod tests {
     use super::*;
     use crate::db::get_email_log;
     use futures::future;
+    use serial_test::serial;
     use std::time::Duration;
 
     #[test]
+    #[serial(SMTP)]
     fn test_smtp_options_from_env_all_required_present() {
         let overrides = [
             ("SMTP_RELAY", Some("the-relay")),
@@ -217,6 +219,7 @@ mod tests {
     }
 
     #[test]
+    #[serial(SMTP)]
     fn test_smtp_options_from_env_all_required_and_optional_present() {
         let overrides = [
             ("SMTP_RELAY", Some("the-relay")),
@@ -239,6 +242,7 @@ mod tests {
     }
 
     #[test]
+    #[serial(SMTP_MISSING)]
     fn test_smtp_options_from_env_missing() {
         let overrides = [
             ("MISSING_RELAY", Some("the-relay")),

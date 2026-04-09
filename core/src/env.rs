@@ -140,6 +140,7 @@ pub fn get_required_var<T: TryFrom<Value, Error = String>>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
     use std::ffi::OsStr;
     use std::os::unix::ffi::OsStrExt;
 
@@ -207,6 +208,7 @@ mod tests {
     }
 
     #[test]
+    #[serial(TEST_ENV)]
     fn test_get_optional_var_ok() {
         temp_env::with_var("PREFIX_PRESENT", Some("1234"), || {
             assert_eq!(
@@ -217,6 +219,7 @@ mod tests {
     }
 
     #[test]
+    #[serial(TEST_ENV)]
     fn test_get_optional_var_missing() {
         temp_env::with_var_unset("PREFIX_MISSING", || {
             assert_eq!(None, get_optional_var::<String>("PREFIX", "MISSING").unwrap());
@@ -224,6 +227,7 @@ mod tests {
     }
 
     #[test]
+    #[serial(TEST_ENV)]
     fn test_get_optional_var_not_utf8() {
         temp_env::with_var("PREFIX_INVALID", Some(OsStr::from_bytes(b"\xc3\x28")), || {
             assert_eq!(
@@ -234,16 +238,16 @@ mod tests {
     }
 
     #[test]
+    #[serial(TEST_ENV)]
     fn test_get_optional_var_bad_type() {
         temp_env::with_var("PREFIX_BAD", Some("b4d"), || {
             let err = get_optional_var::<u16>("PREFIX", "BAD").unwrap_err();
-            assert!(
-                err.starts_with("Invalid type in environment variable PREFIX_BAD: Invalid u16")
-            );
+            assert!(err.starts_with("Invalid type in environment variable PREFIX_BAD: Invalid u16"));
         });
     }
 
     #[test]
+    #[serial(TEST_ENV)]
     fn test_get_required_var_ok() {
         temp_env::with_var("PREFIX_PRESENT", Some("1234"), || {
             assert_eq!("1234", &get_required_var::<String>("PREFIX", "PRESENT").unwrap());
@@ -251,6 +255,7 @@ mod tests {
     }
 
     #[test]
+    #[serial(TEST_ENV)]
     fn test_get_required_var_missing() {
         temp_env::with_var_unset("PREFIX_MISSING", || {
             assert_eq!(
@@ -261,6 +266,7 @@ mod tests {
     }
 
     #[test]
+    #[serial(TEST_ENV)]
     fn test_get_required_var_not_utf8() {
         temp_env::with_var("PREFIX_INVALID", Some(OsStr::from_bytes(b"\xc3\x28")), || {
             assert_eq!(
@@ -271,12 +277,11 @@ mod tests {
     }
 
     #[test]
+    #[serial(TEST_ENV)]
     fn test_get_required_var_bad_type() {
         temp_env::with_var("PREFIX_BAD", Some("b4d"), || {
             let err = get_required_var::<u16>("PREFIX", "BAD").unwrap_err();
-            assert!(
-                err.starts_with("Invalid type in environment variable PREFIX_BAD: Invalid u16")
-            );
+            assert!(err.starts_with("Invalid type in environment variable PREFIX_BAD: Invalid u16"));
         });
     }
 }

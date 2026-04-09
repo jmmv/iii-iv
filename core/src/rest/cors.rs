@@ -168,6 +168,7 @@ pub fn new_cors_layer(prefix: &str, base_urls: &BaseUrls) -> Result<CorsLayer> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     /// Introspects `layer` to verify that it contains the `expected` origins.
     fn assert_origin(expected: &[&str], layer: &CorsLayer) {
@@ -206,6 +207,7 @@ mod tests {
     }
 
     #[test]
+    #[serial(PREFIX_CORS)]
     fn test_new_cors_layer_nothing() {
         let overrides: [(&str, Option<&str>); 4] = [
             ("PREFIX_CORS_ALLOW_ORIGIN", None),
@@ -224,6 +226,7 @@ mod tests {
     }
 
     #[test]
+    #[serial(PREFIX_CORS)]
     fn test_new_cors_layer_only_env() {
         let overrides = [
             ("PREFIX_CORS_ALLOW_ORIGIN", Some("https://a.example.com,http://b.example.com")),
@@ -242,6 +245,7 @@ mod tests {
     }
 
     #[test]
+    #[serial(PREFIX_CORS)]
     fn test_new_cors_layer_only_frontend() {
         let overrides: [(&str, Option<&str>); 4] = [
             ("PREFIX_CORS_ALLOW_ORIGIN", None),
@@ -263,6 +267,7 @@ mod tests {
     }
 
     #[test]
+    #[serial(PREFIX_CORS)]
     fn test_new_cors_layer_env_and_frontend() {
         let overrides = [
             ("PREFIX_CORS_ALLOW_ORIGIN", Some("https://var.example.com")),
@@ -287,6 +292,7 @@ mod tests {
     }
 
     #[test]
+    #[serial(PREFIX_CORS)]
     fn test_new_cors_layer_all_origins() {
         let overrides = [
             ("PREFIX_CORS_ALLOW_ORIGIN", Some("*")),

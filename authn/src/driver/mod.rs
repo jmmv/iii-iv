@@ -251,8 +251,10 @@ mod tests {
     use super::*;
     use iii_iv_core::driver::DriverError;
     use iii_iv_core::model::Username;
+    use serial_test::serial;
 
     #[test]
+    #[serial(PREFIX_SESSION)]
     pub fn test_options_from_env_all_all_missing() {
         temp_env::with_vars_unset(
             [
@@ -269,6 +271,7 @@ mod tests {
     }
 
     #[test]
+    #[serial(PREFIX_SESSION)]
     pub fn test_options_from_env_all_optional_present() {
         temp_env::with_vars(
             [
