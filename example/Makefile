@@ -29,32 +29,14 @@ TEST_ENV += PGSQL_TEST_USERNAME="$(PGSQL_TEST_USERNAME)"
 TEST_ENV += PGSQL_TEST_PASSWORD="$(PGSQL_TEST_PASSWORD)"
 TEST_ENV += RUST_LOG=debug
 
-CROSS_TARGET = x86_64-unknown-linux-musl
-
 .PHONY: default
 default: Makefile serve
 
 .PHONY: serve
 serve:
 	cargo build
-	cp ../target/debug/iii-iv-example functions/
-	@cd functions && $(PROD_ENV) func start
+	@$(PROD_ENV) ../target/debug/iii-iv-example
 
 .PHONY: test
 test:
 	@$(TEST_ENV) cargo test $(TEST_ARGS) -- --include-ignored
-
-.PHONY: functions/iii-iv-example
-functions/iii-iv-example:
-	cargo build --release --target=$(CROSS_TARGET)
-	cp ../target/$(CROSS_TARGET)/release/iii-iv-example functions/
-
-CLEANFILES += deploy.zip deploy.zip.dir
-.PHONY: deploy.zip
-deploy.zip: functions/iii-iv-example
-	@$(TEST_PROD) cargo test --release --target=$(CROSS_TARGET) -- --include-ignored
-	rm -rf deploy.zip.dir
-	cp -r functions deploy.zip.dir
-	for f in $$(cat deploy.zip.dir/.funcignore); do rm "deploy.zip.dir/$$f"; done
-	rm deploy.zip.dir/.funcignore
-	( cd deploy.zip.dir && zip -9 -r ../deploy.zip . )
