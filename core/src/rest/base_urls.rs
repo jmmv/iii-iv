@@ -99,6 +99,7 @@ impl BaseUrls {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     /// Constructs a URL from a valid raw string for testing purposes.
     fn url(s: &'static str) -> Url {
@@ -137,13 +138,14 @@ mod tests {
     }
 
     #[test]
+    #[serial(BASE_URLS)]
     pub fn test_from_env_required_present() {
         let overrides = [
-            ("TEST_BACKEND_BASE_URL", Some("https://backend.example.com/api/")),
-            ("TEST_FRONTEND_BASE_URL", None::<&str>),
+            ("BASE_URLS_BACKEND_BASE_URL", Some("https://backend.example.com/api/")),
+            ("BASE_URLS_FRONTEND_BASE_URL", None::<&str>),
         ];
         temp_env::with_vars(overrides, || {
-            let opts = BaseUrls::from_env("TEST").unwrap();
+            let opts = BaseUrls::from_env("BASE_URLS").unwrap();
             assert_eq!(
                 BaseUrls { backend: url("https://backend.example.com/api/"), frontend: None },
                 opts
@@ -152,13 +154,14 @@ mod tests {
     }
 
     #[test]
+    #[serial(BASE_URLS)]
     pub fn test_from_env_all_present() {
         let overrides = [
-            ("TEST_BACKEND_BASE_URL", Some("https://backend.example.com/api/")),
-            ("TEST_FRONTEND_BASE_URL", Some("https://frontend.example.com/")),
+            ("BASE_URLS_BACKEND_BASE_URL", Some("https://backend.example.com/api/")),
+            ("BASE_URLS_FRONTEND_BASE_URL", Some("https://frontend.example.com/")),
         ];
         temp_env::with_vars(overrides, || {
-            let opts = BaseUrls::from_env("TEST").unwrap();
+            let opts = BaseUrls::from_env("BASE_URLS").unwrap();
             assert_eq!(
                 BaseUrls {
                     backend: url("https://backend.example.com/api/"),
@@ -170,18 +173,22 @@ mod tests {
     }
 
     #[test]
+    #[serial(BASE_URLS)]
     pub fn test_from_env_missing() {
-        temp_env::with_var_unset("TEST_BACKEND_BASE_URL", || {
-            let err = BaseUrls::from_env("TEST").unwrap_err();
-            assert!(err.contains("TEST_BACKEND_BASE_URL not present"));
+        temp_env::with_var_unset("BASE_URLS_BACKEND_BASE_URL", || {
+            let err = BaseUrls::from_env("BASE_URLS").unwrap_err();
+            assert!(err.contains("BASE_URLS_BACKEND_BASE_URL not present"));
         });
     }
 
     #[test]
+    #[serial(BASE_URLS)]
     pub fn test_from_env_calls_new_for_validation() {
-        let overrides = [("TEST_BACKEND_BASE_URL", Some("https://example.com/api"))];
+        let overrides = [("BASE_URLS_BACKEND_BASE_URL", Some("https://example.com/api"))];
         temp_env::with_vars(overrides, || {
-            assert!(BaseUrls::from_env("TEST").unwrap_err().contains("missing trailing slash"));
+            assert!(
+                BaseUrls::from_env("BASE_URLS").unwrap_err().contains("missing trailing slash")
+            );
         });
     }
 

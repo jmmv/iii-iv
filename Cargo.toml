@@ -51,6 +51,7 @@ reqwest = { version = "0.13", default-features = false, features = ["query", "ru
 serde_json = "1"
 serde_test = "1"
 serde_urlencoded = "0.7"
+serial_test = "3.0"
 serde = { version = "1", features = ["derive"] }
 sqlx = "0.8"
 temp-env = "0.3.6"

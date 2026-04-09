@@ -193,9 +193,11 @@ mod tests {
     use super::*;
     use crate::db::get_email_log;
     use futures::future;
+    use serial_test::serial;
     use std::time::Duration;
 
     #[test]
+    #[serial(SMTP)]
     fn test_smtp_options_from_env_all_required_present() {
         let overrides = [
             ("SMTP_RELAY", Some("the-relay")),
@@ -217,6 +219,7 @@ mod tests {
     }
 
     #[test]
+    #[serial(SMTP)]
     fn test_smtp_options_from_env_all_required_and_optional_present() {
         let overrides = [
             ("SMTP_RELAY", Some("the-relay")),
@@ -239,11 +242,12 @@ mod tests {
     }
 
     #[test]
+    #[serial(SMTP)]
     fn test_smtp_options_from_env_missing() {
         let overrides = [
-            ("MISSING_RELAY", Some("the-relay")),
-            ("MISSING_USERNAME", Some("the-username")),
-            ("MISSING_PASSWORD", Some("the-password")),
+            ("SMTP_RELAY", Some("the-relay")),
+            ("SMTP_USERNAME", Some("the-username")),
+            ("SMTP_PASSWORD", Some("the-password")),
         ];
         for (var, _) in overrides {
             // Keep all variables except one.
@@ -255,7 +259,7 @@ mod tests {
             }
 
             temp_env::with_vars(overrides, || {
-                let err = SmtpOptions::from_env("MISSING").unwrap_err();
+                let err = SmtpOptions::from_env("SMTP").unwrap_err();
                 assert!(err.contains(&format!("{} not present", var)));
             });
         }
