@@ -242,7 +242,9 @@ mod tests {
     fn test_get_optional_var_bad_type() {
         temp_env::with_var("PREFIX_BAD", Some("b4d"), || {
             let err = get_optional_var::<u16>("PREFIX", "BAD").unwrap_err();
-            assert!(err.starts_with("Invalid type in environment variable PREFIX_BAD: Invalid u16"));
+            assert!(
+                err.starts_with("Invalid type in environment variable PREFIX_BAD: Invalid u16")
+            );
         });
     }
 
@@ -281,7 +283,9 @@ mod tests {
     fn test_get_required_var_bad_type() {
         temp_env::with_var("PREFIX_BAD", Some("b4d"), || {
             let err = get_required_var::<u16>("PREFIX", "BAD").unwrap_err();
-            assert!(err.starts_with("Invalid type in environment variable PREFIX_BAD: Invalid u16"));
+            assert!(
+                err.starts_with("Invalid type in environment variable PREFIX_BAD: Invalid u16")
+            );
         });
     }
 }

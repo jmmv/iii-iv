@@ -48,7 +48,7 @@ pub(super) async fn send_activation_code(
 }
 
 #[cfg(any(test, feature = "testutils"))]
-pub(crate) mod testutils {
+pub mod testutils {
     //! Utilities to help testing services that integrate with the `authn` features.
 
     use super::*;
@@ -57,7 +57,7 @@ pub(crate) mod testutils {
     use url::Url;
 
     /// Creates an email activation template to capture activation codes during tests.
-    pub(crate) fn make_test_activation_template() -> EmailTemplate {
+    pub fn make_test_activation_template() -> EmailTemplate {
         let from = "from@example.com".parse().unwrap();
         EmailTemplate { from, subject_template: "Test activation", body_template: "%activate_url%" }
     }

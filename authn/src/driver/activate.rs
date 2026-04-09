@@ -22,7 +22,7 @@ use iii_iv_core::model::Username;
 
 impl AuthnDriver {
     /// Marks a used as active based on a confirmation code.
-    pub(crate) async fn activate(self, username: Username, code: u64) -> DriverResult<()> {
+    pub async fn activate(self, username: Username, code: u64) -> DriverResult<()> {
         let mut tx = self.db.begin().await?;
 
         let user = db::get_user_by_username(tx.ex(), username).await?;

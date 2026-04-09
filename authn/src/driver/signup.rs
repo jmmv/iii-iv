@@ -50,7 +50,7 @@ pub(crate) fn password_validator(s: &str) -> Option<&'static str> {
 
 impl AuthnDriver {
     /// Creates a new account for a user.
-    pub(crate) async fn signup(
+    pub async fn signup(
         self,
         username: Username,
         password: Password,

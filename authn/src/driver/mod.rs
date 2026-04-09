@@ -34,7 +34,7 @@ use time::OffsetDateTime;
 
 mod activate;
 mod change_password;
-pub(crate) mod email;
+pub mod email;
 mod login;
 mod logout;
 mod signup;

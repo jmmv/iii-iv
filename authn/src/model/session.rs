@@ -58,7 +58,7 @@ impl Session {
     }
 
     /// Consumes the session and extracts its access token.
-    pub(crate) fn take_access_token(self) -> AccessToken {
+    pub fn take_access_token(self) -> AccessToken {
         self.access_token
     }
 }

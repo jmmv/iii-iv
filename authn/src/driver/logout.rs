@@ -23,7 +23,7 @@ use iii_iv_core::model::Username;
 
 impl AuthnDriver {
     /// Marks a session as deleted.
-    pub(crate) async fn logout(self, token: AccessToken, username: Username) -> DriverResult<()> {
+    pub async fn logout(self, token: AccessToken, username: Username) -> DriverResult<()> {
         let mut tx = self.db.begin().await?;
         let now = self.clock.now_utc();
 

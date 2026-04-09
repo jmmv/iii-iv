@@ -221,7 +221,7 @@ pub async fn get_user_by_username(ex: &mut Executor, username: Username) -> DbRe
 }
 
 /// Updates an existing user `username` to have new `last_login` details.
-pub(crate) async fn update_user(
+pub async fn update_user(
     ex: &mut Executor,
     username: Username,
     last_login: OffsetDateTime,
@@ -269,7 +269,7 @@ pub(crate) async fn update_user(
 
 /// Updates the activation code of an existing user, either to a new code or to nothing to
 /// indicate that the user is active.
-pub(crate) async fn set_user_activation_code(
+pub async fn set_user_activation_code(
     ex: &mut Executor,
     user: User,
     code: Option<u64>,
@@ -316,7 +316,7 @@ pub(crate) async fn set_user_activation_code(
 ///
 /// Returns `DbError::NotFound` if the user does not exist or if the old password
 /// does not match (to avoid leaking information about whether the user exists).
-pub(crate) async fn update_user_password(
+pub async fn update_user_password(
     ex: &mut Executor,
     username: Username,
     expected_old_password: &HashedPassword,
@@ -362,10 +362,7 @@ pub(crate) async fn update_user_password(
 
 /// Gets a session from its access token.  Sessions marked as deleted (logged out) are
 /// ignored.
-pub(crate) async fn get_session(
-    ex: &mut Executor,
-    access_token: &AccessToken,
-) -> DbResult<Session> {
+pub async fn get_session(ex: &mut Executor, access_token: &AccessToken) -> DbResult<Session> {
     match ex {
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
@@ -404,7 +401,7 @@ pub(crate) async fn get_session(
 }
 
 /// Saves a session.
-pub(crate) async fn put_session(ex: &mut Executor, session: &Session) -> DbResult<()> {
+pub async fn put_session(ex: &mut Executor, session: &Session) -> DbResult<()> {
     let rows_affected = match ex {
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
@@ -450,7 +447,7 @@ pub(crate) async fn put_session(ex: &mut Executor, session: &Session) -> DbResul
 }
 
 /// Marks a session as deleted.
-pub(crate) async fn delete_session(
+pub async fn delete_session(
     ex: &mut Executor,
     session: Session,
     now: OffsetDateTime,
@@ -497,7 +494,7 @@ pub(crate) async fn delete_session(
 }
 
 /// Deletes all sessions for a user.
-pub(crate) async fn delete_sessions_for_user(
+pub async fn delete_sessions_for_user(
     ex: &mut Executor,
     username: &Username,
     now: OffsetDateTime,

@@ -25,11 +25,7 @@ use std::sync::Arc;
 
 impl AuthnDriver {
     /// Logs a user with `username` and `password`.
-    pub(crate) async fn login(
-        self,
-        username: Username,
-        password: Password,
-    ) -> DriverResult<Session> {
+    pub async fn login(self, username: Username, password: Password) -> DriverResult<Session> {
         let mut tx = self.db.begin().await?;
         let now = self.clock.now_utc();
 
