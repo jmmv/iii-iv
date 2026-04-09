@@ -251,34 +251,37 @@ mod tests {
     use super::*;
     use iii_iv_core::driver::DriverError;
     use iii_iv_core::model::Username;
+    use serial_test::serial;
 
     #[test]
+    #[serial(AUTHN)]
     pub fn test_options_from_env_all_all_missing() {
         temp_env::with_vars_unset(
             [
-                "PREFIX_SESSIONS_CACHE_CAPACITY",
-                "PREFIX_SESSIONS_CACHE_TTL",
-                "PREFIX_SESSION_MAX_AGE",
-                "PREFIX_SESSION_MAX_SKEW",
+                "AUTHN_SESSIONS_CACHE_CAPACITY",
+                "AUTHN_SESSIONS_CACHE_TTL",
+                "AUTHN_SESSION_MAX_AGE",
+                "AUTHN_SESSION_MAX_SKEW",
             ],
             || {
-                let opts = AuthnOptions::from_env("PREFIX").unwrap();
+                let opts = AuthnOptions::from_env("AUTHN").unwrap();
                 assert_eq!(AuthnOptions::default(), opts);
             },
         );
     }
 
     #[test]
+    #[serial(AUTHN)]
     pub fn test_options_from_env_all_optional_present() {
         temp_env::with_vars(
             [
-                ("PREFIX_SESSIONS_CACHE_CAPACITY", Some("30")),
-                ("PREFIX_SESSIONS_CACHE_TTL", Some("40m")),
-                ("PREFIX_SESSION_MAX_AGE", Some("10m")),
-                ("PREFIX_SESSION_MAX_SKEW", Some("20m")),
+                ("AUTHN_SESSIONS_CACHE_CAPACITY", Some("30")),
+                ("AUTHN_SESSIONS_CACHE_TTL", Some("40m")),
+                ("AUTHN_SESSION_MAX_AGE", Some("10m")),
+                ("AUTHN_SESSION_MAX_SKEW", Some("20m")),
             ],
             || {
-                let opts = AuthnOptions::from_env("PREFIX").unwrap();
+                let opts = AuthnOptions::from_env("AUTHN").unwrap();
                 assert_eq!(
                     AuthnOptions {
                         sessions_cache_capacity: 30,

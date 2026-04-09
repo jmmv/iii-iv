@@ -429,6 +429,7 @@ mod tests {
     use super::testutils::*;
     use super::*;
     use crate::db::tests::{generate_db_ro_concurrent_tests, generate_db_rw_tests};
+    use serial_test::serial;
     use std::sync::Arc;
 
     generate_db_ro_concurrent_tests!(
@@ -454,6 +455,7 @@ mod tests {
     );
 
     #[test]
+    #[serial(PGSQL)]
     pub fn test_postgres_options_from_env_all_required_present() {
         temp_env::with_vars(
             [
@@ -483,6 +485,7 @@ mod tests {
     }
 
     #[test]
+    #[serial(PGSQL)]
     pub fn test_postgres_options_from_env_all_required_and_optional_present() {
         temp_env::with_vars(
             [
@@ -515,11 +518,10 @@ mod tests {
     }
 
     #[test]
+    #[serial(PGSQL)]
     pub fn test_postgres_options_from_env_missing() {
-        let overrides = [
-            ("MISSING_DATABASE", Some("the-database")),
-            ("MISSING_USERNAME", Some("the-username")),
-        ];
+        let overrides =
+            [("PGSQL_DATABASE", Some("the-database")), ("PGSQL_USERNAME", Some("the-username"))];
         for (var, _) in overrides {
             // Keep all variables except one.
             let mut overrides = overrides;
@@ -530,24 +532,25 @@ mod tests {
             }
 
             temp_env::with_vars(overrides, || {
-                let err = PostgresOptions::from_env("MISSING").unwrap_err();
+                let err = PostgresOptions::from_env("PGSQL").unwrap_err();
                 assert!(err.contains(&format!("{} not present", var)));
             });
         }
     }
 
     #[test]
+    #[serial(PGSQL)]
     pub fn test_postgres_options_bad_port_type() {
         let overrides = [
-            ("MISSING_HOST", Some("the-host")),
-            ("MISSING_PORT", Some("not a number")),
-            ("MISSING_DATABASE", Some("the-database")),
-            ("MISSING_USERNAME", Some("the-username")),
-            ("MISSING_PASSWORD", Some("the-password")),
+            ("PGSQL_HOST", Some("the-host")),
+            ("PGSQL_PORT", Some("not a number")),
+            ("PGSQL_DATABASE", Some("the-database")),
+            ("PGSQL_USERNAME", Some("the-username")),
+            ("PGSQL_PASSWORD", Some("the-password")),
         ];
         temp_env::with_vars(overrides, || {
-            let err = PostgresOptions::from_env("MISSING").unwrap_err();
-            assert!(err.contains("MISSING_PORT"));
+            let err = PostgresOptions::from_env("PGSQL").unwrap_err();
+            assert!(err.contains("PGSQL_PORT"));
             assert!(err.contains("Invalid u16"));
         });
     }

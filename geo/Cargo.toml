@@ -29,6 +29,7 @@ time = { workspace = true }
 [dev-dependencies]
 iii-iv-core = { path = "../core", features = ["testutils"] }
 serde_test = { workspace = true }
+serial_test = { workspace = true }
 temp-env = { workspace = true }
 time = { workspace = true, features = ["macros"] }
 tokio = { workspace = true, features = ["rt", "macros", "rt-multi-thread"] }
