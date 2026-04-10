@@ -16,21 +16,34 @@
 //! Utilities to help testing services that integrate with the `authn` features.
 
 use crate::db;
+#[cfg(test)]
+use crate::driver::AuthnHooks;
 use crate::model::{AccessToken, Password, User};
 use crate::rest::LoginResponse;
+#[cfg(test)]
+use async_trait::async_trait;
 use axum::Router;
 use iii_iv_core::db::Executor;
+#[cfg(test)]
+use iii_iv_core::db::TxExecutor;
+#[cfg(test)]
+use iii_iv_core::driver::DriverResult;
 use iii_iv_core::model::{EmailAddress, Username};
 use iii_iv_core::rest::testutils::OneShotBuilder;
+#[cfg(test)]
+use serde::Deserialize;
+#[cfg(test)]
+use serde::Serialize;
 use time::OffsetDateTime;
 
 #[cfg(test)]
 use {
     crate::driver::email::testutils::{get_latest_activation_code, make_test_activation_template},
-    crate::driver::{AuthnDriver, AuthnOptions},
+    crate::driver::{AuthnDriver, AuthnNoHooks, AuthnOptions, NO_EXTENSIONS, NoExtensions},
     crate::rest::app,
     iii_iv_core::clocks::testutils::SettableClock,
     iii_iv_core::db::{Db, DbError},
+    iii_iv_core::driver::DriverError,
     iii_iv_core::rest::BaseUrls,
     iii_iv_smtp::driver::testutils::RecorderSmtpMailer,
     std::sync::Arc,
@@ -218,7 +231,7 @@ impl TestContextBuilder {
     }
 
     /// Sets up the test environment with the configured settings.
-    pub(crate) async fn build(self) -> TestContext {
+    pub(crate) async fn build_with_hooks<H: AuthnHooks>(self, hooks: H) -> TestContext {
         let db = Arc::from(iii_iv_core::db::sqlite::testutils::setup().await);
         db::init_schema(&mut db.ex().await.unwrap()).await.unwrap();
         let clock = Arc::from(SettableClock::new(datetime!(2023-12-01 05:50:00 UTC)));
@@ -232,11 +245,133 @@ impl TestContextBuilder {
             Arc::from(BaseUrls::from_strs("http://localhost:1234/", None)),
             "the-realm",
             self.opts,
+            hooks,
         );
         let app = Router::new().nest("/api/test", app(driver, self.activated_template));
 
         let whoami_password = Password::new(format!("random-{}", rand::random::<u32>())).unwrap();
 
         TestContext { app, db, whoami: self.whoami, whoami_password, mailer }
+    }
+
+    /// Sets up the test environment with the configured settings.
+    pub(crate) async fn build(self) -> TestContext {
+        self.build_with_hooks(AuthnNoHooks).await
+    }
+}
+
+#[cfg(test)]
+#[derive(Default, Deserialize, Serialize)]
+pub(crate) struct SignupTestInput {
+    #[serde(default)]
+    pub(crate) create_shadow_user: bool,
+}
+
+#[cfg(test)]
+#[derive(Deserialize, Serialize)]
+pub(crate) struct LoginTestOutput {
+    pub(crate) welcome_message: String,
+}
+
+#[cfg(test)]
+#[derive(Clone, Default)]
+pub(crate) struct AuthnTestHooks {}
+
+#[cfg(test)]
+#[async_trait]
+impl AuthnHooks for AuthnTestHooks {
+    type LoginOutput = LoginTestOutput;
+
+    async fn login_hook(
+        &self,
+        _tx: &mut TxExecutor,
+        _now: OffsetDateTime,
+        user: &User,
+    ) -> DriverResult<Self::LoginOutput> {
+        Ok(LoginTestOutput {
+            welcome_message: format!("Welcome to the test service, {}", user.username().as_str()),
+        })
+    }
+
+    type SignupInput = SignupTestInput;
+
+    async fn signup_hook(
+        &self,
+        tx: &mut TxExecutor,
+        _now: OffsetDateTime,
+        user: &User,
+        input: Self::SignupInput,
+    ) -> DriverResult<()> {
+        if input.create_shadow_user {
+            let shadow_username =
+                Username::new(format!("{}-shadow", user.username().as_str())).unwrap();
+            let email =
+                EmailAddress::new(format!("{}-shadow@example.com", shadow_username.as_str()))
+                    .unwrap();
+            db::create_user(tx.ex(), shadow_username, None, email).await.unwrap();
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+#[derive(Clone, Default)]
+pub(crate) struct FailingLoginHook {}
+
+#[cfg(test)]
+#[async_trait]
+impl AuthnHooks for FailingLoginHook {
+    type LoginOutput = NoExtensions;
+
+    async fn login_hook(
+        &self,
+        _tx: &mut TxExecutor,
+        _now: OffsetDateTime,
+        _user: &User,
+    ) -> DriverResult<Self::LoginOutput> {
+        Err(DriverError::BackendError("hook-failure-test".into()))
+    }
+
+    type SignupInput = NoExtensions;
+
+    async fn signup_hook(
+        &self,
+        _tx: &mut TxExecutor,
+        _now: OffsetDateTime,
+        _user: &User,
+        _input: Self::SignupInput,
+    ) -> DriverResult<()> {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+#[derive(Clone, Default)]
+pub(crate) struct FailingSignupHook {}
+
+#[cfg(test)]
+#[async_trait]
+impl AuthnHooks for FailingSignupHook {
+    type LoginOutput = NoExtensions;
+
+    async fn login_hook(
+        &self,
+        _tx: &mut TxExecutor,
+        _now: OffsetDateTime,
+        _user: &User,
+    ) -> DriverResult<Self::LoginOutput> {
+        Ok(NO_EXTENSIONS)
+    }
+
+    type SignupInput = NoExtensions;
+
+    async fn signup_hook(
+        &self,
+        _tx: &mut TxExecutor,
+        _now: OffsetDateTime,
+        _user: &User,
+        _input: Self::SignupInput,
+    ) -> DriverResult<()> {
+        Err(DriverError::BackendError("hook-failure-test".into()))
     }
 }

@@ -219,6 +219,7 @@ pub mod testutils {
     use base64::Engine;
     use base64::engine::general_purpose;
     use bytes::Bytes;
+    use json_value_merge::Merge;
     use serde::Serialize;
     use serde::de::DeserializeOwned;
     use std::collections::HashMap;
@@ -391,6 +392,23 @@ pub mod testutils {
                 .unwrap();
             ResponseChecker::from(self.app.oneshot(request).await.unwrap())
         }
+
+        /// Finishes building the request and sends it with a multipart JSON payload.
+        pub async fn send_json_multipart<T1: Serialize, T2: Serialize>(
+            mut self,
+            request1: T1,
+            request2: T2,
+        ) -> ResponseChecker {
+            self = self.replace_header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref());
+            let mut value1 = serde_json::to_value(request1).unwrap();
+            let value2 = serde_json::to_value(request2).unwrap();
+            value1.merge(&value2);
+            let request = self
+                .builder
+                .body(axum::body::Body::from(serde_json::to_vec(&value1).unwrap()))
+                .unwrap();
+            ResponseChecker::from(self.app.oneshot(request).await.unwrap())
+        }
     }
 
     /// Type alias for the complex type returned by the `oneshot` function.
@@ -482,6 +500,20 @@ pub mod testutils {
                     exp_re
                 );
             }
+        }
+
+        /// Finishes checking the response and expects it to contain valid JSON objects of
+        /// types `T1` and `T2`.
+        pub async fn expect_json_multipart<T1: DeserializeOwned, T2: DeserializeOwned>(
+            self,
+        ) -> (T1, T2) {
+            self.verify();
+
+            let body =
+                axum::body::to_bytes(self.response.into_body(), MAX_BODY_SIZE).await.unwrap();
+            let value1 = serde_json::from_slice::<T1>(&body).unwrap();
+            let value2 = serde_json::from_slice::<T2>(&body).unwrap();
+            (value1, value2)
         }
 
         /// Finishes checking the response and expects it to contain a valid JSON object of

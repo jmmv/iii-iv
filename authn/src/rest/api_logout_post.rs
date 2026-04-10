@@ -15,7 +15,7 @@
 
 //! API to terminate an existing session.
 
-use crate::driver::AuthnDriver;
+use crate::driver::{AuthnDriver, AuthnHooks};
 use crate::rest::get_bearer_auth;
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
@@ -23,8 +23,8 @@ use iii_iv_core::model::Username;
 use iii_iv_core::rest::{EmptyBody, RestError};
 
 /// POST handler for this API.
-pub(crate) async fn handler(
-    State(driver): State<AuthnDriver>,
+pub(crate) async fn handler<H: AuthnHooks>(
+    State(driver): State<AuthnDriver<H>>,
     Path(user): Path<Username>,
     headers: HeaderMap,
     _: EmptyBody,

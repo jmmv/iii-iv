@@ -15,7 +15,7 @@
 
 //! API to activate a newly-created user account.
 
-use crate::driver::AuthnDriver;
+use crate::driver::{AuthnDriver, AuthnHooks};
 use axum::extract::{Path, Query, State};
 use axum::response::Html;
 use iii_iv_core::model::Username;
@@ -45,8 +45,8 @@ pub struct ActivateRequest {
 
 /// GET handler for this API.
 #[allow(clippy::type_complexity)]
-pub(crate) async fn handler(
-    State((driver, activated_template)): State<(AuthnDriver, Option<&'static str>)>,
+pub(crate) async fn handler<H: AuthnHooks>(
+    State((driver, activated_template)): State<(AuthnDriver<H>, Option<&'static str>)>,
     Path(user): Path<String>,
     Query(request): Query<ActivateRequest>,
     _: EmptyBody,

@@ -15,7 +15,7 @@
 
 //! REST interface for a generic authentication service.
 
-use crate::driver::AuthnDriver;
+use crate::driver::{AuthnDriver, AuthnHooks};
 use axum::Router;
 
 mod api_activate_get;
@@ -39,7 +39,10 @@ pub use httputils::{get_basic_auth, get_bearer_auth, has_bearer_auth};
 ///
 /// The `activated_template` HTML template is used when confirming the successful activation of
 /// a new account.
-pub fn app(driver: AuthnDriver, activated_template: Option<&'static str>) -> Router {
+pub fn app<H: AuthnHooks>(
+    driver: AuthnDriver<H>,
+    activated_template: Option<&'static str>,
+) -> Router {
     use axum::routing::{get, post, put};
 
     let activate_router = Router::new()

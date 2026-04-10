@@ -16,8 +16,8 @@
 //! Extends the driver with the `signup` method.
 
 use crate::db;
-use crate::driver::AuthnDriver;
 use crate::driver::email::send_activation_code;
+use crate::driver::{AuthnDriver, AuthnHooks};
 use crate::model::Password;
 use iii_iv_core::db::DbError;
 use iii_iv_core::driver::{DriverError, DriverResult};
@@ -48,15 +48,17 @@ pub(crate) fn password_validator(s: &str) -> Option<&'static str> {
     None
 }
 
-impl AuthnDriver {
+impl<H: AuthnHooks> AuthnDriver<H> {
     /// Creates a new account for a user.
     pub(crate) async fn signup(
         self,
         username: Username,
         password: Password,
         email: EmailAddress,
+        input: H::SignupInput,
     ) -> DriverResult<()> {
         let mut tx = self.db.begin().await?;
+        let now = self.clock.now_utc();
 
         let password = password.validate_and_hash(password_validator)?;
 
@@ -72,6 +74,8 @@ impl AuthnDriver {
 
         let activation_code = rand::random::<u64>();
         let user = db::set_user_activation_code(tx.ex(), user, Some(activation_code)).await?;
+
+        self.hooks.signup_hook(&mut tx, now, &user, input).await?;
 
         // TODO(jmmv): This should leverage the queue somehow, but we need to figure out how that
         // can be done while also supporting service-specific tasks.
@@ -93,9 +97,14 @@ impl AuthnDriver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::driver::AuthnOptions;
     use crate::driver::testutils::*;
+    use crate::driver::{AuthnOptions, NO_EXTENSIONS};
     use crate::model::password;
+    use iii_iv_core::clocks::testutils::SettableClock;
+    use iii_iv_core::db::DbError;
+    use iii_iv_core::driver::DriverError;
+    use std::sync::Arc;
+    use time::macros::datetime;
 
     #[tokio::test]
     async fn test_signup_ok() {
@@ -110,7 +119,7 @@ mod tests {
             db::get_user_by_username(&mut context.ex().await, username.clone()).await.unwrap_err()
         );
 
-        context.driver().signup(username.clone(), password, email).await.unwrap();
+        context.driver().signup(username.clone(), password, email, NO_EXTENSIONS).await.unwrap();
 
         let user =
             db::get_user_by_username(&mut context.ex().await, username.clone()).await.unwrap();
@@ -134,7 +143,7 @@ mod tests {
 
         match context
             .driver()
-            .signup(username.clone(), password!("the1password"), email.clone())
+            .signup(username.clone(), password!("the1password"), email.clone(), NO_EXTENSIONS)
             .await
         {
             Err(DriverError::AlreadyExists(msg)) => assert!(msg.contains("already registered")),
@@ -156,7 +165,12 @@ mod tests {
 
         match context
             .driver()
-            .signup(Username::from("other"), password!("the1password"), email.clone())
+            .signup(
+                Username::from("other"),
+                password!("the1password"),
+                email.clone(),
+                NO_EXTENSIONS,
+            )
             .await
         {
             Err(DriverError::AlreadyExists(msg)) => assert!(msg.contains("already registered")),
@@ -181,7 +195,12 @@ mod tests {
         ] {
             match context
                 .driver()
-                .signup(username.clone(), Password::new(password).unwrap(), email.clone())
+                .signup(
+                    username.clone(),
+                    Password::new(password).unwrap(),
+                    email.clone(),
+                    NO_EXTENSIONS,
+                )
                 .await
             {
                 Err(DriverError::InvalidInput(msg)) => {
@@ -193,5 +212,48 @@ mod tests {
 
             assert!(context.get_latest_activation_code(&email, &username).await.is_none());
         }
+    }
+
+    #[tokio::test]
+    async fn test_signup_hook_failure_aborts_signup() {
+        let db = Arc::from(iii_iv_core::db::sqlite::testutils::setup().await);
+        let clock = Arc::from(SettableClock::new(datetime!(2023-12-01 05:50:00 UTC)));
+        let context = TestContext::setup_with_hooks(
+            AuthnOptions::default(),
+            db.clone(),
+            clock,
+            "the-realm",
+            FailingSignupHook,
+        )
+        .await;
+
+        let username = Username::from("hello");
+        let email = EmailAddress::from("foo@example.com");
+
+        assert_eq!(
+            DbError::NotFound,
+            db::get_user_by_username(&mut context.ex().await, username.clone()).await.unwrap_err()
+        );
+
+        match context
+            .driver()
+            .signup(
+                username.clone(),
+                password!("sufficiently0complex"),
+                email.clone(),
+                NO_EXTENSIONS,
+            )
+            .await
+        {
+            Err(DriverError::BackendError(msg)) => assert!(msg.contains("hook-failure-test")),
+            e => panic!("{:?}", e),
+        }
+
+        assert_eq!(
+            DbError::NotFound,
+            db::get_user_by_username(&mut context.ex().await, username.clone()).await.unwrap_err()
+        );
+
+        assert!(context.get_latest_activation_code(&email, &username).await.is_none());
     }
 }

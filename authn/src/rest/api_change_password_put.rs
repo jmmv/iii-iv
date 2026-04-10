@@ -15,7 +15,7 @@
 
 //! API to change a user's password.
 
-use crate::driver::AuthnDriver;
+use crate::driver::{AuthnDriver, AuthnHooks};
 use crate::model::Password;
 use crate::rest::get_bearer_auth;
 use axum::Json;
@@ -36,8 +36,8 @@ pub struct ChangePasswordRequest {
 }
 
 /// PUT /users/{user}/password handler.
-pub(crate) async fn handler(
-    State(driver): State<AuthnDriver>,
+pub(crate) async fn handler<H: AuthnHooks>(
+    State(driver): State<AuthnDriver<H>>,
     Path(username): Path<Username>,
     headers: HeaderMap,
     Json(request): Json<ChangePasswordRequest>,

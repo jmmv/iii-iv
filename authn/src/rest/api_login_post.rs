@@ -15,10 +15,10 @@
 
 //! API to create a new session for an existing user.
 
-use crate::driver::AuthnDriver;
+use crate::driver::{AuthnDriver, AuthnHooks};
 use crate::model::AccessToken;
 use crate::rest::get_basic_auth;
-use axum::Json;
+use crate::rest::httputils::JsonMultipart;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::IntoResponse;
@@ -38,8 +38,8 @@ pub struct LoginResponse {
 }
 
 /// POST handler for this API.
-pub(crate) async fn handler(
-    State(driver): State<AuthnDriver>,
+pub(crate) async fn handler<H: AuthnHooks>(
+    State(driver): State<AuthnDriver<H>>,
     headers: HeaderMap,
     _: EmptyBody,
 ) -> Result<impl IntoResponse, RestError> {
@@ -52,10 +52,10 @@ pub(crate) async fn handler(
     // is just a choice.  We could as well store this value along each session in the database.
     let session_max_age = driver.opts().session_max_age;
 
-    let session = driver.login(username, password).await?;
+    let (session, output) = driver.login(username, password).await?;
     let response = LoginResponse { access_token: session.take_access_token(), session_max_age };
 
-    Ok(Json(response))
+    Ok(JsonMultipart(response, output))
 }
 
 #[cfg(test)]
@@ -92,6 +92,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_ok_with_hooks() {
+        let opts =
+            AuthnOptions { session_max_age: Duration::from_secs(4182), ..Default::default() };
+        let mut context = TestContextBuilder::new()
+            .with_opts(opts)
+            .build_with_hooks(AuthnTestHooks::default())
+            .await;
+
+        context.create_whoami_user().await;
+
+        let response = OneShotBuilder::new(context.app(), route())
+            .with_basic_auth(context.whoami().as_str(), context.whoami_password().as_str())
+            .send_empty()
+            .await
+            .expect_json_multipart::<LoginResponse, LoginTestOutput>()
+            .await;
+
+        assert!(context.session_exists(&response.0.access_token).await);
+        assert!(context.user_exists(&context.whoami()).await);
+        assert_eq!(4182, response.0.session_max_age.as_secs());
+
+        assert_eq!(
+            format!("Welcome to the test service, {}", context.whoami().as_str()),
+            response.1.welcome_message
+        );
+    }
+
+    #[tokio::test]
     async fn test_unknown_user() {
         let context = TestContextBuilder::new().build().await;
 
@@ -114,6 +142,22 @@ mod tests {
             .await
             .expect_status(http::StatusCode::BAD_REQUEST)
             .expect_error("Unsupported character")
+            .await;
+    }
+
+    #[tokio::test]
+    async fn test_login_hook_failure() {
+        let mut context =
+            TestContextBuilder::new().build_with_hooks(FailingLoginHook::default()).await;
+
+        context.create_whoami_user().await;
+
+        OneShotBuilder::new(context.app(), route())
+            .with_basic_auth(context.whoami().as_str(), context.whoami_password().as_str())
+            .send_empty()
+            .await
+            .expect_status(http::StatusCode::INTERNAL_SERVER_ERROR)
+            .expect_error("hook-failure-test")
             .await;
     }
 

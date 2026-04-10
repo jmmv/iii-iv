@@ -16,14 +16,14 @@
 //! Extends the driver with the `change_password` method.
 
 use crate::db;
-use crate::driver::AuthnDriver;
 use crate::driver::signup::password_validator;
+use crate::driver::{AuthnDriver, AuthnHooks};
 use crate::model::{AccessToken, Password};
 use iii_iv_core::db::DbError;
 use iii_iv_core::driver::{DriverError, DriverResult};
 use iii_iv_core::model::Username;
 
-impl AuthnDriver {
+impl<H: AuthnHooks> AuthnDriver<H> {
     /// Changes the password for a user after verifying the old password.
     ///
     /// Invalidates all sessions for the user after successful password change.
@@ -100,6 +100,7 @@ impl AuthnDriver {
 mod tests {
     use super::*;
     use crate::driver::AuthnOptions;
+    use crate::driver::NO_EXTENSIONS;
     use crate::driver::testutils::*;
     use crate::model::{Session, password};
     use iii_iv_core::model::EmailAddress;
@@ -174,7 +175,11 @@ mod tests {
 
         let password = password!("old0password");
         let email = EmailAddress::new("test@example.com").unwrap();
-        context.driver().signup(username.clone(), password.clone(), email.clone()).await.unwrap();
+        context
+            .driver()
+            .signup(username.clone(), password.clone(), email.clone(), NO_EXTENSIONS)
+            .await
+            .unwrap();
 
         let token = {
             let mut tx = context.db().begin().await.unwrap();
