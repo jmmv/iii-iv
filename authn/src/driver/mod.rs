@@ -35,8 +35,10 @@ use time::OffsetDateTime;
 mod activate;
 mod change_password;
 pub(crate) mod email;
+mod hooks;
 mod login;
 mod logout;
+pub use hooks::{AuthnHooks, AuthnNoHooks, NO_EXTENSIONS, NoExtensions};
 mod signup;
 #[cfg(any(test, feature = "testutils"))]
 pub mod testutils;
@@ -107,7 +109,7 @@ impl AuthnOptions {
 /// two operations.
 #[derive(Derivative)]
 #[derivative(Clone(bound = ""))]
-pub struct AuthnDriver {
+pub struct AuthnDriver<H: AuthnHooks> {
     /// The database that the driver uses for persistence.
     db: Arc<dyn Db + Send + Sync>,
 
@@ -131,10 +133,14 @@ pub struct AuthnDriver {
 
     /// Cache of sessions.
     sessions_cache: Arc<Mutex<LruCache<AccessToken, DriverResult<Arc<User>>>>>,
+
+    /// Hooks to customize the behavior of the authn APIs.
+    hooks: H,
 }
 
-impl AuthnDriver {
+impl<H: AuthnHooks> AuthnDriver<H> {
     /// Creates a new driver backed by the given dependencies.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         db: Arc<dyn Db + Send + Sync>,
         clock: Arc<dyn Clock + Send + Sync>,
@@ -143,6 +149,7 @@ impl AuthnDriver {
         base_urls: Arc<BaseUrls>,
         realm: &'static str,
         opts: AuthnOptions,
+        hooks: H,
     ) -> Self {
         let sessions_cache = LruCache::with_expiry_duration_and_capacity(
             opts.sessions_cache_ttl,
@@ -159,6 +166,7 @@ impl AuthnDriver {
             realm,
             opts,
             sessions_cache,
+            hooks,
         }
     }
 

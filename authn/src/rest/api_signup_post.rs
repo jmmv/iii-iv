@@ -15,9 +15,9 @@
 
 //! API to create a new user account.
 
-use crate::driver::AuthnDriver;
+use crate::driver::{AuthnDriver, AuthnHooks};
 use crate::model::Password;
-use axum::Json;
+use crate::rest::httputils::JsonMultipart;
 use axum::extract::State;
 use iii_iv_core::model::{EmailAddress, Username};
 use iii_iv_core::rest::RestError;
@@ -38,11 +38,11 @@ pub struct SignupRequest {
 }
 
 /// POST handler for this API.
-pub(crate) async fn handler(
-    State(driver): State<AuthnDriver>,
-    Json(request): Json<SignupRequest>,
+pub(crate) async fn handler<H: AuthnHooks>(
+    State(driver): State<AuthnDriver<H>>,
+    JsonMultipart(request, extensions): JsonMultipart<SignupRequest, H::SignupInput>,
 ) -> Result<(), RestError> {
-    driver.signup(request.username, request.password, request.email).await?;
+    driver.signup(request.username, request.password, request.email, extensions).await?;
     Ok(())
 }
 
@@ -53,6 +53,7 @@ mod tests {
     use crate::rest::testutils::*;
     use axum::http;
     use iii_iv_core::{rest::testutils::OneShotBuilder, test_payload_must_be_json};
+    use std::collections::HashMap;
 
     fn route() -> (http::Method, String) {
         (http::Method::POST, "/api/test/signup".to_owned())
@@ -71,6 +72,49 @@ mod tests {
 
         assert!(context.user_exists(&Username::from("new")).await);
         assert!(!context.user_is_active(&Username::from("new")).await);
+    }
+
+    #[tokio::test]
+    async fn test_ok_with_hooks_not_present() {
+        let mut context =
+            TestContextBuilder::new().build_with_hooks(AuthnTestHooks::default()).await;
+
+        let request = SignupRequest {
+            username: "new".into(),
+            password: password!("hello4World"),
+            email: "new@example.com".into(),
+        };
+        let extensions = SignupTestInput::default();
+        OneShotBuilder::new(context.app(), route())
+            .send_json_multipart(request, extensions)
+            .await
+            .expect_empty()
+            .await;
+
+        assert!(context.user_exists(&Username::from("new")).await);
+        assert!(!context.user_is_active(&Username::from("new")).await);
+    }
+
+    #[tokio::test]
+    async fn test_ok_with_hooks_present() {
+        let mut context =
+            TestContextBuilder::new().build_with_hooks(AuthnTestHooks::default()).await;
+
+        let request = SignupRequest {
+            username: "new".into(),
+            password: password!("hello4World"),
+            email: "new@example.com".into(),
+        };
+        let extensions = SignupTestInput { create_shadow_user: true };
+        OneShotBuilder::new(context.app(), route())
+            .send_json_multipart(request, extensions)
+            .await
+            .expect_empty()
+            .await;
+
+        assert!(context.user_exists(&Username::from("new")).await);
+        assert!(!context.user_is_active(&Username::from("new")).await);
+        assert!(context.user_exists(&Username::from("new-shadow")).await);
     }
 
     #[tokio::test]
@@ -124,6 +168,26 @@ mod tests {
             .expect_status(http::StatusCode::UNPROCESSABLE_ENTITY)
             .expect_text("Email.*valid address")
             .await;
+    }
+
+    #[tokio::test]
+    async fn test_signup_hook_failure() {
+        let mut context =
+            TestContextBuilder::new().build_with_hooks(FailingSignupHook::default()).await;
+
+        let request: HashMap<&str, &str> = HashMap::from([
+            ("username", "new"),
+            ("password", "hello4World"),
+            ("email", "new@example.com"),
+        ]);
+        OneShotBuilder::new(context.app(), route())
+            .send_json(request)
+            .await
+            .expect_status(http::StatusCode::INTERNAL_SERVER_ERROR)
+            .expect_error("hook-failure-test")
+            .await;
+
+        assert!(!context.user_exists(&Username::from("new")).await);
     }
 
     test_payload_must_be_json!(TestContextBuilder::new().build().await.into_app(), route());

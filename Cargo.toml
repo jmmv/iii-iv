@@ -39,6 +39,7 @@ futures = "0.3"
 http = "1"
 http-body = "1.0"
 hyper = { version = "1", features = ["full"] }
+json_value_merge = "2"
 lettre = { version = "0.11", default-features = false }
 log = "0.4"
 lru_time_cache = "0.11"

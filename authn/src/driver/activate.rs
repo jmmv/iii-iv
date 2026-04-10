@@ -16,11 +16,11 @@
 //! Extends the driver with the `activate` method.
 
 use crate::db;
-use crate::driver::AuthnDriver;
+use crate::driver::{AuthnDriver, AuthnHooks};
 use iii_iv_core::driver::{DriverError, DriverResult};
 use iii_iv_core::model::Username;
 
-impl AuthnDriver {
+impl<H: AuthnHooks> AuthnDriver<H> {
     /// Marks a used as active based on a confirmation code.
     pub(crate) async fn activate(self, username: Username, code: u64) -> DriverResult<()> {
         let mut tx = self.db.begin().await?;

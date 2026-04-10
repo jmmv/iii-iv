@@ -31,6 +31,7 @@ testutils = [
     "dep:env_logger",
     "dep:http-body",
     "dep:hyper",
+    "dep:json_value_merge",
     "dep:mime",
     "dep:paste",
     "dep:rand",
@@ -50,6 +51,7 @@ futures = { workspace = true, optional = true }
 http-body = { workspace = true, optional = true }
 http = { workspace = true }
 hyper = { workspace = true, optional = true }
+json_value_merge = { workspace = true, optional = true }
 log = { workspace = true, optional = true }
 mime = { workspace = true, optional = true }
 paste = { workspace = true, optional = true }

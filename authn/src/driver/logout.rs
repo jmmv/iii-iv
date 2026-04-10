@@ -16,12 +16,12 @@
 //! Extends the driver with the `logout` method.
 
 use crate::db;
-use crate::driver::AuthnDriver;
+use crate::driver::{AuthnDriver, AuthnHooks};
 use crate::model::AccessToken;
 use iii_iv_core::driver::{DriverError, DriverResult};
 use iii_iv_core::model::Username;
 
-impl AuthnDriver {
+impl<H: AuthnHooks> AuthnDriver<H> {
     /// Marks a session as deleted.
     pub(crate) async fn logout(self, token: AccessToken, username: Username) -> DriverResult<()> {
         let mut tx = self.db.begin().await?;
