@@ -234,7 +234,7 @@ pub mod testutils {
         app: Router,
 
         /// Builder for the request that will be sent to the app.
-        builder: axum::http::request::Builder,
+        builder: http::request::Builder,
     }
 
     impl OneShotBuilder {
@@ -242,6 +242,20 @@ pub mod testutils {
         pub fn new<U: AsRef<str>>(app: Router, (method, uri): (http::Method, U)) -> Self {
             let builder = Request::builder().method(method).uri(uri.as_ref());
             Self { app, builder }
+        }
+
+        /// Sets or replaces header `key` with `value`.
+        fn replace_header<K, V>(mut self, key: K, value: V) -> Self
+        where
+            K: TryInto<HeaderName>,
+            <K as TryInto<HeaderName>>::Error: Into<http::Error>,
+            V: TryInto<HeaderValue>,
+            <V as TryInto<HeaderValue>>::Error: Into<http::Error>,
+        {
+            let key = key.try_into().map_err(Into::into).unwrap();
+            let value = value.try_into().map_err(Into::into).unwrap();
+            self.builder.headers_mut().unwrap().insert(key, value);
+            self
         }
 
         /// Extends the URI in the request with a `query`.
@@ -266,7 +280,9 @@ pub mod testutils {
         }
 
         /// Adds basic authentication to the request.
-        pub fn with_basic_auth<U, P>(mut self, username: U, password: P) -> Self
+        ///
+        /// Replaces any previously-defined authentication header.
+        pub fn with_basic_auth<U, P>(self, username: U, password: P) -> Self
         where
             U: fmt::Display,
             P: fmt::Display,
@@ -275,21 +291,22 @@ pub mod testutils {
                 "Basic {}",
                 general_purpose::STANDARD.encode(format!("{}:{}", username, password))
             );
-            self.builder = self.builder.header(http::header::AUTHORIZATION, value);
-            self
+            self.replace_header(http::header::AUTHORIZATION, value)
         }
 
         /// Adds bearer authentication to the request.
-        pub fn with_bearer_auth<T>(mut self, token: T) -> Self
+        ///
+        /// Replaces any previously-defined authentication header.
+        pub fn with_bearer_auth<T>(self, token: T) -> Self
         where
             T: fmt::Display,
         {
             let value = format!("Bearer {}", token);
-            self.builder = self.builder.header(http::header::AUTHORIZATION, value);
-            self
+            self.replace_header(http::header::AUTHORIZATION, value)
         }
 
-        /// Sets the header `name` to `value` in the outgoing request.
+        /// Sets the header `name` to `value` in the outgoing request _without_ clearing
+        /// previously-existing headers of the same `name`.
         pub fn with_header<K, V>(mut self, name: K, value: V) -> Self
         where
             HeaderName: TryFrom<K>,
@@ -308,51 +325,68 @@ pub mod testutils {
         }
 
         /// Finishes building the request and sends it with a binary payload.
-        pub async fn send_bytes(self, bytes: Bytes) -> ResponseChecker {
-            let request = self
-                .builder
-                .header(http::header::CONTENT_TYPE, mime::APPLICATION_OCTET_STREAM.as_ref())
-                .body(axum::body::Body::from(bytes))
-                .unwrap();
+        ///
+        /// Replaces any previously-defined content type.
+        pub async fn send_bytes(mut self, bytes: Bytes) -> ResponseChecker {
+            self = self.replace_header(
+                http::header::CONTENT_TYPE,
+                mime::APPLICATION_OCTET_STREAM.as_ref(),
+            );
+            let request = self.builder.body(axum::body::Body::from(bytes)).unwrap();
+            ResponseChecker::from(self.app.oneshot(request).await.unwrap())
+        }
+
+        /// Finishes building the request by sending an "untyped" payload.
+        ///
+        /// This is different from `send_text` in that this does _not_ set the content type.
+        pub async fn send_raw_text<T: Into<String>>(self, text: T) -> ResponseChecker {
+            let request = self.builder.body(axum::body::Body::from(text.into())).unwrap();
             ResponseChecker::from(self.app.oneshot(request).await.unwrap())
         }
 
         /// Finishes building the request and sends it with a text payload.
-        pub async fn send_text<T: Into<String>>(self, text: T) -> ResponseChecker {
-            let request = self
-                .builder
-                .header(http::header::CONTENT_TYPE, mime::TEXT_PLAIN.as_ref())
-                .body(axum::body::Body::from(text.into()))
-                .unwrap();
-            ResponseChecker::from(self.app.oneshot(request).await.unwrap())
+        ///
+        /// Replaces any previously-defined content type.
+        pub async fn send_text<T: Into<String>>(mut self, text: T) -> ResponseChecker {
+            self = self.replace_header(http::header::CONTENT_TYPE, mime::TEXT_PLAIN.as_ref());
+            self.send_raw_text(text).await
         }
 
         /// Finishes building the request and sends it with a binary payload.
-        pub async fn send_vec<B: Into<Vec<u8>>>(self, bytes: B) -> ResponseChecker {
-            let request = self
-                .builder
-                .header(http::header::CONTENT_TYPE, mime::APPLICATION_OCTET_STREAM.as_ref())
-                .body(axum::body::Body::from(bytes.into()))
-                .unwrap();
+        ///
+        /// Replaces any previously-defined content type.
+        pub async fn send_vec<B: Into<Vec<u8>>>(mut self, bytes: B) -> ResponseChecker {
+            self = self.replace_header(
+                http::header::CONTENT_TYPE,
+                mime::APPLICATION_OCTET_STREAM.as_ref(),
+            );
+            let request = self.builder.body(axum::body::Body::from(bytes.into())).unwrap();
             ResponseChecker::from(self.app.oneshot(request).await.unwrap())
         }
 
         /// Finishes building the request and sends it with a form encoded in the
         /// body as the payload.
-        pub async fn send_form<T: Serialize>(self, request: T) -> ResponseChecker {
+        ///
+        /// Replaces any previously-defined content type.
+        pub async fn send_form<T: Serialize>(mut self, request: T) -> ResponseChecker {
+            self = self.replace_header(
+                http::header::CONTENT_TYPE,
+                mime::APPLICATION_WWW_FORM_URLENCODED.as_ref(),
+            );
             let request = self
                 .builder
-                .header(http::header::CONTENT_TYPE, mime::APPLICATION_WWW_FORM_URLENCODED.as_ref())
                 .body(axum::body::Body::from(serde_urlencoded::to_string(&request).unwrap()))
                 .unwrap();
             ResponseChecker::from(self.app.oneshot(request).await.unwrap())
         }
 
         /// Finishes building the request and sends it with a JSON payload.
-        pub async fn send_json<T: Serialize>(self, request: T) -> ResponseChecker {
+        ///
+        /// Replaces any previously-defined content type.
+        pub async fn send_json<T: Serialize>(mut self, request: T) -> ResponseChecker {
+            self = self.replace_header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref());
             let request = self
                 .builder
-                .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
                 .body(axum::body::Body::from(serde_json::to_vec(&request).unwrap()))
                 .unwrap();
             ResponseChecker::from(self.app.oneshot(request).await.unwrap())
@@ -516,7 +550,7 @@ pub mod testutils {
                 $crate::rest::testutils::OneShotBuilder::new($app, $route)
                     $( .with_query($query) )?
                     .with_header(axum::http::header::CONTENT_TYPE, "application/json")
-                    .send_text("this is not json")
+                    .send_raw_text("this is not json")
                     .await
                     .expect_status(axum::http::StatusCode::BAD_REQUEST)
                     .expect_text("expected ident")
@@ -577,6 +611,102 @@ pub mod testutils {
     }
 
     pub use test_payload_must_be_form;
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use axum::extract::State;
+        use std::sync::Arc;
+        use tokio::sync::Mutex;
+
+        /// An API handler that captures all headers.
+        async fn capture_headers_handler(
+            State(captured): State<Arc<Mutex<HeaderMap>>>,
+            headers: HeaderMap,
+        ) {
+            *captured.lock().await = headers;
+        }
+
+        fn capture_headers_app() -> (Arc<Mutex<HeaderMap>>, Router) {
+            use axum::routing::post;
+
+            let headers = Arc::from(Mutex::from(HeaderMap::default()));
+            let app = Router::new()
+                .route("/capture-headers", post(capture_headers_handler))
+                .with_state(headers.clone());
+            (headers, app)
+        }
+
+        #[tokio::test]
+        async fn test_unique_basic_auth() {
+            let (headers, app) = capture_headers_app();
+
+            OneShotBuilder::new(app, (http::Method::POST, "/capture-headers"))
+                .with_basic_auth("foo", "pw1")
+                .with_basic_auth("bar", "pw2")
+                .send_empty()
+                .await
+                .expect_empty()
+                .await;
+
+            let headers = headers.lock().await;
+            assert_eq!(
+                "Basic YmFyOnB3Mg==",
+                get_unique_header(&headers, http::header::AUTHORIZATION.as_str())
+                    .unwrap()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+            );
+        }
+
+        #[tokio::test]
+        async fn test_unique_bearer_auth() {
+            let (headers, app) = capture_headers_app();
+
+            OneShotBuilder::new(app, (http::Method::POST, "/capture-headers"))
+                .with_bearer_auth("foo")
+                .with_bearer_auth("bar")
+                .send_empty()
+                .await
+                .expect_empty()
+                .await;
+
+            let headers = headers.lock().await;
+            assert_eq!(
+                "Bearer bar",
+                get_unique_header(&headers, http::header::AUTHORIZATION.as_str())
+                    .unwrap()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+            );
+        }
+
+        #[tokio::test]
+        async fn test_append_header() {
+            let (headers, app) = capture_headers_app();
+
+            OneShotBuilder::new(app, (http::Method::POST, "/capture-headers"))
+                .with_header("X-Foo", "value1")
+                .with_header("X-Foo", "value2")
+                .send_empty()
+                .await
+                .expect_empty()
+                .await;
+
+            let headers = headers.lock().await;
+            assert_eq!(
+                &["value1", "value2"],
+                headers
+                    .get_all("X-Foo")
+                    .iter()
+                    .map(|v| v.to_str().unwrap())
+                    .collect::<Vec<&str>>()
+                    .as_slice(),
+            );
+        }
+    }
 }
 
 #[cfg(test)]
