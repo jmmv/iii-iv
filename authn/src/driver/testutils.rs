@@ -76,7 +76,7 @@ impl TestContext<AuthnNoHooks> {
 
 impl<H: AuthnHooks> TestContext<H> {
     /// Initializes the test context using the given already-initialized objects and custom hooks.
-    pub(crate) async fn setup_with_hooks(
+    pub async fn setup_with_hooks(
         opts: AuthnOptions,
         db: Arc<dyn Db + Send + Sync>,
         clock: Arc<dyn Clock + Send + Sync>,
