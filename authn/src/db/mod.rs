@@ -221,7 +221,7 @@ pub async fn get_user_by_username(ex: &mut Executor, username: Username) -> DbRe
 }
 
 /// Updates an existing user `username` to have new `last_login` details.
-pub(crate) async fn update_user(
+pub async fn update_user(
     ex: &mut Executor,
     username: Username,
     last_login: OffsetDateTime,
@@ -269,7 +269,7 @@ pub(crate) async fn update_user(
 
 /// Updates the activation code of an existing user, either to a new code or to nothing to
 /// indicate that the user is active.
-pub(crate) async fn set_user_activation_code(
+pub async fn set_user_activation_code(
     ex: &mut Executor,
     user: User,
     code: Option<u64>,
@@ -362,10 +362,7 @@ pub(crate) async fn update_user_password(
 
 /// Gets a session from its access token.  Sessions marked as deleted (logged out) are
 /// ignored.
-pub(crate) async fn get_session(
-    ex: &mut Executor,
-    access_token: &AccessToken,
-) -> DbResult<Session> {
+pub async fn get_session(ex: &mut Executor, access_token: &AccessToken) -> DbResult<Session> {
     match ex {
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
