@@ -40,24 +40,24 @@ pub struct User {
 
 impl User {
     /// Creates a new user with the given fields.
-    pub(crate) fn new(username: Username, email: EmailAddress) -> Self {
+    pub fn new(username: Username, email: EmailAddress) -> Self {
         Self { username, password: None, email, activation_code: None, last_login: None }
     }
 
     /// Modifies a user to set or clear its activation code.
-    pub(crate) fn with_activation_code(mut self, code: Option<u64>) -> Self {
+    pub fn with_activation_code(mut self, code: Option<u64>) -> Self {
         self.activation_code = code;
         self
     }
 
     /// Modifies a user to record their most recent login time.
-    pub(crate) fn with_last_login(mut self, last_login: OffsetDateTime) -> Self {
+    pub fn with_last_login(mut self, last_login: OffsetDateTime) -> Self {
         self.last_login = Some(last_login);
         self
     }
 
     /// Modifies a user to add a password.
-    pub(crate) fn with_password(mut self, password: HashedPassword) -> Self {
+    pub fn with_password(mut self, password: HashedPassword) -> Self {
         self.password = Some(password);
         self
     }
