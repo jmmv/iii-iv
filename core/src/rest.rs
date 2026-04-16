@@ -633,7 +633,7 @@ pub mod testutils {
                 $crate::rest::testutils::OneShotBuilder::new($app, $route)
                     $( .with_query($query) )?
                     .with_header(axum::http::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-                    .send_text("this is not a form")
+                    .send_raw_text("this is not a form")
                     .await
                     .expect_status(axum::http::StatusCode::UNPROCESSABLE_ENTITY)
                     .expect_text("missing field")
@@ -647,9 +647,46 @@ pub mod testutils {
     #[cfg(test)]
     mod tests {
         use super::*;
+        use axum::Json;
+        use axum::extract::Form;
         use axum::extract::State;
+        use axum::routing::post;
+        use serde::Deserialize;
         use std::sync::Arc;
         use tokio::sync::Mutex;
+
+        /// An API handler that accepts an empty body and rejects non-empty ones.
+        async fn empty_body_handler(_: EmptyBody) {}
+
+        fn empty_body_app() -> Router {
+            Router::new().route("/empty", post(empty_body_handler))
+        }
+
+        /// An API handler that accepts form-encoded data in its body.
+        #[derive(Deserialize)]
+        struct FormPayload {
+            #[allow(unused)]
+            data: String,
+        }
+
+        async fn form_handler(_: Form<FormPayload>) {}
+
+        fn form_app() -> Router {
+            Router::new().route("/form", post(form_handler))
+        }
+
+        /// An API handler that accepts JSON data in its body.
+        #[derive(Deserialize)]
+        struct JsonPayload {
+            #[allow(unused)]
+            data: String,
+        }
+
+        async fn json_handler(_: Json<JsonPayload>) {}
+
+        fn json_app() -> Router {
+            Router::new().route("/json", post(json_handler))
+        }
 
         /// An API handler that captures all headers.
         async fn capture_headers_handler(
@@ -660,13 +697,48 @@ pub mod testutils {
         }
 
         fn capture_headers_app() -> (Arc<Mutex<HeaderMap>>, Router) {
-            use axum::routing::post;
-
             let headers = Arc::from(Mutex::from(HeaderMap::default()));
             let app = Router::new()
                 .route("/capture-headers", post(capture_headers_handler))
                 .with_state(headers.clone());
             (headers, app)
+        }
+
+        #[tokio::test]
+        async fn test_send_raw_text_has_no_content_type() {
+            let (headers, app) = capture_headers_app();
+
+            OneShotBuilder::new(app, (http::Method::POST, "/capture-headers"))
+                .send_raw_text("payload")
+                .await
+                .expect_empty()
+                .await;
+
+            let headers = headers.lock().await;
+            assert!(
+                get_unique_header(&headers, http::header::CONTENT_TYPE.as_str()).unwrap().is_none()
+            );
+        }
+
+        #[tokio::test]
+        async fn test_send_text_sets_content_type() {
+            let (headers, app) = capture_headers_app();
+
+            OneShotBuilder::new(app, (http::Method::POST, "/capture-headers"))
+                .send_text("payload")
+                .await
+                .expect_empty()
+                .await;
+
+            let headers = headers.lock().await;
+            assert_eq!(
+                mime::TEXT_PLAIN.as_ref(),
+                get_unique_header(&headers, http::header::CONTENT_TYPE.as_str())
+                    .unwrap()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+            );
         }
 
         #[tokio::test]
@@ -737,6 +809,68 @@ pub mod testutils {
                     .collect::<Vec<&str>>()
                     .as_slice(),
             );
+        }
+
+        #[tokio::test]
+        async fn test_with_header_preserved_by_send_raw_text() {
+            let (headers, app) = capture_headers_app();
+
+            OneShotBuilder::new(app, (http::Method::POST, "/capture-headers"))
+                .with_header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
+                .send_raw_text("payload")
+                .await
+                .expect_empty()
+                .await;
+
+            let headers = headers.lock().await;
+            assert_eq!(
+                mime::APPLICATION_JSON.as_ref(),
+                get_unique_header(&headers, http::header::CONTENT_TYPE.as_str())
+                    .unwrap()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+            );
+        }
+
+        #[tokio::test]
+        async fn test_with_header_replaced_by_send_text() {
+            let (headers, app) = capture_headers_app();
+
+            OneShotBuilder::new(app, (http::Method::POST, "/capture-headers"))
+                .with_header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
+                .send_text("payload")
+                .await
+                .expect_empty()
+                .await;
+
+            let headers = headers.lock().await;
+            assert_eq!(
+                mime::TEXT_PLAIN.as_ref(),
+                get_unique_header(&headers, http::header::CONTENT_TYPE.as_str())
+                    .unwrap()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+            );
+        }
+
+        mod test_payload_must_be_empty_macro {
+            use super::*;
+
+            crate::test_payload_must_be_empty!(empty_body_app(), (http::Method::POST, "/empty"));
+        }
+
+        mod test_payload_must_be_form_macro {
+            use super::*;
+
+            crate::test_payload_must_be_form!(form_app(), (http::Method::POST, "/form"));
+        }
+
+        mod test_payload_must_be_json_macro {
+            use super::*;
+
+            crate::test_payload_must_be_json!(json_app(), (http::Method::POST, "/json"));
         }
     }
 }
