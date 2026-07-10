@@ -13,14 +13,6 @@ jobs:
             RUSTC_WRAPPER: "sccache"
             SCCACHE_GHA_ENABLED: "true"
         steps:
-            - uses: actions-rs/toolchain@v1
-              with:
-                  profile: minimal
-                  # Use the latest stable Rust version for lint checks to
-                  # verify any new Clippy warnings that may appear.
-                  toolchain: stable
-                  default: true
-                  components: clippy, rustfmt
             - uses: actions/checkout@v4
             - uses: mozilla-actions/sccache-action@v0.0.9
             - run: sudo apt update
