@@ -1,0 +1,79 @@
+# III-IV
+# Copyright 2026 Julio Merino
+#
+# Licensed under the Apache License, Version 2.0 (the "License"); you may not
+# use this file except in compliance with the License.  You may obtain a copy
+# of the License at:
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
+# License for the specific language governing permissions and limitations
+# under the License.
+
+[[repos]]
+repo = "https://github.com/pre-commit/pre-commit-hooks"
+rev = "v6.0.0"
+
+[[repos.hooks]]
+id = "check-case-conflict"
+
+[[repos.hooks]]
+id = "check-executables-have-shebangs"
+
+[[repos.hooks]]
+id = "check-merge-conflict"
+
+[[repos.hooks]]
+id = "check-shebang-scripts-are-executable"
+
+[[repos.hooks]]
+id = "check-symlinks"
+
+[[repos.hooks]]
+id = "check-vcs-permalinks"
+
+[[repos.hooks]]
+id = "check-yaml"
+
+[[repos.hooks]]
+id = "detect-private-key"
+
+[[repos.hooks]]
+id = "double-quote-string-fixer"
+
+[[repos.hooks]]
+id = "end-of-file-fixer"
+
+[[repos.hooks]]
+id = "file-contents-sorter"
+files = "\\.gitignore$"
+
+[[repos.hooks]]
+id = "mixed-line-ending"
+args = ["--fix=lf"]
+
+[[repos.hooks]]
+id = "trailing-whitespace"
+
+[[repos]]
+repo = "local"
+
+[[repos.hooks]]
+id = "do-not-submit"
+name = "Check for [D]O NOT SUBMIT markers"
+language = "system"
+entry = "sh"
+args = ["-c", '! grep -rn "[D]O NOT SUBMIT" --exclude-dir=.git --exclude-dir=target .']
+pass_filenames = false
+always_run = true
+
+[[repos.hooks]]
+id = "cargo-rust"
+name = "Check Rust code (clippy + fmt)"
+language = "script"
+entry = "admin/check-rust.sh"
+pass_filenames = false
+always_run = true
