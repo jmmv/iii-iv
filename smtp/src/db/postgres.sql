@@ -21,4 +21,4 @@ CREATE TABLE IF NOT EXISTS email_log (
     result TEXT
 );
 
-CREATE INDEX email_log_by_sent ON email_log (sent);
+CREATE INDEX IF NOT EXISTS email_log_by_sent ON email_log (sent);
