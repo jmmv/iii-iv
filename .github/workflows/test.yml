@@ -14,10 +14,11 @@ jobs:
             SCCACHE_GHA_ENABLED: "true"
         steps:
             - uses: actions/checkout@v4
+            - uses: cargo-bins/cargo-binstall@main
             - uses: mozilla-actions/sccache-action@v0.0.9
             - run: sudo apt update
-            - run: sudo apt install pre-commit
-            - run: ./lint.sh
+            - run: cargo binstall --no-confirm prek
+            - run: prek run --all-files
 
     test-individually:
         runs-on: ubuntu-latest
