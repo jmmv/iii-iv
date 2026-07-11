@@ -20,7 +20,7 @@
 /// The `input` string can have `%key%` strings in it where `key` must appear in `replacements` and
 /// which will be replaced by its corresponding value.  Raw `%` characters can be escaped via `%%`
 /// and nested expansions are not supported.
-pub fn apply(input: &'static str, replacements: &[(&'static str, &str)]) -> String {
+pub fn apply(input: &str, replacements: &[(&'static str, &str)]) -> String {
     let mut output = String::with_capacity(input.len());
     let mut partial_key: Option<String> = None;
     for ch in input.chars() {

@@ -27,7 +27,7 @@ mod httputils;
 #[cfg(any(test, feature = "testutils"))]
 pub mod testutils;
 
-pub use api_activate_get::ActivateRequest;
+pub use api_activate_get::{ActivateRequest, ActivationSuccess};
 pub use api_change_password_put::ChangePasswordRequest;
 pub use api_login_post::LoginResponse;
 pub use api_signup_post::SignupRequest;
@@ -36,18 +36,12 @@ pub use httputils::{get_basic_auth, get_bearer_auth, has_bearer_auth};
 /// Creates the router for the authentication endpoints.
 ///
 /// The `driver` is a configured instance of the `AuthnDriver` to handle accounts.
-///
-/// The `activated_template` HTML template is used when confirming the successful activation of
-/// a new account.
-pub fn app<H: AuthnHooks>(
-    driver: AuthnDriver<H>,
-    activated_template: Option<&'static str>,
-) -> Router {
+pub fn app<H: AuthnHooks>(driver: AuthnDriver<H>, activation_success: ActivationSuccess) -> Router {
     use axum::routing::{get, post, put};
 
     let activate_router = Router::new()
         .route("/users/{user}/activate", get(api_activate_get::handler))
-        .with_state((driver.clone(), activated_template));
+        .with_state((driver.clone(), activation_success));
 
     Router::new()
         .route("/login", post(api_login_post::handler))
@@ -60,6 +54,7 @@ pub fn app<H: AuthnHooks>(
 
 #[cfg(test)]
 mod tests {
+    use super::ActivationSuccess;
     use super::api_activate_get::ActivateRequest;
     use super::api_login_post::LoginResponse;
     use super::api_signup_post::SignupRequest;
@@ -71,7 +66,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_e2e_signup_flow() {
-        let mut context = TestContextBuilder::new().with_whoami("the-user").build().await;
+        let mut context = TestContextBuilder::new()
+            .with_activation_success(ActivationSuccess::DefaultHtml)
+            .with_whoami("the-user")
+            .build()
+            .await;
 
         let request = SignupRequest {
             username: "the-user".into(),
