@@ -17,11 +17,12 @@
 
 use crate::driver::{AuthnDriver, AuthnHooks};
 use axum::extract::{Path, Query, State};
-use axum::response::Html;
+use axum::response::{Html, IntoResponse, Redirect};
 use iii_iv_core::model::Username;
 use iii_iv_core::rest::{EmptyBody, RestError};
 use iii_iv_core::template;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 /// Default HTML to return when an account is successfully activated.
 const DEFAULT_ACTIVATED_TEMPLATE: &str = r#"<html>
@@ -43,24 +44,50 @@ pub struct ActivateRequest {
     pub code: u64,
 }
 
+/// Successful response to return when an account activation completes.
+#[derive(Clone, Debug, Default)]
+pub enum ActivationSuccess {
+    /// Returns the built-in success page.
+    #[default]
+    DefaultHtml,
+
+    /// Returns a custom HTML success page.
+    HtmlTemplate(Cow<'static, str>),
+
+    /// Redirects to the given URL after applying any template substitutions.
+    RedirectTemplate(String),
+}
+
 /// GET handler for this API.
 #[allow(clippy::type_complexity)]
 pub(crate) async fn handler<H: AuthnHooks>(
-    State((driver, activated_template)): State<(AuthnDriver<H>, Option<&'static str>)>,
+    State((driver, activation_success)): State<(AuthnDriver<H>, ActivationSuccess)>,
     Path(user): Path<String>,
     Query(request): Query<ActivateRequest>,
     _: EmptyBody,
-) -> Result<Html<String>, RestError> {
+) -> Result<impl IntoResponse, RestError> {
     let user = Username::new(user)?;
 
     driver.activate(user.clone(), request.code).await?;
 
-    let body = template::apply(
-        activated_template.unwrap_or(DEFAULT_ACTIVATED_TEMPLATE),
-        &[("username", user.as_str())],
-    );
+    let substs = &[("username", user.as_str())];
 
-    Ok(Html(body))
+    let response = match activation_success {
+        ActivationSuccess::DefaultHtml => {
+            Html(template::apply(DEFAULT_ACTIVATED_TEMPLATE, substs)).into_response()
+        }
+
+        ActivationSuccess::HtmlTemplate(template) => {
+            Html(template::apply(template.as_ref(), substs)).into_response()
+        }
+
+        ActivationSuccess::RedirectTemplate(template) => {
+            let url = template::apply(&template, substs);
+            Redirect::to(&url).into_response()
+        }
+    };
+
+    Ok(response)
 }
 
 #[cfg(test)]
@@ -83,7 +110,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_ok() {
-        let mut context = TestContextBuilder::new().build().await;
+        let mut context = TestContextBuilder::new()
+            .with_activation_success(ActivationSuccess::DefaultHtml)
+            .build()
+            .await;
 
         let user = context.create_inactive_whoami_user(8991).await;
 
@@ -103,7 +133,10 @@ mod tests {
     #[tokio::test]
     async fn test_ok_custom_template() {
         let template = "All good, %username%!";
-        let mut context = TestContextBuilder::new().with_activated_template(template).build().await;
+        let mut context = TestContextBuilder::new()
+            .with_activation_success(ActivationSuccess::HtmlTemplate(template.into()))
+            .build()
+            .await;
 
         let user = context.create_inactive_whoami_user(8991).await;
 
@@ -120,8 +153,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_ok_redirect() {
+        let template = "http://frontend.example.com/#/account-activated?username=%username%";
+        let mut context = TestContextBuilder::new()
+            .with_activation_success(ActivationSuccess::RedirectTemplate(template.to_owned()))
+            .build()
+            .await;
+
+        let user = context.create_inactive_whoami_user(8991).await;
+
+        let request = ActivateRequest { code: 8991 };
+        OneShotBuilder::new(context.app(), route(user.username().as_str(), request))
+            .send_empty()
+            .await
+            .expect_status(http::StatusCode::SEE_OTHER)
+            .expect_header(
+                http::header::LOCATION.as_str(),
+                format!(
+                    "http://frontend.example.com/#/account-activated?username={}",
+                    context.whoami().as_str()
+                ),
+            )
+            .expect_empty()
+            .await;
+
+        assert!(context.user_is_active(user.username()).await);
+    }
+
+    #[tokio::test]
     async fn test_cannot_activate() {
-        let mut context = TestContextBuilder::new().build().await;
+        let mut context = TestContextBuilder::new()
+            .with_activation_success(ActivationSuccess::DefaultHtml)
+            .build()
+            .await;
 
         let user = context.create_inactive_whoami_user(8991).await;
 
@@ -138,7 +202,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_bad_username() {
-        let context = TestContextBuilder::new().build().await;
+        let context = TestContextBuilder::new()
+            .with_activation_success(ActivationSuccess::DefaultHtml)
+            .build()
+            .await;
 
         let request = ActivateRequest { code: 1 };
         OneShotBuilder::new(context.into_app(), route("not%20valid", request))
@@ -150,7 +217,11 @@ mod tests {
     }
 
     test_payload_must_be_empty!(
-        TestContextBuilder::new().build().await.into_app(),
+        TestContextBuilder::new()
+            .with_activation_success(ActivationSuccess::DefaultHtml)
+            .build()
+            .await
+            .into_app(),
         route("irrelevant", ActivateRequest { code: 0 })
     );
 }

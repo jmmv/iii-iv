@@ -40,7 +40,7 @@ use time::OffsetDateTime;
 use {
     crate::driver::email::testutils::{get_latest_activation_code, make_test_activation_template},
     crate::driver::{AuthnDriver, AuthnNoHooks, AuthnOptions, NO_EXTENSIONS, NoExtensions},
-    crate::rest::app,
+    crate::rest::{ActivationSuccess, app},
     iii_iv_core::clocks::testutils::SettableClock,
     iii_iv_core::db::{Db, DbError},
     iii_iv_core::driver::DriverError,
@@ -197,7 +197,7 @@ impl TestContext {
 #[must_use]
 pub(crate) struct TestContextBuilder {
     whoami: String,
-    activated_template: Option<&'static str>,
+    activation_success: ActivationSuccess,
     opts: AuthnOptions,
 }
 
@@ -207,14 +207,14 @@ impl TestContextBuilder {
     pub(crate) fn new() -> Self {
         Self {
             whoami: "whoami".to_owned(),
-            activated_template: None,
+            activation_success: ActivationSuccess::DefaultHtml,
             opts: AuthnOptions::default(),
         }
     }
 
-    /// Overrides the default activated template.
-    pub(crate) fn with_activated_template(mut self, template: &'static str) -> Self {
-        self.activated_template = Some(template);
+    /// Overrides the response returned upon successful account activation.
+    pub(crate) fn with_activation_success(mut self, activation_success: ActivationSuccess) -> Self {
+        self.activation_success = activation_success;
         self
     }
 
@@ -247,7 +247,7 @@ impl TestContextBuilder {
             self.opts,
             hooks,
         );
-        let app = Router::new().nest("/api/test", app(driver, self.activated_template));
+        let app = Router::new().nest("/api/test", app(driver, self.activation_success));
 
         let whoami_password = Password::new(format!("random-{}", rand::random::<u32>())).unwrap();
 
