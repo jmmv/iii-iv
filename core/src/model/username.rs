@@ -17,6 +17,7 @@
 
 use crate::model::{ModelError, ModelResult};
 use serde::{Deserialize, Serialize, de::Visitor};
+use std::borrow::Cow;
 
 /// Maximum length of a username as specified in the schema.
 pub(crate) const USERS_MAX_USERNAME_LENGTH: usize = 32;
@@ -27,44 +28,77 @@ pub(crate) const USERS_MAX_USERNAME_LENGTH: usize = 32;
 /// lowercase.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(transparent)]
-pub struct Username(String);
+pub struct Username(Cow<'static, str>);
 
 impl Username {
+    /// Checks if a username is valid, and returns an error message if it is not.
+    const fn validate(name: &str) -> Option<&'static str> {
+        if name.is_empty() {
+            return Some("Username cannot be empty");
+        }
+        if name.len() > USERS_MAX_USERNAME_LENGTH {
+            return Some("Username is too long");
+        }
+
+        let bytes = name.as_bytes();
+        let mut index = 0;
+        while index < bytes.len() {
+            let byte = bytes[index];
+            if !byte.is_ascii_lowercase()
+                && !byte.is_ascii_digit()
+                && byte != b'.'
+                && byte != b'-'
+                && byte != b'_'
+            {
+                return Some("Unsupported character in username");
+            }
+            index += 1;
+        }
+        None
+    }
+
     /// Creates a new username from an untrusted string `s`, making sure it is valid.
     pub fn new<S: Into<String>>(s: S) -> ModelResult<Self> {
-        let s = s.into();
-
-        if s.is_empty() {
-            return Err(ModelError("Username cannot be empty".to_owned()));
+        let s = s.into().to_lowercase();
+        if let Some(error) = Username::validate(&s) {
+            return Err(ModelError(error.to_owned()));
         }
-        if s.len() > USERS_MAX_USERNAME_LENGTH {
-            return Err(ModelError("Username is too long".to_owned()));
-        }
+        Ok(Self(Cow::Owned(s)))
+    }
 
-        for ch in s.chars() {
-            if !(ch.is_ascii_alphanumeric() || ".-_".find(ch).is_some()) {
-                return Err(ModelError(format!(
-                    "Unsupported character '{}' in username '{}'",
-                    ch, s
-                )));
-            }
+    /// Creates a new username from a hardcoded string, which must be valid.
+    #[cfg(any(test, feature = "testutils"))]
+    pub const fn from_static(name: &'static str) -> Self {
+        if Username::validate(name).is_some() {
+            panic!("Hardcoded usernames must be valid and lowercase");
         }
-
-        Ok(Self(s.to_lowercase()))
+        Self(Cow::Borrowed(name))
     }
 
     /// Creates a new username from an untrusted string `s`, without validation.  Useful for testing
     /// purposes only.
     #[cfg(any(test, feature = "testutils"))]
     pub fn new_invalid<S: Into<String>>(s: S) -> Self {
-        Self(s.into())
+        Self(Cow::Owned(s.into()))
     }
 
     /// Returns a string view of the username.
     pub fn as_str(&self) -> &str {
-        self.0.as_str()
+        self.0.as_ref()
     }
 }
+
+/// Instantiates a username from a static string.
+#[cfg(any(test, feature = "testutils"))]
+#[macro_export]
+macro_rules! __username__ {
+    ( $string:expr ) => {
+        $crate::model::Username::from_static($string)
+    };
+}
+
+#[cfg(any(test, feature = "testutils"))]
+pub use __username__ as username;
 
 #[cfg(any(test, feature = "testutils"))]
 impl From<&'static str> for Username {
@@ -121,6 +155,21 @@ mod tests {
     }
 
     #[test]
+    fn test_username_from_static() {
+        const CONST_USERNAME: Username = username!("const-user");
+        static STATIC_USERNAME: Username = username!("static-user");
+
+        assert_eq!("const-user", CONST_USERNAME.as_str());
+        assert_eq!("static-user", STATIC_USERNAME.as_str());
+    }
+
+    #[test]
+    #[should_panic(expected = "Hardcoded usernames must be valid and lowercase")]
+    fn test_username_from_static_error() {
+        Username::from_static("Invalid username");
+    }
+
+    #[test]
     fn test_username_error() {
         assert!(Username::new("").is_err());
         assert!(Username::new("foo bar").is_err());
@@ -158,7 +207,7 @@ mod tests {
     fn test_username_de_error() {
         assert_de_tokens_error::<Username>(
             &[Token::String("hello world")],
-            "Unsupported character ' ' in username 'hello world'",
+            "Unsupported character in username",
         );
     }
 }

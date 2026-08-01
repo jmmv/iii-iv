@@ -19,6 +19,8 @@ mod emailaddress;
 pub use emailaddress::EmailAddress;
 mod username;
 pub use username::Username;
+#[cfg(any(test, feature = "testutils"))]
+pub use username::username;
 
 /// Data model errors.
 #[derive(Debug, PartialEq, thiserror::Error)]
