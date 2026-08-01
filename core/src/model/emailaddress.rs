@@ -18,6 +18,7 @@
 use crate::model::{ModelError, ModelResult};
 use serde::de::Visitor;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 /// Maximum length of email addresses per the schema.
 pub(crate) const MAX_EMAIL_LENGTH: usize = 64;
@@ -29,43 +30,82 @@ pub(crate) const MAX_EMAIL_LENGTH: usize = 64;
 /// purposes, this treats them as case sensitive overall.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(transparent)]
-pub struct EmailAddress(String);
+pub struct EmailAddress(Cow<'static, str>);
 
 impl EmailAddress {
+    /// Checks if an email address is valid, and returns an error message if it is not.
+    const fn validate(email: &str) -> Option<&'static str> {
+        if email.is_empty() {
+            return Some("Email address cannot be empty");
+        }
+        if email.len() > MAX_EMAIL_LENGTH {
+            return Some("Email address is too long");
+        }
+
+        let bytes = email.as_bytes();
+        let mut index = 0;
+        let mut has_at = false;
+        while index < bytes.len() {
+            if bytes[index] == b'@' {
+                has_at = true;
+            }
+            if bytes[index] == b' ' {
+                return Some("Email does not look like a valid address");
+            }
+            index += 1;
+        }
+        if !has_at {
+            return Some("Email does not look like a valid address");
+        }
+        None
+    }
+
     /// Creates a new email address from an untrusted string `s`, making sure it is valid.
     pub fn new<S: Into<String>>(s: S) -> ModelResult<Self> {
         let s = s.into();
-
         if s.trim().is_empty() {
             return Err(ModelError("Email address cannot be empty".to_owned()));
         }
-        if s.len() > MAX_EMAIL_LENGTH {
-            return Err(ModelError("Email address is too long".to_owned()));
-        }
 
-        // Email addresses can have many formats, and attempting to validate them is futile.  Given
-        // that they come from Azure AAD and thus they have been used to verify the account, we'll
-        // trust that they are valid.  But we do some tiny validation anyway to make sure we at
-        // least pass data around correctly.
-        if !s.contains('@') || s.contains(' ') {
-            return Err(ModelError(format!("Email does not look like a valid address '{}'", s)));
+        if let Some(error) = EmailAddress::validate(&s) {
+            return Err(ModelError(error.to_owned()));
         }
+        Ok(Self(Cow::Owned(s)))
+    }
 
-        Ok(Self(s))
+    /// Creates a new email address from a hardcoded string, which must be valid.
+    #[cfg(any(test, feature = "testutils"))]
+    pub const fn from_static(email: &'static str) -> Self {
+        if EmailAddress::validate(email).is_some() {
+            panic!("Hardcoded email addresses must be valid");
+        }
+        Self(Cow::Borrowed(email))
     }
 
     /// Creates a new email address from an untrusted string `s`, without validation.  Useful for
     /// testing purposes only.
     #[cfg(any(test, feature = "testutils"))]
     pub fn new_invalid<S: Into<String>>(s: S) -> Self {
-        Self(s.into())
+        Self(Cow::Owned(s.into()))
     }
 
     /// Returns a string view of the email address.
     pub fn as_str(&self) -> &str {
-        self.0.as_str()
+        self.0.as_ref()
     }
 }
+
+/// Instantiates an email address from a static string.
+#[cfg(any(test, feature = "testutils"))]
+#[macro_export]
+macro_rules! __email_address__ {
+    ( $string:expr ) => {
+        $crate::model::EmailAddress::from_static($string)
+    };
+}
+
+#[cfg(any(test, feature = "testutils"))]
+pub use __email_address__ as email_address;
 
 #[cfg(feature = "testutils")]
 impl From<&str> for EmailAddress {
@@ -125,6 +165,21 @@ mod tests {
         assert_eq!("a!b@c", EmailAddress::new("a!b@c").unwrap().as_str());
     }
 
+    #[test]
+    fn test_emailaddress_from_static() {
+        const CONST_EMAIL: EmailAddress = email_address!("const@example.com");
+        static STATIC_EMAIL: EmailAddress = email_address!("static@example.com");
+
+        assert_eq!("const@example.com", CONST_EMAIL.as_str());
+        assert_eq!("static@example.com", STATIC_EMAIL.as_str());
+    }
+
+    #[test]
+    #[should_panic(expected = "Hardcoded email addresses must be valid")]
+    fn test_emailaddress_from_static_error() {
+        EmailAddress::from_static("not an email address");
+    }
+
     #[cfg(feature = "testutils")]
     #[test]
     fn test_emailaddress_into() {
@@ -171,7 +226,7 @@ mod tests {
     fn test_emailaddress_de_error() {
         assert_de_tokens_error::<EmailAddress>(
             &[Token::String("HelloWorld")],
-            "Email does not look like a valid address 'HelloWorld'",
+            "Email does not look like a valid address",
         );
     }
 }
