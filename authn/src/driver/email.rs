@@ -107,7 +107,7 @@ pub(crate) mod testutils {
 mod tests {
     use super::testutils::*;
     use super::*;
-    use iii_iv_core::model::username;
+    use iii_iv_core::model::{email_address, username};
     use iii_iv_smtp::driver::testutils::RecorderSmtpMailer;
     use iii_iv_smtp::model::testutils::parse_message;
 
@@ -115,7 +115,7 @@ mod tests {
     async fn test_send_activation_code() {
         let mailer = RecorderSmtpMailer::default();
 
-        let to = EmailAddress::from("user@example.com");
+        let to = email_address!("user@example.com");
         send_activation_code(
             &mailer,
             &make_test_activation_template(),

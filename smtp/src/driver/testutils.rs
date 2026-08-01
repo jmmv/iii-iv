@@ -138,7 +138,7 @@ impl TestContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use iii_iv_core::model::EmailAddress;
+    use iii_iv_core::model::{EmailAddress, email_address};
     use std::panic::catch_unwind;
 
     /// Creates a new message where the only thing that matters is toe `to` field.
@@ -153,9 +153,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_recorder_inject_error() {
-        let to1 = EmailAddress::from("to1@example.com");
-        let to2 = EmailAddress::from("to2@example.com");
-        let to3 = EmailAddress::from("to3@example.com");
+        let to1 = email_address!("to1@example.com");
+        let to2 = email_address!("to2@example.com");
+        let to3 = email_address!("to3@example.com");
 
         let mailer = RecorderSmtpMailer::default();
         mailer.inject_error_for(to2.clone()).await;
@@ -180,7 +180,7 @@ mod tests {
     async fn test_recorder_expect_no_messages_fail() {
         #[tokio::main(flavor = "current_thread")]
         async fn do_test() {
-            let to1 = EmailAddress::from("to1@example.com");
+            let to1 = email_address!("to1@example.com");
             let mailer = RecorderSmtpMailer::default();
             mailer.send(new_message(&to1)).await.unwrap();
             mailer.expect_no_messages().await; // Will panic.
@@ -190,7 +190,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_recorder_expect_one_inbox_ok() {
-        let to = EmailAddress::from("to@example.com");
+        let to = email_address!("to@example.com");
         let message = new_message(&to);
         let exp_formatted = message.formatted();
 
@@ -209,8 +209,8 @@ mod tests {
     fn test_recorder_expect_one_inbox_too_many_recipients() {
         #[tokio::main(flavor = "current_thread")]
         async fn do_test() {
-            let to1 = EmailAddress::from("to1@example.com");
-            let to2 = EmailAddress::from("to2@example.com");
+            let to1 = email_address!("to1@example.com");
+            let to2 = email_address!("to2@example.com");
 
             let mailer = RecorderSmtpMailer::default();
             mailer.send(new_message(&to1)).await.unwrap();
@@ -223,7 +223,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_recorder_expect_one_message_ok() {
-        let to = EmailAddress::from("to@example.com");
+        let to = email_address!("to@example.com");
         let message = new_message(&to);
         let exp_formatted = message.formatted();
 
@@ -237,8 +237,8 @@ mod tests {
     fn test_recorder_expect_one_message_too_many_recipients() {
         #[tokio::main(flavor = "current_thread")]
         async fn do_test() {
-            let to1 = EmailAddress::from("to1@example.com");
-            let to2 = EmailAddress::from("to2@example.com");
+            let to1 = email_address!("to1@example.com");
+            let to2 = email_address!("to2@example.com");
 
             let mailer = RecorderSmtpMailer::default();
             mailer.send(new_message(&to1)).await.unwrap();
@@ -253,7 +253,7 @@ mod tests {
     fn test_recorder_expect_one_message_too_many_messages() {
         #[tokio::main(flavor = "current_thread")]
         async fn do_test() {
-            let to = EmailAddress::from("to@example.com");
+            let to = email_address!("to@example.com");
 
             let mailer = RecorderSmtpMailer::default();
             mailer.send(new_message(&to)).await.unwrap();

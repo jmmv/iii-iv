@@ -80,8 +80,7 @@ mod tests {
     use crate::model::password;
     use iii_iv_core::clocks::testutils::SettableClock;
     use iii_iv_core::driver::DriverError;
-    use iii_iv_core::model::EmailAddress;
-    use iii_iv_core::model::username;
+    use iii_iv_core::model::{email_address, username};
     use std::sync::Arc;
     use time::OffsetDateTime;
     use time::macros::datetime;
@@ -97,7 +96,7 @@ mod tests {
             &mut context.ex().await,
             username.clone(),
             Some(password.clone().validate_and_hash(|_| None).unwrap()),
-            EmailAddress::from("some@example.com"),
+            email_address!("some@example.com"),
         )
         .await
         .unwrap();
@@ -113,7 +112,7 @@ mod tests {
         assert!(session.login_time() >= before && session.login_time() <= after);
         let user = db::get_user_by_username(&mut context.ex().await, username).await.unwrap();
         assert!(user.last_login().unwrap() >= before && user.last_login().unwrap() <= after);
-        assert_eq!(&EmailAddress::from("some@example.com"), user.email());
+        assert_eq!(&email_address!("some@example.com"), user.email());
     }
 
     #[tokio::test]
@@ -127,7 +126,7 @@ mod tests {
             &mut context.ex().await,
             username.clone(),
             Some(password.clone().validate_and_hash(|_| None).unwrap()),
-            EmailAddress::from("some@example.com"),
+            email_address!("some@example.com"),
         )
         .await
         .unwrap();
@@ -150,7 +149,7 @@ mod tests {
         assert!(session.login_time() >= before && session.login_time() <= after);
         let user = db::get_user_by_username(&mut context.ex().await, username).await.unwrap();
         assert!(user.last_login().unwrap() >= before && user.last_login().unwrap() <= after);
-        assert_eq!(&EmailAddress::from("some@example.com"), user.email());
+        assert_eq!(&email_address!("some@example.com"), user.email());
     }
 
     #[tokio::test]
@@ -173,7 +172,7 @@ mod tests {
             &mut context.ex().await,
             username.clone(),
             Some(Password::new("ABC").unwrap().validate_and_hash(|_| None).unwrap()),
-            EmailAddress::from("some@example.com"),
+            email_address!("some@example.com"),
         )
         .await
         .unwrap();
@@ -194,7 +193,7 @@ mod tests {
             &mut context.ex().await,
             username.clone(),
             None,
-            EmailAddress::from("some@example.com"),
+            email_address!("some@example.com"),
         )
         .await
         .unwrap();
@@ -216,7 +215,7 @@ mod tests {
             &mut context.ex().await,
             username.clone(),
             Some(password.clone().validate_and_hash(|_| None).unwrap()),
-            EmailAddress::from("some@example.com"),
+            email_address!("some@example.com"),
         )
         .await
         .unwrap();
@@ -239,7 +238,7 @@ mod tests {
             &mut context.ex().await,
             username.clone(),
             Some(password.clone().validate_and_hash(|_| None).unwrap()),
-            EmailAddress::from("some@example.com"),
+            email_address!("some@example.com"),
         )
         .await
         .unwrap();
@@ -273,7 +272,7 @@ mod tests {
             &mut context.ex().await,
             username.clone(),
             Some(password.clone().validate_and_hash(|_| None).unwrap()),
-            EmailAddress::from("some@example.com"),
+            email_address!("some@example.com"),
         )
         .await
         .unwrap();

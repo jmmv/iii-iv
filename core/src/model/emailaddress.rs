@@ -183,7 +183,7 @@ mod tests {
     #[cfg(feature = "testutils")]
     #[test]
     fn test_emailaddress_into() {
-        assert_eq!(EmailAddress::new("a@example.com").unwrap(), "a@example.com".into());
+        assert_eq!(EmailAddress::new("a@example.com").unwrap(), email_address!("a@example.com"));
     }
 
     #[test]

@@ -48,14 +48,13 @@ mod tests {
     use crate::driver::AuthnOptions;
     use crate::driver::testutils::*;
     use iii_iv_core::db::Executor;
-    use iii_iv_core::model::EmailAddress;
-    use iii_iv_core::model::username;
+    use iii_iv_core::model::{email_address, username};
 
     /// Creates a test user with an optional activation `code` and returns its username.
     async fn create_test_user(ex: &mut Executor, code: Option<u64>) -> Username {
         let username = username!("some-username");
 
-        let user = db::create_user(ex, username.clone(), None, EmailAddress::from("a@example.com"))
+        let user = db::create_user(ex, username.clone(), None, email_address!("a@example.com"))
             .await
             .unwrap();
         db::set_user_activation_code(ex, user, code).await.unwrap();

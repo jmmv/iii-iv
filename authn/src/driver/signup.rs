@@ -103,7 +103,7 @@ mod tests {
     use iii_iv_core::clocks::testutils::SettableClock;
     use iii_iv_core::db::DbError;
     use iii_iv_core::driver::DriverError;
-    use iii_iv_core::model::username;
+    use iii_iv_core::model::{email_address, username};
     use std::sync::Arc;
     use time::macros::datetime;
 
@@ -113,7 +113,7 @@ mod tests {
 
         let username = username!("hello");
         let password = password!("sufficiently0complex");
-        let email = EmailAddress::from("foo@example.com");
+        let email = email_address!("foo@example.com");
 
         assert_eq!(
             DbError::NotFound,
@@ -136,7 +136,7 @@ mod tests {
         let context = TestContext::setup(AuthnOptions::default()).await;
 
         let username = username!("hello");
-        let email = EmailAddress::from("other@example.com");
+        let email = email_address!("other@example.com");
 
         db::create_user(&mut context.ex().await, username.clone(), None, email.clone())
             .await
@@ -158,7 +158,7 @@ mod tests {
     async fn test_signup_email_already_exists() {
         let context = TestContext::setup(AuthnOptions::default()).await;
 
-        let email = EmailAddress::from("foo@example.com");
+        let email = email_address!("foo@example.com");
 
         db::create_user(&mut context.ex().await, username!("some"), None, email.clone())
             .await
@@ -181,7 +181,7 @@ mod tests {
         let context = TestContext::setup(AuthnOptions::default()).await;
 
         let username = username!("hello");
-        let email = EmailAddress::from("other@example.com");
+        let email = email_address!("other@example.com");
 
         for (password, error) in [
             ("a", "Too short"),
@@ -224,7 +224,7 @@ mod tests {
         .await;
 
         let username = username!("hello");
-        let email = EmailAddress::from("foo@example.com");
+        let email = email_address!("foo@example.com");
 
         assert_eq!(
             DbError::NotFound,

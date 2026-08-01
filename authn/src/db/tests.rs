@@ -18,7 +18,7 @@
 use crate::db::*;
 use crate::model::{AccessToken, Session, User, hashed_password};
 use iii_iv_core::db::{DbError, Executor};
-use iii_iv_core::model::{EmailAddress, Username, username};
+use iii_iv_core::model::{EmailAddress, Username, email_address, username};
 use time::macros::datetime;
 
 /// Syntactic sugar to create a user with default settings given only its username.
@@ -38,12 +38,12 @@ async fn test_users_ok(ex: &mut Executor) {
         ex,
         username!("some-username"),
         Some(hashed_password!("some-hash")),
-        EmailAddress::from("a@example.com"),
+        email_address!("a@example.com"),
     )
     .await
     .unwrap();
 
-    let exp_user = User::new(username!("some-username"), EmailAddress::from("a@example.com"))
+    let exp_user = User::new(username!("some-username"), email_address!("a@example.com"))
         .with_password(hashed_password!("some-hash"));
     assert_eq!(exp_user, user);
 
@@ -60,7 +60,7 @@ async fn test_users_not_found(ex: &mut Executor) {
 
 async fn test_user_corrupted_name(ex: &mut Executor) {
     let invalid = Username::new_invalid("this@is!invalid");
-    create_user(ex, invalid.clone(), None, EmailAddress::from("a@example.com")).await.unwrap();
+    create_user(ex, invalid.clone(), None, email_address!("a@example.com")).await.unwrap();
     match get_user_by_username(ex, invalid).await.unwrap_err() {
         DbError::DataIntegrityError(msg) if msg.contains("Unsupported character") => (),
         e => panic!("Unexpected error: {:?}", e),
@@ -81,13 +81,13 @@ async fn test_users_update_ok(ex: &mut Executor) {
         ex,
         username!("some-username"),
         Some(hashed_password!("some-hash")),
-        EmailAddress::from("a@example.com"),
+        email_address!("a@example.com"),
     )
     .await
     .unwrap();
     update_user(ex, username!("some-username"), datetime!(2022-04-02 05:50:10 UTC)).await.unwrap();
 
-    let exp_user = User::new(username!("some-username"), EmailAddress::from("a@example.com"))
+    let exp_user = User::new(username!("some-username"), email_address!("a@example.com"))
         .with_password(hashed_password!("some-hash"))
         .with_last_login(datetime!(2022-04-02 05:50:10 UTC));
     assert_eq!(exp_user, get_user_by_username(ex, username!("some-username")).await.unwrap());
@@ -110,7 +110,7 @@ async fn test_set_user_activation_code_ok(ex: &mut Executor) {
         ex,
         username!("some-username"),
         Some(hashed_password!("some-hash")),
-        EmailAddress::from("a@example.com"),
+        email_address!("a@example.com"),
     )
     .await
     .unwrap();
@@ -130,7 +130,7 @@ async fn test_set_user_activation_code_ok(ex: &mut Executor) {
 }
 
 async fn test_set_user_activation_code_not_found(ex: &mut Executor) {
-    let user = User::new(username!("foo"), EmailAddress::from("a@example.com"));
+    let user = User::new(username!("foo"), email_address!("a@example.com"));
 
     match set_user_activation_code(ex, user, Some(1)).await.unwrap_err() {
         DbError::NotFound => (),
@@ -148,7 +148,7 @@ async fn test_update_user_password_ok(ex: &mut Executor) {
         ex,
         username!("some-username"),
         Some(hashed_password!("original-hash")),
-        EmailAddress::from("a@example.com"),
+        email_address!("a@example.com"),
     )
     .await
     .unwrap();
@@ -171,7 +171,7 @@ async fn test_update_user_password_not_found(ex: &mut Executor) {
         ex,
         username!("some-username"),
         Some(hashed_password!("original-hash")),
-        EmailAddress::from("a@example.com"),
+        email_address!("a@example.com"),
     )
     .await
     .unwrap();
@@ -195,7 +195,7 @@ async fn test_update_user_password_wrong_old_password(ex: &mut Executor) {
         ex,
         username!("some-username"),
         Some(hashed_password!("original-hash")),
-        EmailAddress::from("a@example.com"),
+        email_address!("a@example.com"),
     )
     .await
     .unwrap();
