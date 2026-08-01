@@ -49,10 +49,11 @@ mod tests {
     use crate::driver::testutils::*;
     use iii_iv_core::db::Executor;
     use iii_iv_core::model::EmailAddress;
+    use iii_iv_core::model::username;
 
     /// Creates a test user with an optional activation `code` and returns its username.
     async fn create_test_user(ex: &mut Executor, code: Option<u64>) -> Username {
-        let username = Username::from("some-username");
+        let username = username!("some-username");
 
         let user = db::create_user(ex, username.clone(), None, EmailAddress::from("a@example.com"))
             .await
@@ -108,7 +109,7 @@ mod tests {
     async fn test_user_not_found() {
         let context = TestContext::setup(AuthnOptions::default()).await;
 
-        let username = Username::from("unknown");
+        let username = username!("unknown");
 
         match context.driver().activate(username.clone(), 1234).await {
             Err(DriverError::NotFound(_)) => (),

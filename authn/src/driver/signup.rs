@@ -103,6 +103,7 @@ mod tests {
     use iii_iv_core::clocks::testutils::SettableClock;
     use iii_iv_core::db::DbError;
     use iii_iv_core::driver::DriverError;
+    use iii_iv_core::model::username;
     use std::sync::Arc;
     use time::macros::datetime;
 
@@ -110,7 +111,7 @@ mod tests {
     async fn test_signup_ok() {
         let context = TestContext::setup(AuthnOptions::default()).await;
 
-        let username = Username::from("hello");
+        let username = username!("hello");
         let password = password!("sufficiently0complex");
         let email = EmailAddress::from("foo@example.com");
 
@@ -134,7 +135,7 @@ mod tests {
     async fn test_signup_username_already_exists() {
         let context = TestContext::setup(AuthnOptions::default()).await;
 
-        let username = Username::from("hello");
+        let username = username!("hello");
         let email = EmailAddress::from("other@example.com");
 
         db::create_user(&mut context.ex().await, username.clone(), None, email.clone())
@@ -159,32 +160,27 @@ mod tests {
 
         let email = EmailAddress::from("foo@example.com");
 
-        db::create_user(&mut context.ex().await, Username::from("some"), None, email.clone())
+        db::create_user(&mut context.ex().await, username!("some"), None, email.clone())
             .await
             .unwrap();
 
         match context
             .driver()
-            .signup(
-                Username::from("other"),
-                password!("the1password"),
-                email.clone(),
-                NO_EXTENSIONS,
-            )
+            .signup(username!("other"), password!("the1password"), email.clone(), NO_EXTENSIONS)
             .await
         {
             Err(DriverError::AlreadyExists(msg)) => assert!(msg.contains("already registered")),
             e => panic!("{:?}", e),
         }
 
-        assert!(context.get_latest_activation_code(&email, &Username::from("x")).await.is_none());
+        assert!(context.get_latest_activation_code(&email, &username!("x")).await.is_none());
     }
 
     #[tokio::test]
     async fn test_signup_weak_password() {
         let context = TestContext::setup(AuthnOptions::default()).await;
 
-        let username = Username::from("hello");
+        let username = username!("hello");
         let email = EmailAddress::from("other@example.com");
 
         for (password, error) in [
@@ -227,7 +223,7 @@ mod tests {
         )
         .await;
 
-        let username = Username::from("hello");
+        let username = username!("hello");
         let email = EmailAddress::from("foo@example.com");
 
         assert_eq!(

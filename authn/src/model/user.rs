@@ -92,12 +92,13 @@ impl User {
 mod tests {
     use super::*;
     use crate::model::hashed_password;
+    use iii_iv_core::model::username;
     use time::macros::datetime;
 
     #[test]
     fn test_user_getters() {
-        let user = User::new(Username::from("foo"), EmailAddress::from("a@example.com"));
-        assert_eq!(&Username::from("foo"), user.username());
+        let user = User::new(username!("foo"), EmailAddress::from("a@example.com"));
+        assert_eq!(&username!("foo"), user.username());
         assert!(user.password().is_none());
         assert_eq!(&EmailAddress::from("a@example.com"), user.email());
         assert!(user.activation_code().is_none());

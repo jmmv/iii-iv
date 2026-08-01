@@ -150,8 +150,8 @@ mod tests {
 
     #[test]
     fn test_username_ok() {
-        assert_eq!(Username::from("simple"), Username::new("simple").unwrap());
-        assert_eq!(Username::from("bar_baz93.xyz-2"), Username::new("bar_Baz93.xyz-2").unwrap());
+        assert_eq!(username!("simple"), Username::new("simple").unwrap());
+        assert_eq!(username!("bar_baz93.xyz-2"), Username::new("bar_Baz93.xyz-2").unwrap());
     }
 
     #[test]
@@ -191,8 +191,8 @@ mod tests {
 
     #[test]
     fn test_username_case_insensitive_lowercase() {
-        assert_eq!(Username::from("foo"), Username::new("Foo").unwrap());
-        assert_ne!(Username::from("foo"), Username::new("fo").unwrap());
+        assert_eq!(username!("foo"), Username::new("Foo").unwrap());
+        assert_ne!(username!("foo"), Username::new("fo").unwrap());
 
         assert_eq!("someusername", Username::new("SomeUsername").unwrap().as_str());
     }

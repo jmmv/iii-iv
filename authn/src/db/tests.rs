@@ -18,14 +18,14 @@
 use crate::db::*;
 use crate::model::{AccessToken, Session, User, hashed_password};
 use iii_iv_core::db::{DbError, Executor};
-use iii_iv_core::model::{EmailAddress, Username};
+use iii_iv_core::model::{EmailAddress, Username, username};
 use time::macros::datetime;
 
 /// Syntactic sugar to create a user with default settings given only its username.
 async fn create_simple_user(ex: &mut Executor, username: &'static str) -> User {
     create_user(
         ex,
-        Username::from(username),
+        username!(username),
         None,
         EmailAddress::new(format!("{}@example.com", username)).unwrap(),
     )
@@ -36,25 +36,25 @@ async fn create_simple_user(ex: &mut Executor, username: &'static str) -> User {
 async fn test_users_ok(ex: &mut Executor) {
     let user = create_user(
         ex,
-        Username::from("some-username"),
+        username!("some-username"),
         Some(hashed_password!("some-hash")),
         EmailAddress::from("a@example.com"),
     )
     .await
     .unwrap();
 
-    let exp_user = User::new(Username::from("some-username"), EmailAddress::from("a@example.com"))
+    let exp_user = User::new(username!("some-username"), EmailAddress::from("a@example.com"))
         .with_password(hashed_password!("some-hash"));
     assert_eq!(exp_user, user);
 
-    let user1 = get_user_by_username(ex, Username::from("some-username")).await.unwrap();
+    let user1 = get_user_by_username(ex, username!("some-username")).await.unwrap();
     assert_eq!(user, user1);
 }
 
 async fn test_users_not_found(ex: &mut Executor) {
     assert_eq!(
         DbError::NotFound,
-        get_user_by_username(ex, Username::from("some-username")).await.unwrap_err()
+        get_user_by_username(ex, username!("some-username")).await.unwrap_err()
     );
 }
 
@@ -69,8 +69,8 @@ async fn test_user_corrupted_name(ex: &mut Executor) {
 
 async fn test_user_corrupted_email(ex: &mut Executor) {
     let invalid = EmailAddress::new_invalid("this_is_invalid");
-    create_user(ex, Username::from("a"), None, invalid).await.unwrap();
-    match get_user_by_username(ex, Username::from("a")).await.unwrap_err() {
+    create_user(ex, username!("a"), None, invalid).await.unwrap();
+    match get_user_by_username(ex, username!("a")).await.unwrap_err() {
         DbError::DataIntegrityError(msg) if msg.contains("valid address") => (),
         e => panic!("Unexpected error: {:?}", e),
     }
@@ -79,32 +79,27 @@ async fn test_user_corrupted_email(ex: &mut Executor) {
 async fn test_users_update_ok(ex: &mut Executor) {
     create_user(
         ex,
-        Username::from("some-username"),
+        username!("some-username"),
         Some(hashed_password!("some-hash")),
         EmailAddress::from("a@example.com"),
     )
     .await
     .unwrap();
-    update_user(ex, Username::from("some-username"), datetime!(2022-04-02 05:50:10 UTC))
-        .await
-        .unwrap();
+    update_user(ex, username!("some-username"), datetime!(2022-04-02 05:50:10 UTC)).await.unwrap();
 
-    let exp_user = User::new(Username::from("some-username"), EmailAddress::from("a@example.com"))
+    let exp_user = User::new(username!("some-username"), EmailAddress::from("a@example.com"))
         .with_password(hashed_password!("some-hash"))
         .with_last_login(datetime!(2022-04-02 05:50:10 UTC));
-    assert_eq!(exp_user, get_user_by_username(ex, Username::from("some-username")).await.unwrap());
+    assert_eq!(exp_user, get_user_by_username(ex, username!("some-username")).await.unwrap());
 }
 
 async fn test_users_update_not_found(ex: &mut Executor) {
-    match update_user(ex, Username::from("foo"), datetime!(2022-04-02 06:32:00 UTC))
-        .await
-        .unwrap_err()
-    {
+    match update_user(ex, username!("foo"), datetime!(2022-04-02 06:32:00 UTC)).await.unwrap_err() {
         DbError::NotFound => (),
         e => panic!("{}", e),
     }
 
-    match get_user_by_username(ex, Username::from("foo")).await.unwrap_err() {
+    match get_user_by_username(ex, username!("foo")).await.unwrap_err() {
         DbError::NotFound => (),
         e => panic!("{}", e),
     }
@@ -113,7 +108,7 @@ async fn test_users_update_not_found(ex: &mut Executor) {
 async fn test_set_user_activation_code_ok(ex: &mut Executor) {
     let mut user = create_user(
         ex,
-        Username::from("some-username"),
+        username!("some-username"),
         Some(hashed_password!("some-hash")),
         EmailAddress::from("a@example.com"),
     )
@@ -135,14 +130,14 @@ async fn test_set_user_activation_code_ok(ex: &mut Executor) {
 }
 
 async fn test_set_user_activation_code_not_found(ex: &mut Executor) {
-    let user = User::new(Username::from("foo"), EmailAddress::from("a@example.com"));
+    let user = User::new(username!("foo"), EmailAddress::from("a@example.com"));
 
     match set_user_activation_code(ex, user, Some(1)).await.unwrap_err() {
         DbError::NotFound => (),
         e => panic!("{}", e),
     }
 
-    match get_user_by_username(ex, Username::from("foo")).await.unwrap_err() {
+    match get_user_by_username(ex, username!("foo")).await.unwrap_err() {
         DbError::NotFound => (),
         e => panic!("{}", e),
     }
@@ -151,7 +146,7 @@ async fn test_set_user_activation_code_not_found(ex: &mut Executor) {
 async fn test_update_user_password_ok(ex: &mut Executor) {
     let user = create_user(
         ex,
-        Username::from("some-username"),
+        username!("some-username"),
         Some(hashed_password!("original-hash")),
         EmailAddress::from("a@example.com"),
     )
@@ -174,7 +169,7 @@ async fn test_update_user_password_ok(ex: &mut Executor) {
 async fn test_update_user_password_not_found(ex: &mut Executor) {
     create_user(
         ex,
-        Username::from("some-username"),
+        username!("some-username"),
         Some(hashed_password!("original-hash")),
         EmailAddress::from("a@example.com"),
     )
@@ -183,7 +178,7 @@ async fn test_update_user_password_not_found(ex: &mut Executor) {
 
     match update_user_password(
         ex,
-        Username::from("nonexistent"),
+        username!("nonexistent"),
         &hashed_password!("original-hash"),
         hashed_password!("new-hash"),
     )
@@ -198,7 +193,7 @@ async fn test_update_user_password_not_found(ex: &mut Executor) {
 async fn test_update_user_password_wrong_old_password(ex: &mut Executor) {
     let user = create_user(
         ex,
-        Username::from("some-username"),
+        username!("some-username"),
         Some(hashed_password!("original-hash")),
         EmailAddress::from("a@example.com"),
     )
@@ -226,14 +221,14 @@ async fn test_delete_sessions_for_user_ok(ex: &mut Executor) {
     create_simple_user(ex, "testuser1").await;
     let session1 = Session::new(
         AccessToken::generate(),
-        Username::from("testuser1"),
+        username!("testuser1"),
         datetime!(2022-05-17 06:29:28 UTC),
     );
     put_session(ex, &session1).await.unwrap();
 
     let session2 = Session::new(
         AccessToken::generate(),
-        Username::from("testuser1"),
+        username!("testuser1"),
         datetime!(2022-05-17 06:29:28 UTC),
     );
     put_session(ex, &session2).await.unwrap();
@@ -241,7 +236,7 @@ async fn test_delete_sessions_for_user_ok(ex: &mut Executor) {
     assert_eq!(session1, get_session(ex, session1.access_token()).await.unwrap());
     assert_eq!(session2, get_session(ex, session2.access_token()).await.unwrap());
 
-    delete_sessions_for_user(ex, &Username::from("testuser1"), datetime!(2022-05-26 08:38:10 UTC))
+    delete_sessions_for_user(ex, &username!("testuser1"), datetime!(2022-05-26 08:38:10 UTC))
         .await
         .unwrap();
 
@@ -259,7 +254,7 @@ async fn test_sessions_ok(ex: &mut Executor) {
     create_simple_user(ex, "testuser1").await;
     let session1 = Session::new(
         AccessToken::generate(),
-        Username::from("testuser1"),
+        username!("testuser1"),
         datetime!(2022-05-17 06:29:28 UTC),
     );
     put_session(ex, &session1).await.unwrap();
@@ -267,7 +262,7 @@ async fn test_sessions_ok(ex: &mut Executor) {
     create_simple_user(ex, "testuser2").await;
     let session2 = Session::new(
         AccessToken::generate(),
-        Username::from("testuser1"),
+        username!("testuser1"),
         datetime!(2022-05-17 06:29:28 UTC),
     );
     put_session(ex, &session2).await.unwrap();
@@ -291,7 +286,7 @@ async fn test_sessions_missing(ex: &mut Executor) {
     create_simple_user(ex, "testuser1").await;
     let session = Session::new(
         AccessToken::generate(),
-        Username::from("testuser1"),
+        username!("testuser1"),
         datetime!(2022-05-17 06:29:28 UTC),
     );
     put_session(ex, &session).await.unwrap();

@@ -52,6 +52,7 @@ mod tests {
     use crate::model::password;
     use crate::rest::testutils::*;
     use axum::http;
+    use iii_iv_core::model::username;
     use iii_iv_core::{rest::testutils::OneShotBuilder, test_payload_must_be_json};
     use std::collections::HashMap;
 
@@ -70,8 +71,8 @@ mod tests {
         };
         OneShotBuilder::new(context.app(), route()).send_json(request).await.expect_empty().await;
 
-        assert!(context.user_exists(&Username::from("new")).await);
-        assert!(!context.user_is_active(&Username::from("new")).await);
+        assert!(context.user_exists(&username!("new")).await);
+        assert!(!context.user_is_active(&username!("new")).await);
     }
 
     #[tokio::test]
@@ -91,8 +92,8 @@ mod tests {
             .expect_empty()
             .await;
 
-        assert!(context.user_exists(&Username::from("new")).await);
-        assert!(!context.user_is_active(&Username::from("new")).await);
+        assert!(context.user_exists(&username!("new")).await);
+        assert!(!context.user_is_active(&username!("new")).await);
     }
 
     #[tokio::test]
@@ -112,9 +113,9 @@ mod tests {
             .expect_empty()
             .await;
 
-        assert!(context.user_exists(&Username::from("new")).await);
-        assert!(!context.user_is_active(&Username::from("new")).await);
-        assert!(context.user_exists(&Username::from("new-shadow")).await);
+        assert!(context.user_exists(&username!("new")).await);
+        assert!(!context.user_is_active(&username!("new")).await);
+        assert!(context.user_exists(&username!("new-shadow")).await);
     }
 
     #[tokio::test]
@@ -187,7 +188,7 @@ mod tests {
             .expect_error("hook-failure-test")
             .await;
 
-        assert!(!context.user_exists(&Username::from("new")).await);
+        assert!(!context.user_exists(&username!("new")).await);
     }
 
     test_payload_must_be_json!(TestContextBuilder::new().build().await.into_app(), route());

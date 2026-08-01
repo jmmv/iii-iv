@@ -107,6 +107,7 @@ pub(crate) mod testutils {
 mod tests {
     use super::testutils::*;
     use super::*;
+    use iii_iv_core::model::username;
     use iii_iv_smtp::driver::testutils::RecorderSmtpMailer;
     use iii_iv_smtp::model::testutils::parse_message;
 
@@ -122,7 +123,7 @@ mod tests {
                 "https://test.example.com:1234/",
                 Some("https://no-frontend.example.com"),
             ),
-            &Username::from("user-123"),
+            &username!("user-123"),
             &to,
             7654,
         )

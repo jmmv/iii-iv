@@ -262,6 +262,7 @@ mod tests {
     use crate::model::password;
     use axum::body::{self, Body};
     use http::{HeaderValue, Request};
+    use iii_iv_core::model::username;
     use serde::Deserialize;
 
     #[derive(Serialize)]
@@ -374,7 +375,7 @@ mod tests {
             format!("Basic {}", general_purpose::STANDARD.encode("hello:bye")).parse().unwrap(),
         );
         assert_eq!(
-            (Username::from("hello"), password!("bye")),
+            (username!("hello"), password!("bye")),
             get_basic_auth(&headers, "the-realm").unwrap()
         );
     }
