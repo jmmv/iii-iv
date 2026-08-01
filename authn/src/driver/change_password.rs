@@ -103,12 +103,12 @@ mod tests {
     use crate::driver::NO_EXTENSIONS;
     use crate::driver::testutils::*;
     use crate::model::{Session, password};
-    use iii_iv_core::model::EmailAddress;
+    use iii_iv_core::model::{EmailAddress, username};
 
     #[tokio::test]
     async fn test_change_password_ok() {
         let context = TestContext::setup(AuthnOptions::default()).await;
-        let username = Username::from("test");
+        let username = username!("test");
 
         let token = context.do_test_login(username.clone()).await;
 
@@ -127,7 +127,7 @@ mod tests {
     #[tokio::test]
     async fn test_change_password_user_not_found() {
         let context = TestContext::setup(AuthnOptions::default()).await;
-        let username = Username::from("test");
+        let username = username!("test");
 
         let token = context.do_test_login(username.clone()).await;
 
@@ -135,7 +135,7 @@ mod tests {
             .driver()
             .change_password(
                 token,
-                Username::from("nonexistent"),
+                username!("nonexistent"),
                 password!("old0password"),
                 password!("new1password"),
             )
@@ -149,7 +149,7 @@ mod tests {
     #[tokio::test]
     async fn test_change_password_wrong_old_password() {
         let context = TestContext::setup(AuthnOptions::default()).await;
-        let username = Username::from("test");
+        let username = username!("test");
 
         let token = context.do_test_login(username.clone()).await;
 
@@ -171,7 +171,7 @@ mod tests {
     #[tokio::test]
     async fn test_change_password_not_activated() {
         let context = TestContext::setup(AuthnOptions::default()).await;
-        let username = Username::from("test");
+        let username = username!("test");
 
         let password = password!("old0password");
         let email = EmailAddress::new("test@example.com").unwrap();
@@ -206,7 +206,7 @@ mod tests {
     #[tokio::test]
     async fn test_change_password_weak_new_password() {
         let context = TestContext::setup(AuthnOptions::default()).await;
-        let username = Username::from("test");
+        let username = username!("test");
 
         let token = context.do_test_login(username.clone()).await;
 
@@ -239,7 +239,7 @@ mod tests {
     #[tokio::test]
     async fn test_change_password_invalidates_sessions() {
         let context = TestContext::setup(AuthnOptions::default()).await;
-        let username = Username::from("test");
+        let username = username!("test");
 
         let token = context.do_test_login(username.clone()).await;
 
@@ -266,7 +266,7 @@ mod tests {
     #[tokio::test]
     async fn test_change_password_wrong_old_password_after_change() {
         let context = TestContext::setup(AuthnOptions::default()).await;
-        let username = Username::from("test");
+        let username = username!("test");
 
         let token = context.do_test_login(username.clone()).await;
 

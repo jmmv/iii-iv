@@ -53,13 +53,14 @@ mod tests {
     use crate::driver::AuthnOptions;
     use crate::driver::testutils::*;
     use iii_iv_core::db::DbError;
+    use iii_iv_core::model::username;
     use std::time::Duration;
 
     #[tokio::test]
     async fn test_ok() {
         let context = TestContext::setup(AuthnOptions::default()).await;
 
-        let username = Username::from("test");
+        let username = username!("test");
 
         let token = context.do_test_login(username.clone()).await;
         context.driver().logout(token.clone(), username).await.unwrap();
@@ -74,10 +75,10 @@ mod tests {
     async fn test_not_found() {
         let context = TestContext::setup(AuthnOptions::default()).await;
 
-        let username1 = Username::from("test1");
+        let username1 = username!("test1");
 
         let token1 = context.do_test_login(username1.clone()).await;
-        let token2 = context.do_test_login(Username::from("test2")).await;
+        let token2 = context.do_test_login(username!("test2")).await;
         context.driver().logout(token1.clone(), username1).await.unwrap();
 
         db::get_session(&mut context.ex().await, &token1).await.unwrap_err();
@@ -88,8 +89,8 @@ mod tests {
     async fn test_invalid_user_error() {
         let context = TestContext::setup(AuthnOptions::default()).await;
 
-        let username1 = Username::from("test1");
-        let username2 = Username::from("test2");
+        let username1 = username!("test1");
+        let username2 = username!("test2");
 
         let token1 = context.do_test_login(username1.clone()).await;
         let err1 = context.driver().logout(token1.clone(), username2).await.unwrap_err();
@@ -110,7 +111,7 @@ mod tests {
         };
         let context = TestContext::setup(opts).await;
 
-        let username = Username::from("test");
+        let username = username!("test");
 
         assert_eq!(0, context.driver().sessions_cache.lock().await.len());
         let token = context.do_test_login(username.clone()).await;

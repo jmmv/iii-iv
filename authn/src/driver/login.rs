@@ -81,6 +81,7 @@ mod tests {
     use iii_iv_core::clocks::testutils::SettableClock;
     use iii_iv_core::driver::DriverError;
     use iii_iv_core::model::EmailAddress;
+    use iii_iv_core::model::username;
     use std::sync::Arc;
     use time::OffsetDateTime;
     use time::macros::datetime;
@@ -89,7 +90,7 @@ mod tests {
     async fn test_login_ok_first_time() {
         let context = TestContext::setup(AuthnOptions::default()).await;
 
-        let username = Username::from("hello");
+        let username = username!("hello");
         let password = password!("password");
 
         db::create_user(
@@ -119,7 +120,7 @@ mod tests {
     async fn test_login_ok_returning() {
         let context = TestContext::setup(AuthnOptions::default()).await;
 
-        let username = Username::from("hello");
+        let username = username!("hello");
         let password = password!("password");
 
         db::create_user(
@@ -156,7 +157,7 @@ mod tests {
     async fn test_login_unknown_user() {
         let context = TestContext::setup(AuthnOptions::default()).await;
 
-        match context.driver().login(Username::from("foo"), password!("bar")).await {
+        match context.driver().login(username!("foo"), password!("bar")).await {
             Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("Unknown user")),
             e => panic!("{:?}", e),
         }
@@ -166,7 +167,7 @@ mod tests {
     async fn test_login_invalid_password() {
         let context = TestContext::setup(AuthnOptions::default()).await;
 
-        let username = Username::from("hello");
+        let username = username!("hello");
 
         db::create_user(
             &mut context.ex().await,
@@ -187,7 +188,7 @@ mod tests {
     async fn test_login_not_allowed() {
         let context = TestContext::setup(AuthnOptions::default()).await;
 
-        let username = Username::from("hello");
+        let username = username!("hello");
 
         db::create_user(
             &mut context.ex().await,
@@ -208,7 +209,7 @@ mod tests {
     async fn test_login_not_activated() {
         let context = TestContext::setup(AuthnOptions::default()).await;
 
-        let username = Username::from("hello");
+        let username = username!("hello");
         let password = password!("password");
 
         let user = db::create_user(
@@ -231,7 +232,7 @@ mod tests {
     async fn test_login_inserts_session_into_cache() {
         let context = TestContext::setup(AuthnOptions::default()).await;
 
-        let username = Username::from("hello");
+        let username = username!("hello");
         let password = password!("password");
 
         db::create_user(
@@ -265,7 +266,7 @@ mod tests {
         )
         .await;
 
-        let username = Username::from("hello");
+        let username = username!("hello");
         let password = password!("password");
 
         db::create_user(

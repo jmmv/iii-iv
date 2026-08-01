@@ -258,7 +258,7 @@ mod tests {
     use super::testutils::*;
     use super::*;
     use iii_iv_core::driver::DriverError;
-    use iii_iv_core::model::Username;
+    use iii_iv_core::model::username;
     use serial_test::serial;
 
     #[test]
@@ -313,7 +313,7 @@ mod tests {
         let context = TestContext::setup(opts_no_session_caching()).await;
         let mut tx = context.db().begin().await.unwrap();
 
-        let token = context.do_test_login(Username::from("username")).await;
+        let token = context.do_test_login(username!("username")).await;
         assert!(
             context.driver().get_session(&mut tx, context.clock.now_utc(), token).await.is_ok()
         );
@@ -324,7 +324,7 @@ mod tests {
         let context = TestContext::setup(opts_no_session_caching()).await;
         let mut tx = context.db().begin().await.unwrap();
 
-        let token = context.do_test_login(Username::from("username")).await;
+        let token = context.do_test_login(username!("username")).await;
         assert!(
             context
                 .driver()
@@ -352,7 +352,7 @@ mod tests {
         let context = TestContext::setup(opts_no_session_caching()).await;
         let mut tx = context.db().begin().await.unwrap();
 
-        let token = context.do_test_login(Username::from("username")).await;
+        let token = context.do_test_login(username!("username")).await;
         assert!(
             context
                 .driver()
@@ -399,8 +399,8 @@ mod tests {
         let last_login1 = now;
         let last_login2 = context.clock.now_utc() + Duration::from_secs(10 * 3600);
 
-        let token = context.do_test_login(Username::from("user")).await;
-        let other = context.do_test_login(Username::from("other")).await;
+        let token = context.do_test_login(username!("user")).await;
+        let other = context.do_test_login(username!("other")).await;
 
         let mut tx = context.db().begin().await.unwrap();
 
@@ -409,7 +409,7 @@ mod tests {
         assert_eq!(last_login1, user.last_login().unwrap());
 
         // Modify the cached user's last login to an arbitrary value.
-        update_user(tx.ex(), Username::from("user"), last_login2).await.unwrap();
+        update_user(tx.ex(), username!("user"), last_login2).await.unwrap();
 
         // Re-fetch the user session, which should come from the cache and not see the updated
         // database value.
@@ -438,8 +438,8 @@ mod tests {
         let now = context.clock.now_utc();
         let future = context.clock.now_utc() + Duration::from_secs(25 * 3600);
 
-        let token = context.do_test_login(Username::from("user")).await;
-        let other = context.do_test_login(Username::from("other")).await;
+        let token = context.do_test_login(username!("user")).await;
+        let other = context.do_test_login(username!("other")).await;
 
         let mut tx = context.db().begin().await.unwrap();
 
