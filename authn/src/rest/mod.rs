@@ -61,8 +61,7 @@ mod tests {
     use super::testutils::*;
     use crate::model::password;
     use http::{Method, StatusCode};
-    use iii_iv_core::model::EmailAddress;
-    use iii_iv_core::model::username;
+    use iii_iv_core::model::{email_address, username};
     use iii_iv_core::rest::testutils::*;
 
     #[tokio::test]
@@ -103,7 +102,7 @@ mod tests {
         let request = ActivateRequest {
             code: context
                 .get_latest_activation_code(
-                    &EmailAddress::from("new@example.com"),
+                    &email_address!("new@example.com"),
                     &username!("the-user"),
                 )
                 .await

@@ -103,6 +103,7 @@ pub mod testutils {
 mod tests {
     use super::testutils::*;
     use super::*;
+    use iii_iv_core::model::email_address;
 
     #[test]
     fn test_email_template() {
@@ -114,7 +115,7 @@ mod tests {
 
         let message = template
             .apply(
-                &EmailAddress::from("recipient@example.com"),
+                &email_address!("recipient@example.com"),
                 &[("s", "replaced subject"), ("b", "replaced body")],
             )
             .unwrap();
