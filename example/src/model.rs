@@ -15,7 +15,6 @@
 
 //! High-level data types.
 
-use derive_getters::Getters;
 use derive_more::{AsRef, Constructor};
 use iii_iv_core::model::{ModelError, ModelResult};
 use serde::{Deserialize, Serialize};
@@ -72,12 +71,12 @@ impl Version {
 }
 
 /// Content of the keys stored in our key/value store.
-#[derive(Constructor, Getters, Serialize)]
+#[derive(Constructor, Serialize)]
 #[cfg_attr(test, derive(Debug, Deserialize, PartialEq))]
 pub(crate) struct Entry {
     /// The key's raw value.
-    value: String,
+    pub(crate) value: String,
 
     /// The key's current version number.
-    version: Version,
+    pub(crate) version: Version,
 }

@@ -27,12 +27,12 @@ async fn test_sequence_one(ex: &mut Executor) {
     let entry = Entry::new("insert".to_owned(), Version::from_u32(1).unwrap());
     set_key(ex, &key, &entry).await.unwrap();
     assert_eq!(entry, get_key(ex, &key).await.unwrap());
-    assert_eq!(Some(entry.version()), get_key_version(ex, &key).await.unwrap().as_ref());
+    assert_eq!(Some(&entry.version), get_key_version(ex, &key).await.unwrap().as_ref());
 
     let entry = Entry::new("upsert".to_owned(), Version::from_u32(0).unwrap());
     set_key(ex, &key, &entry).await.unwrap();
     assert_eq!(entry, get_key(ex, &key).await.unwrap());
-    assert_eq!(Some(entry.version()), get_key_version(ex, &key).await.unwrap().as_ref());
+    assert_eq!(Some(&entry.version), get_key_version(ex, &key).await.unwrap().as_ref());
 
     delete_key(ex, &key).await.unwrap();
 
