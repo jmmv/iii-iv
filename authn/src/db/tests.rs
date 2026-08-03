@@ -233,18 +233,18 @@ async fn test_delete_sessions_for_user_ok(ex: &mut Executor) {
     );
     put_session(ex, &session2).await.unwrap();
 
-    assert_eq!(session1, get_session(ex, session1.access_token()).await.unwrap());
-    assert_eq!(session2, get_session(ex, session2.access_token()).await.unwrap());
+    assert_eq!(session1, get_session(ex, &session1.access_token).await.unwrap());
+    assert_eq!(session2, get_session(ex, &session2.access_token).await.unwrap());
 
     delete_sessions_for_user(ex, &username!("testuser1"), datetime!(2022-05-26 08:38:10 UTC))
         .await
         .unwrap();
 
-    match get_session(ex, session1.access_token()).await {
+    match get_session(ex, &session1.access_token).await {
         Err(DbError::NotFound) => (),
         e => panic!("{:?}", e),
     }
-    match get_session(ex, session2.access_token()).await {
+    match get_session(ex, &session2.access_token).await {
         Err(DbError::NotFound) => (),
         e => panic!("{:?}", e),
     }
@@ -267,11 +267,11 @@ async fn test_sessions_ok(ex: &mut Executor) {
     );
     put_session(ex, &session2).await.unwrap();
 
-    assert_eq!(session1, get_session(ex, session1.access_token()).await.unwrap());
-    assert_eq!(session2, get_session(ex, session2.access_token()).await.unwrap());
+    assert_eq!(session1, get_session(ex, &session1.access_token).await.unwrap());
+    assert_eq!(session2, get_session(ex, &session2.access_token).await.unwrap());
 
     // Mark one of the sessions as deleted.
-    let access_token1 = session1.access_token().clone();
+    let access_token1 = session1.access_token.clone();
     delete_session(ex, session1, datetime!(2022-05-26 08:38:10 UTC)).await.unwrap();
     match get_session(ex, &access_token1).await {
         Err(DbError::NotFound) => (),
@@ -279,7 +279,7 @@ async fn test_sessions_ok(ex: &mut Executor) {
     }
 
     // Make sure the other session was unaffected.
-    assert_eq!(session2, get_session(ex, session2.access_token()).await.unwrap());
+    assert_eq!(session2, get_session(ex, &session2.access_token).await.unwrap());
 }
 
 async fn test_sessions_missing(ex: &mut Executor) {

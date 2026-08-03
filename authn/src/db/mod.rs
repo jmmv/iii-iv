@@ -409,9 +409,9 @@ pub(crate) async fn put_session(ex: &mut Executor, session: &Session) -> DbResul
                 "INSERT INTO sessions (access_token, username, login_time) VALUES ($1, $2, $3)";
 
             let done = sqlx::query(query_str)
-                .bind(session.access_token().as_str())
-                .bind(session.username().as_str())
-                .bind(session.login_time())
+                .bind(session.access_token.as_str())
+                .bind(session.username.as_str())
+                .bind(session.login_time)
                 .execute(ex)
                 .await
                 .map_err(postgres::map_sqlx_error)?;
@@ -420,14 +420,14 @@ pub(crate) async fn put_session(ex: &mut Executor, session: &Session) -> DbResul
 
         #[cfg(any(feature = "sqlite", test))]
         Executor::Sqlite(ex) => {
-            let (login_time_secs, login_time_nsecs) = unpack_timestamp(session.login_time());
+            let (login_time_secs, login_time_nsecs) = unpack_timestamp(session.login_time);
 
             let query_str = "
                 INSERT INTO sessions (access_token, username, login_time_secs, login_time_nsecs)
                 VALUES (?, ?, ?, ?)";
             let done = sqlx::query(query_str)
-                .bind(session.access_token().as_str())
-                .bind(session.username().as_str())
+                .bind(session.access_token.as_str())
+                .bind(session.username.as_str())
                 .bind(login_time_secs)
                 .bind(login_time_nsecs)
                 .execute(ex)
@@ -458,7 +458,7 @@ pub(crate) async fn delete_session(
             let query_str = "UPDATE sessions SET logout_time = $1 WHERE access_token = $2";
             let done = sqlx::query(query_str)
                 .bind(now)
-                .bind(session.access_token().as_str())
+                .bind(session.access_token.as_str())
                 .execute(ex)
                 .await
                 .map_err(postgres::map_sqlx_error)?;
@@ -476,7 +476,7 @@ pub(crate) async fn delete_session(
             let done = sqlx::query(query_str)
                 .bind(now_secs)
                 .bind(now_nsecs)
-                .bind(session.access_token().as_str())
+                .bind(session.access_token.as_str())
                 .execute(ex)
                 .await
                 .map_err(sqlite::map_sqlx_error)?;

@@ -23,13 +23,13 @@ use time::OffsetDateTime;
 #[cfg_attr(test, derive(Clone, Debug, PartialEq))]
 pub struct Session {
     /// The access token for the session, which acts as its identifier.
-    access_token: AccessToken,
+    pub access_token: AccessToken,
 
     /// The username for this session.
-    username: Username,
+    pub username: Username,
 
     /// Timestamp to represent when the session was initiated.
-    login_time: OffsetDateTime,
+    pub login_time: OffsetDateTime,
 }
 
 impl Session {
@@ -40,26 +40,6 @@ impl Session {
         login_time: OffsetDateTime,
     ) -> Self {
         Self { access_token, username, login_time }
-    }
-
-    /// Returns the session's access token.
-    pub fn access_token(&self) -> &AccessToken {
-        &self.access_token
-    }
-
-    /// Returns the session's username.
-    pub fn username(&self) -> &Username {
-        &self.username
-    }
-
-    /// Returns the session's login time.
-    pub fn login_time(&self) -> OffsetDateTime {
-        self.login_time
-    }
-
-    /// Consumes the session and extracts its access token.
-    pub(crate) fn take_access_token(self) -> AccessToken {
-        self.access_token
     }
 }
 
@@ -74,9 +54,9 @@ mod tests {
         let username = Username::new("foo").unwrap();
         let login_time = datetime!(2022-05-17 06:46:53 UTC);
         let session = Session::new(token.clone(), username.clone(), login_time);
-        assert_eq!(&token, session.access_token());
-        assert_eq!(&username, session.username());
-        assert_eq!(login_time, session.login_time());
-        assert_eq!(token, session.take_access_token());
+        assert_eq!(&token, &session.access_token);
+        assert_eq!(&username, &session.username);
+        assert_eq!(login_time, session.login_time);
+        assert_eq!(token, session.access_token);
     }
 }

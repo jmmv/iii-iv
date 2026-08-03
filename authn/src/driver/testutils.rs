@@ -128,7 +128,7 @@ impl<H: AuthnHooks> TestContext<H> {
         self.create_active_user(&username).await;
 
         let (response, _output) = self.driver.clone().login(username, password).await.unwrap();
-        response.take_access_token()
+        response.access_token
     }
 
     /// Gets access to the database used by this test context.
