@@ -107,9 +107,9 @@ mod tests {
         let after = context.driver().now_utc();
 
         let session =
-            db::get_session(&mut context.ex().await, response.access_token()).await.unwrap();
-        assert_eq!(&username, session.username());
-        assert!(session.login_time() >= before && session.login_time() <= after);
+            db::get_session(&mut context.ex().await, &response.access_token).await.unwrap();
+        assert_eq!(&username, &session.username);
+        assert!(session.login_time >= before && session.login_time <= after);
         let user = db::get_user_by_username(&mut context.ex().await, username).await.unwrap();
         assert!(user.last_login.unwrap() >= before && user.last_login.unwrap() <= after);
         assert_eq!(&email_address!("some@example.com"), &user.email);
@@ -144,9 +144,9 @@ mod tests {
         let after = context.driver().now_utc();
 
         let session =
-            db::get_session(&mut context.ex().await, response.access_token()).await.unwrap();
-        assert_eq!(&username, session.username());
-        assert!(session.login_time() >= before && session.login_time() <= after);
+            db::get_session(&mut context.ex().await, &response.access_token).await.unwrap();
+        assert_eq!(&username, &session.username);
+        assert!(session.login_time >= before && session.login_time <= after);
         let user = db::get_user_by_username(&mut context.ex().await, username).await.unwrap();
         assert!(user.last_login.unwrap() >= before && user.last_login.unwrap() <= after);
         assert_eq!(&email_address!("some@example.com"), &user.email);
@@ -249,7 +249,7 @@ mod tests {
         let driver = context.driver();
         let cache = driver.sessions_cache.lock().await;
         assert_eq!(1, cache.len());
-        assert!(cache.contains_key(session.access_token()));
+        assert!(cache.contains_key(&session.access_token));
     }
 
     #[tokio::test]

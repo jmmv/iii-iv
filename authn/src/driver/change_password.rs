@@ -45,7 +45,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
             Err(e) => return Err(e.into()),
         };
 
-        if session.username() != &username {
+        if session.username != username {
             return Err(DriverError::NotFound("Entity not found".to_owned()));
         }
 

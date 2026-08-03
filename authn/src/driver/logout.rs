@@ -28,7 +28,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         let now = self.clock.now_utc();
 
         let session = db::get_session(tx.ex(), &token).await?;
-        if session.username() != &username {
+        if session.username != username {
             return Err(DriverError::NotFound("Entity not found".to_owned()));
         }
         db::delete_session(tx.ex(), session, now).await?;

@@ -53,7 +53,7 @@ pub(crate) async fn handler<H: AuthnHooks>(
     let session_max_age = driver.opts().session_max_age;
 
     let (session, output) = driver.login(username, password).await?;
-    let response = LoginResponse { access_token: session.take_access_token(), session_max_age };
+    let response = LoginResponse { access_token: session.access_token, session_max_age };
 
     Ok(JsonMultipart(response, output))
 }

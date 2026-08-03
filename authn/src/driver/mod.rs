@@ -203,9 +203,9 @@ impl<H: AuthnHooks> AuthnDriver<H> {
             Err(e) => return Err(e.into()),
         };
 
-        let whoami = db::get_user_by_username(tx.ex(), session.username().clone()).await?;
+        let whoami = db::get_user_by_username(tx.ex(), session.username.clone()).await?;
 
-        let login_time = session.login_time();
+        let login_time = session.login_time;
         let expired = login_time < (now - self.opts.session_max_age);
         let skew = login_time > (now + self.opts.session_max_skew);
         if expired || skew {
