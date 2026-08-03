@@ -41,7 +41,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
             Err(e) => return Err(e.into()),
         };
 
-        match user.password() {
+        match user.password.as_ref() {
             Some(hash) => {
                 if !password.verify(hash)? {
                     return Err(DriverError::Unauthorized("Invalid password".to_owned()));
@@ -50,7 +50,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
             None => return Err(DriverError::Unauthorized("Login not allowed".to_owned())),
         };
 
-        if user.activation_code().is_some() {
+        if user.activation_code.is_some() {
             return Err(DriverError::NotActivated);
         }
 
@@ -111,8 +111,8 @@ mod tests {
         assert_eq!(&username, session.username());
         assert!(session.login_time() >= before && session.login_time() <= after);
         let user = db::get_user_by_username(&mut context.ex().await, username).await.unwrap();
-        assert!(user.last_login().unwrap() >= before && user.last_login().unwrap() <= after);
-        assert_eq!(&email_address!("some@example.com"), user.email());
+        assert!(user.last_login.unwrap() >= before && user.last_login.unwrap() <= after);
+        assert_eq!(&email_address!("some@example.com"), &user.email);
     }
 
     #[tokio::test]
@@ -148,8 +148,8 @@ mod tests {
         assert_eq!(&username, session.username());
         assert!(session.login_time() >= before && session.login_time() <= after);
         let user = db::get_user_by_username(&mut context.ex().await, username).await.unwrap();
-        assert!(user.last_login().unwrap() >= before && user.last_login().unwrap() <= after);
-        assert_eq!(&email_address!("some@example.com"), user.email());
+        assert!(user.last_login.unwrap() >= before && user.last_login.unwrap() <= after);
+        assert_eq!(&email_address!("some@example.com"), &user.email);
     }
 
     #[tokio::test]
@@ -279,7 +279,7 @@ mod tests {
 
         let user_before =
             db::get_user_by_username(&mut context.ex().await, username.clone()).await.unwrap();
-        let last_login_before = user_before.last_login();
+        let last_login_before = user_before.last_login;
 
         match context.driver().login(username.clone(), password).await {
             Err(DriverError::BackendError(msg)) => assert!(msg.contains("hook-failure-test")),
@@ -288,7 +288,7 @@ mod tests {
 
         let user_after =
             db::get_user_by_username(&mut context.ex().await, username.clone()).await.unwrap();
-        assert_eq!(last_login_before, user_after.last_login());
+        assert_eq!(last_login_before, user_after.last_login);
 
         assert_eq!(0, context.driver().sessions_cache.lock().await.len());
     }

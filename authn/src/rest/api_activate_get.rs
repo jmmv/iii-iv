@@ -118,7 +118,7 @@ mod tests {
         let user = context.create_inactive_whoami_user(8991).await;
 
         let request = ActivateRequest { code: 8991 };
-        let body = OneShotBuilder::new(context.app(), route(user.username().as_str(), request))
+        let body = OneShotBuilder::new(context.app(), route(user.username.as_str(), request))
             .send_empty()
             .await
             .take_body_as_text()
@@ -127,7 +127,7 @@ mod tests {
         assert!(body.contains("Success"));
         assert!(body.contains(&format!("{}, your", context.whoami().as_str())));
 
-        assert!(context.user_is_active(user.username()).await);
+        assert!(context.user_is_active(&user.username).await);
     }
 
     #[tokio::test]
@@ -141,7 +141,7 @@ mod tests {
         let user = context.create_inactive_whoami_user(8991).await;
 
         let request = ActivateRequest { code: 8991 };
-        let body = OneShotBuilder::new(context.app(), route(user.username().as_str(), request))
+        let body = OneShotBuilder::new(context.app(), route(user.username.as_str(), request))
             .send_empty()
             .await
             .take_body_as_text()
@@ -149,7 +149,7 @@ mod tests {
 
         assert_eq!(format!("All good, {}!", context.whoami().as_str()), body);
 
-        assert!(context.user_is_active(user.username()).await);
+        assert!(context.user_is_active(&user.username).await);
     }
 
     #[tokio::test]
@@ -163,7 +163,7 @@ mod tests {
         let user = context.create_inactive_whoami_user(8991).await;
 
         let request = ActivateRequest { code: 8991 };
-        OneShotBuilder::new(context.app(), route(user.username().as_str(), request))
+        OneShotBuilder::new(context.app(), route(user.username.as_str(), request))
             .send_empty()
             .await
             .expect_status(http::StatusCode::SEE_OTHER)
@@ -177,7 +177,7 @@ mod tests {
             .expect_empty()
             .await;
 
-        assert!(context.user_is_active(user.username()).await);
+        assert!(context.user_is_active(&user.username).await);
     }
 
     #[tokio::test]
@@ -190,14 +190,14 @@ mod tests {
         let user = context.create_inactive_whoami_user(8991).await;
 
         let request = ActivateRequest { code: 123 };
-        OneShotBuilder::new(context.app(), route(user.username().as_str(), request))
+        OneShotBuilder::new(context.app(), route(user.username.as_str(), request))
             .send_empty()
             .await
             .expect_status(http::StatusCode::BAD_REQUEST)
             .expect_error("Invalid activation code")
             .await;
 
-        assert!(!context.user_is_active(user.username()).await);
+        assert!(!context.user_is_active(&user.username).await);
     }
 
     #[tokio::test]

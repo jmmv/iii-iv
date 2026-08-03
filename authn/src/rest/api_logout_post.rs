@@ -56,7 +56,7 @@ mod tests {
 
         assert!(context.session_exists(&token).await);
 
-        OneShotBuilder::new(context.app(), route(user.username().as_str()))
+        OneShotBuilder::new(context.app(), route(user.username.as_str()))
             .with_bearer_auth(token.as_str())
             .send_empty()
             .await
@@ -73,7 +73,7 @@ mod tests {
         let user = context.create_whoami_user().await;
         let token = AccessToken::generate();
 
-        OneShotBuilder::new(context.app(), route(user.username().as_str()))
+        OneShotBuilder::new(context.app(), route(user.username.as_str()))
             .with_bearer_auth(token.as_str())
             .send_empty()
             .await

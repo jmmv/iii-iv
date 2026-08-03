@@ -83,8 +83,8 @@ impl<H: AuthnHooks> AuthnDriver<H> {
             self.mailer.as_ref(),
             &self.activation_template,
             &self.base_urls,
-            user.username(),
-            user.email(),
+            &user.username,
+            &user.email,
             activation_code,
         )
         .await?;
@@ -124,10 +124,10 @@ mod tests {
 
         let user =
             db::get_user_by_username(&mut context.ex().await, username.clone()).await.unwrap();
-        assert!(user.activation_code().is_some());
+        assert!(user.activation_code.is_some());
         assert_eq!(
-            user.activation_code(),
-            context.get_latest_activation_code(user.email(), &username).await
+            user.activation_code,
+            context.get_latest_activation_code(&user.email, &username).await
         );
     }
 

@@ -282,7 +282,7 @@ pub async fn set_user_activation_code(
             let query_str = "UPDATE users SET activation_code = $1 WHERE username = $2";
             let done = sqlx::query(query_str)
                 .bind(i64_code)
-                .bind(user.username().as_str())
+                .bind(user.username.as_str())
                 .execute(ex)
                 .await
                 .map_err(postgres::map_sqlx_error)?;
@@ -294,7 +294,7 @@ pub async fn set_user_activation_code(
             let query_str = "UPDATE users SET activation_code = ? WHERE username = ?";
             let done = sqlx::query(query_str)
                 .bind(i64_code)
-                .bind(user.username().as_str())
+                .bind(user.username.as_str())
                 .execute(ex)
                 .await
                 .map_err(sqlite::map_sqlx_error)?;

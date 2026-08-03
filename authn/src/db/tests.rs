@@ -114,19 +114,19 @@ async fn test_set_user_activation_code_ok(ex: &mut Executor) {
     )
     .await
     .unwrap();
-    assert!(user.activation_code().is_none());
+    assert!(user.activation_code.is_none());
 
     user = set_user_activation_code(ex, user, Some(123456)).await.unwrap();
-    assert_eq!(Some(123456), user.activation_code());
+    assert_eq!(Some(123456), user.activation_code);
 
-    let read_user = get_user_by_username(ex, user.username().clone()).await.unwrap();
-    assert_eq!(Some(123456), read_user.activation_code());
+    let read_user = get_user_by_username(ex, user.username.clone()).await.unwrap();
+    assert_eq!(Some(123456), read_user.activation_code);
 
     user = set_user_activation_code(ex, user, None).await.unwrap();
-    assert!(user.activation_code().is_none());
+    assert!(user.activation_code.is_none());
 
-    let read_user = get_user_by_username(ex, user.username().clone()).await.unwrap();
-    assert!(read_user.activation_code().is_none());
+    let read_user = get_user_by_username(ex, user.username.clone()).await.unwrap();
+    assert!(read_user.activation_code.is_none());
 }
 
 async fn test_set_user_activation_code_not_found(ex: &mut Executor) {
@@ -155,15 +155,15 @@ async fn test_update_user_password_ok(ex: &mut Executor) {
 
     update_user_password(
         ex,
-        user.username().clone(),
+        user.username.clone(),
         &hashed_password!("original-hash"),
         hashed_password!("new-hash"),
     )
     .await
     .unwrap();
 
-    let read_user = get_user_by_username(ex, user.username().clone()).await.unwrap();
-    assert_eq!(Some(&hashed_password!("new-hash")), read_user.password());
+    let read_user = get_user_by_username(ex, user.username.clone()).await.unwrap();
+    assert_eq!(Some(&hashed_password!("new-hash")), read_user.password.as_ref());
 }
 
 async fn test_update_user_password_not_found(ex: &mut Executor) {
@@ -202,7 +202,7 @@ async fn test_update_user_password_wrong_old_password(ex: &mut Executor) {
 
     match update_user_password(
         ex,
-        user.username().clone(),
+        user.username.clone(),
         &hashed_password!("wrong-old-hash"),
         hashed_password!("new-hash"),
     )
@@ -213,8 +213,8 @@ async fn test_update_user_password_wrong_old_password(ex: &mut Executor) {
         e => panic!("{}", e),
     }
 
-    let read_user = get_user_by_username(ex, user.username().clone()).await.unwrap();
-    assert_eq!(Some(&hashed_password!("original-hash")), read_user.password());
+    let read_user = get_user_by_username(ex, user.username.clone()).await.unwrap();
+    assert_eq!(Some(&hashed_password!("original-hash")), read_user.password.as_ref());
 }
 
 async fn test_delete_sessions_for_user_ok(ex: &mut Executor) {

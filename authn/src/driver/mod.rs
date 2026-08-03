@@ -406,7 +406,7 @@ mod tests {
 
         // Insert a user with a specific login timestamp.
         let user = context.driver().get_session(&mut tx, now, token.clone()).await.unwrap();
-        assert_eq!(last_login1, user.last_login().unwrap());
+        assert_eq!(last_login1, user.last_login.unwrap());
 
         // Modify the cached user's last login to an arbitrary value.
         update_user(tx.ex(), username!("user"), last_login2).await.unwrap();
@@ -414,14 +414,14 @@ mod tests {
         // Re-fetch the user session, which should come from the cache and not see the updated
         // database value.
         let user = context.driver().get_session(&mut tx, now, token.clone()).await.unwrap();
-        assert_eq!(last_login1, user.last_login().unwrap());
+        assert_eq!(last_login1, user.last_login.unwrap());
 
         // Log in a second user to push the original user's session out of the cache.
         let _other = context.driver().get_session(&mut tx, now, other).await.unwrap();
 
         // Re-fetch the user session, which should now see the modified values.
         let user = context.driver().get_session(&mut tx, now, token).await.unwrap();
-        assert_eq!(last_login2, user.last_login().unwrap());
+        assert_eq!(last_login2, user.last_login.unwrap());
     }
 
     #[tokio::test]

@@ -57,7 +57,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
             Err(e) => return Err(e.into()),
         };
 
-        let old_hash = match user.password() {
+        let old_hash = match user.password.as_ref() {
             Some(hash) => hash,
             None => {
                 return Err(DriverError::Unauthorized(
@@ -70,7 +70,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
             return Err(DriverError::InvalidInput("Invalid password".to_owned()));
         }
 
-        if user.activation_code().is_some() {
+        if user.activation_code.is_some() {
             return Err(DriverError::NotActivated);
         }
 
