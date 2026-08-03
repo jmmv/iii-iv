@@ -379,7 +379,7 @@ async fn test_get_runnable_propagates_de_error(ex: &mut Executor) {
     let task = runnable.pop().expect("Must have found exactly one task");
     assert!(runnable.is_empty(), "Must have found exactly one task");
 
-    assert_eq!(id, task.id());
+    assert_eq!(id, task.id);
     let task = task.try_run(); // Needed to access the underlying JSON result.
     let error = task.into_json_task().unwrap_err();
     assert!(format!("{}", error).contains("Custom de error"));
