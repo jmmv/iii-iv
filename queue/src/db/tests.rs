@@ -381,7 +381,7 @@ async fn test_get_runnable_propagates_de_error(ex: &mut Executor) {
 
     assert_eq!(id, task.id);
     let task = task.try_run(); // Needed to access the underlying JSON result.
-    let error = task.into_json_task().unwrap_err();
+    let error = task.json_task.unwrap_err();
     assert!(format!("{}", error).contains("Custom de error"));
 }
 

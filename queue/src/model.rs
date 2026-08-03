@@ -157,31 +157,14 @@ impl<T: Send + Sync> RunnableTask<T> {
 #[cfg_attr(test, derivative(Debug, PartialEq))]
 pub struct RunningTask<T: Send + Sync> {
     /// Unique identifier of the task.
-    id: Uuid,
+    pub(crate) id: Uuid,
 
     /// Task description as extracted from the database.
     #[cfg_attr(test, derivative(PartialEq(compare_with = "crate::model::cmp_json_task")))]
-    json_task: SerdeJsonResult<T>,
+    pub(crate) json_task: SerdeJsonResult<T>,
 
     /// Number of times the task started to run.
-    runs: u8,
-}
-
-impl<T: Send + Sync> RunningTask<T> {
-    /// Returns the unique identifier for the task.
-    pub(crate) fn id(&self) -> Uuid {
-        self.id
-    }
-
-    /// Returns the number of times the task started to run, including this execution attempt.
-    pub(crate) fn runs(&self) -> u8 {
-        self.runs
-    }
-
-    /// Extracts the deserialized task in order to run it.
-    pub(crate) fn into_json_task(self) -> SerdeJsonResult<T> {
-        self.json_task
-    }
+    pub(crate) runs: u8,
 }
 
 /// Compares two JSON task deserialization results for testing purposes only.

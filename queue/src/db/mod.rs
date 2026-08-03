@@ -504,8 +504,8 @@ where
             sqlx::query(query_str)
                 .bind(TaskStatus::Runnable as i16)
                 .bind(updated)
-                .bind(i16::from(task.runs()))
-                .bind(task.id())
+                .bind(i16::from(task.runs))
+                .bind(task.id)
                 .bind(max_runtime)
                 .execute(ex)
                 .await
@@ -538,8 +538,8 @@ where
                 .bind(TaskStatus::Runnable as i8)
                 .bind(updated_sec)
                 .bind(updated_nsec)
-                .bind(task.runs() as i8)
-                .bind(task.id())
+                .bind(task.runs as i8)
+                .bind(task.id)
                 .bind(TaskStatus::Runnable as i8)
                 .bind(max_runtime_msec)
                 .bind(updated_msec)
@@ -553,7 +553,7 @@ where
         _ => unreachable!(),
     };
 
-    ensure_one_update(task.id(), rows_affected)?;
+    ensure_one_update(task.id, rows_affected)?;
     Ok(task)
 }
 

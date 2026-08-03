@@ -144,14 +144,13 @@ where
     let task =
         db::set_task_running(&mut db.ex().await?, task, max_runtime, clock.now_utc()).await?;
 
-    let result = if task.runs() >= max_runs {
+    let result = if task.runs >= max_runs {
         TaskResult::Abandoned(format!(
             "Attempted to run {} times, but max_runs is {}",
-            task.runs(),
-            max_runs
+            task.runs, max_runs
         ))
     } else {
-        match task.into_json_task() {
+        match task.json_task {
             Ok(task) => match exec(task).await {
                 Ok(msg) => TaskResult::Done(msg),
 
