@@ -77,15 +77,14 @@ mod tests {
 
         let request = ChangePasswordRequest { old_password: old_password.clone(), new_password };
 
-        OneShotBuilder::new(context.app(), route(user.username().as_str()))
+        OneShotBuilder::new(context.app(), route(user.username.as_str()))
             .with_bearer_auth(token.as_str())
             .send_json(&request)
             .await
             .expect_empty()
             .await;
 
-        do_test_login(context.app(), "/api/test", user.username(), &password!("new1password"))
-            .await;
+        do_test_login(context.app(), "/api/test", &user.username, &password!("new1password")).await;
     }
 
     #[tokio::test]
@@ -100,7 +99,7 @@ mod tests {
         let request =
             ChangePasswordRequest { old_password: password!("wrong0password"), new_password };
 
-        OneShotBuilder::new(context.app(), route(user.username().as_str()))
+        OneShotBuilder::new(context.app(), route(user.username.as_str()))
             .with_bearer_auth(token.as_str())
             .send_json(&request)
             .await

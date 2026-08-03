@@ -62,10 +62,10 @@ pub async fn create_test_user(
     let user = User::new(username, email)
         .with_password(password)
         .with_last_login(OffsetDateTime::from_unix_timestamp(100100).unwrap());
-    db::create_user(ex, user.username().clone(), user.password().cloned(), user.email().clone())
+    db::create_user(ex, user.username.clone(), user.password.clone(), user.email.clone())
         .await
         .unwrap();
-    db::update_user(ex, user.username().clone(), user.last_login().unwrap()).await.unwrap();
+    db::update_user(ex, user.username.clone(), user.last_login.unwrap()).await.unwrap();
     user
 }
 
@@ -125,7 +125,7 @@ impl TestContext {
     /// as inactive with a pending activation `code`.
     pub(crate) async fn create_inactive_whoami_user(&mut self, code: u64) -> User {
         let user = self.create_whoami_user().await;
-        assert!(user.activation_code().is_none());
+        assert!(user.activation_code.is_none());
 
         db::set_user_activation_code(&mut self.db.ex().await.unwrap(), user, Some(code))
             .await
@@ -147,7 +147,7 @@ impl TestContext {
         let user = db::get_user_by_username(&mut self.db.ex().await.unwrap(), username.clone())
             .await
             .unwrap();
-        user.activation_code().is_none()
+        user.activation_code.is_none()
     }
 
     /// Checks if the session with `token` exists by directly querying the backing database.
@@ -289,7 +289,7 @@ impl AuthnHooks for AuthnTestHooks {
         user: &User,
     ) -> DriverResult<Self::LoginOutput> {
         Ok(LoginTestOutput {
-            welcome_message: format!("Welcome to the test service, {}", user.username().as_str()),
+            welcome_message: format!("Welcome to the test service, {}", user.username.as_str()),
         })
     }
 
@@ -304,7 +304,7 @@ impl AuthnHooks for AuthnTestHooks {
     ) -> DriverResult<()> {
         if input.create_shadow_user {
             let shadow_username =
-                Username::new(format!("{}-shadow", user.username().as_str())).unwrap();
+                Username::new(format!("{}-shadow", user.username.as_str())).unwrap();
             let email =
                 EmailAddress::new(format!("{}-shadow@example.com", shadow_username.as_str()))
                     .unwrap();

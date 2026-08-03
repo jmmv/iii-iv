@@ -23,19 +23,19 @@ use time::OffsetDateTime;
 #[derive(Debug, PartialEq)]
 pub struct User {
     /// Name of the user.
-    username: Username,
+    pub username: Username,
 
     /// Hashed password.  None if the user is not allowed to log in.
-    password: Option<HashedPassword>,
+    pub password: Option<HashedPassword>,
 
     /// Email of the user.
-    email: EmailAddress,
+    pub email: EmailAddress,
 
     /// Token required to activate the user if not active yet.
-    activation_code: Option<u64>,
+    pub activation_code: Option<u64>,
 
     /// Time of last login of the user.  None if the user has never logged in.
-    last_login: Option<OffsetDateTime>,
+    pub last_login: Option<OffsetDateTime>,
 }
 
 impl User {
@@ -61,31 +61,6 @@ impl User {
         self.password = Some(password);
         self
     }
-
-    /// Gets the user's username.
-    pub fn username(&self) -> &Username {
-        &self.username
-    }
-
-    /// Gets the user's password as a hash.
-    pub fn password(&self) -> Option<&HashedPassword> {
-        self.password.as_ref()
-    }
-
-    /// Gets the user's email address.
-    pub fn email(&self) -> &EmailAddress {
-        &self.email
-    }
-
-    /// Gets the user's activation code.
-    pub fn activation_code(&self) -> Option<u64> {
-        self.activation_code
-    }
-
-    /// Gets the user's last login timestamp, or `None` if the user has never logged in yet.
-    pub fn last_login(&self) -> Option<OffsetDateTime> {
-        self.last_login
-    }
 }
 
 #[cfg(test)]
@@ -96,20 +71,20 @@ mod tests {
     use time::macros::datetime;
 
     #[test]
-    fn test_user_getters() {
+    fn test_user_fields() {
         let user = User::new(username!("foo"), email_address!("a@example.com"));
-        assert_eq!(&username!("foo"), user.username());
-        assert!(user.password().is_none());
-        assert_eq!(&email_address!("a@example.com"), user.email());
-        assert!(user.activation_code().is_none());
-        assert!(user.last_login().is_none());
+        assert_eq!(&username!("foo"), &user.username);
+        assert!(user.password.is_none());
+        assert_eq!(&email_address!("a@example.com"), &user.email);
+        assert!(user.activation_code.is_none());
+        assert!(user.last_login.is_none());
 
         let user = user
             .with_activation_code(Some(123))
             .with_last_login(datetime!(2022-04-02 05:38:00 UTC))
             .with_password(hashed_password!("password-hash"));
-        assert_eq!(Some(123), user.activation_code());
-        assert_eq!(Some(&hashed_password!("password-hash")), user.password());
-        assert_eq!(Some(datetime!(2022-04-02 05:38:00 UTC)), user.last_login());
+        assert_eq!(Some(123), user.activation_code);
+        assert_eq!(Some(&hashed_password!("password-hash")), user.password.as_ref());
+        assert_eq!(Some(datetime!(2022-04-02 05:38:00 UTC)), user.last_login);
     }
 }
