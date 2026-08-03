@@ -29,7 +29,7 @@ pub(crate) async fn handler(
     body: String,
 ) -> Result<(http::StatusCode, impl IntoResponse), RestError> {
     let value = driver.set_key(&key, body).await?;
-    let code = if *value.version() == Version::initial() {
+    let code = if value.version == Version::initial() {
         http::StatusCode::CREATED
     } else {
         http::StatusCode::OK

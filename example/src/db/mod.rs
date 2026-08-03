@@ -158,8 +158,8 @@ pub(crate) async fn set_key(e: &mut Executor, key: &Key, entry: &Entry) -> DbRes
         ";
             let done = sqlx::query(query_str)
                 .bind(key.as_ref())
-                .bind(entry.value())
-                .bind(entry.version().as_i32())
+                .bind(&entry.value)
+                .bind(entry.version.as_i32())
                 .execute(e)
                 .await
                 .map_err(postgres::map_sqlx_error)?;
@@ -175,10 +175,10 @@ pub(crate) async fn set_key(e: &mut Executor, key: &Key, entry: &Entry) -> DbRes
         ";
             let done = sqlx::query(query_str)
                 .bind(key.as_ref())
-                .bind(entry.value())
-                .bind(entry.version().as_u32())
-                .bind(entry.value())
-                .bind(entry.version().as_u32())
+                .bind(&entry.value)
+                .bind(entry.version.as_u32())
+                .bind(&entry.value)
+                .bind(entry.version.as_u32())
                 .bind(key.as_ref())
                 .execute(e)
                 .await
