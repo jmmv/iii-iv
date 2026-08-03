@@ -137,7 +137,7 @@ where
     ExecFut: Future<Output = ExecResult>,
     T: Send + Sync,
 {
-    let id = task.id();
+    let id = task.id;
 
     // This protects against running the same task concurrently more than once if we think it is
     // still running.
@@ -227,8 +227,8 @@ where
         let mut ids = Vec::with_capacity(tasks.len());
         let mut futures = Vec::with_capacity(tasks.len());
         for task in tasks {
-            info!("Task {}: starting", task.id());
-            ids.push(task.id());
+            info!("Task {}: starting", task.id);
+            ids.push(task.id);
             futures.push(run_task(
                 task,
                 exec.clone(),

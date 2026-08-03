@@ -124,14 +124,14 @@ pub type ExecResult = Result<Option<String>, ExecError>;
 #[cfg_attr(test, derivative(Debug, PartialEq))]
 pub struct RunnableTask<T: Send + Sync> {
     /// Unique identifier of the task.
-    id: Uuid,
+    pub(crate) id: Uuid,
 
     /// Task description as extracted from the database.
     #[cfg_attr(test, derivative(PartialEq(compare_with = "crate::model::cmp_json_task")))]
-    json_task: SerdeJsonResult<T>,
+    pub(crate) json_task: SerdeJsonResult<T>,
 
     /// Number of times the task started to run.
-    runs: u8,
+    pub(crate) runs: u8,
 }
 
 impl<T: Send + Sync> RunnableTask<T> {
@@ -140,23 +140,12 @@ impl<T: Send + Sync> RunnableTask<T> {
         Self { id, json_task, runs }
     }
 
-    /// Returns the unique identifier for the task.
-    pub(crate) fn id(&self) -> Uuid {
-        self.id
-    }
-
     /// Transitions the task into the running state.
     ///
     /// This must be called only after the task has been marked as running in the database,
     /// and the `runs` counter in the database must be updated to account for this new run.
     pub(crate) fn try_run(self) -> RunningTask<T> {
         RunningTask { id: self.id, json_task: self.json_task, runs: self.runs + 1 }
-    }
-
-    /// Extracts the deserialized task in order to inspect it.
-    #[cfg(feature = "testutils")]
-    pub fn into_json_task(self) -> SerdeJsonResult<T> {
-        self.json_task
     }
 }
 
