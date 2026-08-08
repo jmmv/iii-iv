@@ -147,6 +147,12 @@ impl<T: Send + Sync> RunnableTask<T> {
     pub(crate) fn try_run(self) -> RunningTask<T> {
         RunningTask { id: self.id, json_task: self.json_task, runs: self.runs + 1 }
     }
+
+    /// Extracts the deserialized task in order to inspect it.
+    #[cfg(feature = "testutils")]
+    pub fn into_json_task(self) -> SerdeJsonResult<T> {
+        self.json_task
+    }
 }
 
 /// A running task.
