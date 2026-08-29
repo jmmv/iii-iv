@@ -31,13 +31,11 @@
 
 use crate::driver::DriverError;
 use crate::model::ModelError;
-use axum::Json;
 use axum::body::HttpBody;
 use axum::extract::{FromRequest, Request};
 use axum::http::header::AsHeaderName;
 use axum::http::{HeaderMap, HeaderValue};
 use axum::response::IntoResponse;
-use serde::{Deserialize, Serialize};
 use std::fmt;
 
 mod base_urls;
@@ -157,21 +155,12 @@ impl IntoResponse for RestError {
             }
         };
 
-        let response = ErrorResponse { message: self.to_string() };
-
-        (status, headers, Json(response)).into_response()
+        (status, headers, self.to_string()).into_response()
     }
 }
 
 /// Result type for this module.
 pub type RestResult<T> = Result<T, RestError>;
-
-/// Representation of the details of an error response.
-#[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct ErrorResponse {
-    /// Textual representation of the error message.
-    pub(crate) message: String,
-}
 
 /// A request body extractor that forbids any content.
 ///
@@ -471,32 +460,21 @@ pub mod testutils {
             assert!(body.is_empty(), "Body not empty; got {}", body);
         }
 
-        /// Finishes checking the response and expects its body to be an `ErrorResponse` that
-        /// matches `exp_re`.
+        /// Finishes checking the response and expects its plain-text body to match `exp_re`.
         pub async fn expect_error(self, exp_re: &str) {
             self.verify();
 
             let body =
                 axum::body::to_bytes(self.response.into_body(), MAX_BODY_SIZE).await.unwrap();
-            let response: ErrorResponse = match serde_json::from_slice(&body) {
-                Ok(response) => response,
-                Err(e) => {
-                    let body = String::from_utf8(body.to_vec()).unwrap();
-                    panic!("Invalid error response due to {}; content was {}", e, body);
-                }
-            };
+            let body = String::from_utf8(body.to_vec()).unwrap();
             if exp_re.is_empty() {
-                assert!(
-                    response.message.is_empty(),
-                    "Response content '{:?}' is not empty",
-                    response
-                );
+                assert!(body.is_empty(), "Response content '{:?}' is not empty", body);
             } else {
                 let re = regex::Regex::new(exp_re).unwrap();
                 assert!(
-                    re.is_match(&response.message),
+                    re.is_match(&body),
                     "Response content '{:?}' does not match re '{}'",
-                    response,
+                    body,
                     exp_re
                 );
             }
@@ -536,10 +514,6 @@ pub mod testutils {
             let body =
                 axum::body::to_bytes(self.response.into_body(), MAX_BODY_SIZE).await.unwrap();
             let body = String::from_utf8(body.to_vec()).unwrap();
-            assert!(
-                !body.contains("\"message\":"),
-                "Use expect_error to validate errors wrapped in an ErrorResponse"
-            );
             let re = regex::Regex::new(exp_re).unwrap();
             assert!(re.is_match(&body), "Body content '{}' does not match re '{}'", body, exp_re);
         }
@@ -878,6 +852,34 @@ pub mod testutils {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn test_rest_error_into_response() {
+        let response = RestError::InvalidRequest("Bad request".to_owned()).into_response();
+
+        assert_eq!(http::StatusCode::BAD_REQUEST, response.status());
+        assert_eq!(
+            "text/plain; charset=utf-8",
+            response.headers().get(http::header::CONTENT_TYPE).unwrap()
+        );
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(b"Bad request", body.as_ref());
+    }
+
+    #[tokio::test]
+    async fn test_unauthorized_rest_error_into_response() {
+        let response = RestError::Unauthorized {
+            scheme: "Basic",
+            realm: "example",
+            message: "Invalid credentials".to_owned(),
+        }
+        .into_response();
+
+        assert_eq!(http::StatusCode::UNAUTHORIZED, response.status());
+        assert_eq!("Basic realm=\"example\"", response.headers().get("WWW-Authenticate").unwrap());
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(b"Unauthorized: Invalid credentials", body.as_ref());
+    }
 
     #[test]
     fn test_get_unique_header_missing() {
