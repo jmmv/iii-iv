@@ -18,21 +18,19 @@
 use crate::driver::DriverResult;
 use iii_iv_core::model::{EmailAddress, Username};
 use iii_iv_core::rest::BaseUrls;
-use iii_iv_smtp::driver::SmtpMailer;
-use iii_iv_smtp::model::EmailTemplate;
+use iii_iv_smtp::model::{EmailTemplate, Message};
 
-/// Sends the activation code `code` for `username` to the given `email` address.
+/// Builds a message with the activation code `code` for `username` and the given `email` address.
 ///
-/// The email contents are constructed from the `template` and are sent via `mailer`.
-/// `base_urls` is used to compute the address to the account activation endpoint.
-pub(super) async fn send_activation_code(
-    mailer: &(dyn SmtpMailer + Send + Sync),
+/// The email contents are constructed from the `template`.  `base_urls` is used to compute the
+/// address to the account activation endpoint.
+pub(super) fn make_activation_code_message(
     template: &EmailTemplate,
     base_urls: &BaseUrls,
     username: &Username,
     email: &EmailAddress,
     code: u64,
-) -> DriverResult<()> {
+) -> DriverResult<Message> {
     // TODO(jmmv): This doesn't really belong here because it's leaking details about the REST
     // router into the driver.
     let activate_url = base_urls.make_backend_url(&format!(
@@ -42,9 +40,7 @@ pub(super) async fn send_activation_code(
     ));
 
     let replacements = [("activate_url", activate_url.as_str()), ("username", username.as_str())];
-    let message = template.apply(email, &replacements)?;
-
-    mailer.send(message).await
+    Ok(template.apply(email, &replacements)?)
 }
 
 #[cfg(any(test, feature = "testutils"))]
@@ -108,16 +104,12 @@ mod tests {
     use super::testutils::*;
     use super::*;
     use iii_iv_core::model::{email_address, username};
-    use iii_iv_smtp::driver::testutils::RecorderSmtpMailer;
     use iii_iv_smtp::model::testutils::parse_message;
 
-    #[tokio::test]
-    async fn test_send_activation_code() {
-        let mailer = RecorderSmtpMailer::default();
-
+    #[test]
+    fn test_make_activation_code_message() {
         let to = email_address!("user@example.com");
-        send_activation_code(
-            &mailer,
+        let message = make_activation_code_message(
             &make_test_activation_template(),
             &BaseUrls::from_strs(
                 "https://test.example.com:1234/",
@@ -127,10 +119,7 @@ mod tests {
             &to,
             7654,
         )
-        .await
         .unwrap();
-
-        let message = mailer.expect_one_message(&to).await;
         let (headers, body) = parse_message(&message);
         assert_eq!(to.as_str(), headers.get("To").unwrap());
         assert_eq!("https://test.example.com:1234/api/users/user-123/activate?code=7654", body);
