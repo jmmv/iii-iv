@@ -31,7 +31,7 @@ use std::time::Duration;
 use time::OffsetDateTime;
 
 /// Delay until retrying queries when we receive a 429 response.
-const BACKOFF_SECS: u64 = 30;
+const BACKOFF: Duration = Duration::from_secs(30);
 
 /// Maximum number of requests per minute allowed at the free tier.
 const MAX_REQUESTS_PER_MINUTE: usize = 45;
@@ -185,7 +185,7 @@ where
                         Ok(result) => return Ok(result),
                         Err(e) if e.kind() == io::ErrorKind::ConnectionRefused => {
                             warn!("IP-API returned 429; falling back to delegee");
-                            *backoff_until = now + Duration::from_secs(BACKOFF_SECS);
+                            *backoff_until = now + BACKOFF;
                         }
                         Err(e) => return Err(e),
                     }
