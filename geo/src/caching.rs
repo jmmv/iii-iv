@@ -27,7 +27,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// Default maximum amount of time to keep cached entries in memory.
-const DEFAULT_TTL_SECONDS: u64 = 60 * 60;
+const DEFAULT_TTL: Duration = Duration::from_secs(60 * 60);
 
 /// Default maximum number of responses to keep cached in memory.
 const DEFAULT_CAPACITY: usize = 10 * 1024;
@@ -46,7 +46,7 @@ pub struct CachingGeoLocatorOptions {
 
 impl Default for CachingGeoLocatorOptions {
     fn default() -> Self {
-        Self { ttl: Duration::from_secs(DEFAULT_TTL_SECONDS), capacity: DEFAULT_CAPACITY }
+        Self { ttl: DEFAULT_TTL, capacity: DEFAULT_CAPACITY }
     }
 }
 
@@ -57,8 +57,7 @@ impl CachingGeoLocatorOptions {
     /// This will use variables such as `<prefix>_TTL` and `<prefix>_CAPACITY`.
     pub fn from_env(prefix: &str) -> Result<Self, String> {
         Ok(Self {
-            ttl: get_optional_var::<Duration>(prefix, "TTL")?
-                .unwrap_or_else(|| Duration::from_secs(DEFAULT_TTL_SECONDS)),
+            ttl: get_optional_var::<Duration>(prefix, "TTL")?.unwrap_or(DEFAULT_TTL),
             capacity: get_optional_var::<usize>(prefix, "CAPACITY")?.unwrap_or(DEFAULT_CAPACITY),
         })
     }
@@ -139,10 +138,7 @@ mod tests {
         temp_env::with_vars_unset(overrides, || {
             let opts = CachingGeoLocatorOptions::from_env("CACHING").unwrap();
             assert_eq!(
-                CachingGeoLocatorOptions {
-                    ttl: Duration::from_secs(DEFAULT_TTL_SECONDS),
-                    capacity: DEFAULT_CAPACITY,
-                },
+                CachingGeoLocatorOptions { ttl: DEFAULT_TTL, capacity: DEFAULT_CAPACITY },
                 opts
             );
         });

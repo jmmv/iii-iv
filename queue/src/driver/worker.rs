@@ -42,12 +42,12 @@ const DEFAULT_CONSUME_ALL: bool = true;
 /// Default max runs for a task.
 const DEFAULT_MAX_RUNS: u8 = 16;
 
-/// Default max runtime, in seconds.  We assume that we run on Azure Functions with the default
-/// maximum runtime of the Consumption Plan, which is 5 minutes.
-const DEFAULT_MAX_RUNTIME_SECS: u64 = 5 * 60;
+/// Default maximum runtime.  We assume that we run on Azure Functions with the default maximum
+/// runtime of the Consumption Plan, which is 5 minutes.
+const DEFAULT_MAX_RUNTIME: Duration = Duration::from_secs(5 * 60);
 
 /// Default delay by which to retry a task that asks to be retried with the default delay.
-const DEFAULT_RETRY_DELAY_SECS: u64 = 5 * 60;
+const DEFAULT_RETRY_DELAY: Duration = Duration::from_secs(5 * 60);
 
 /// Configuration options for the queue worker.
 #[derive(Clone)]
@@ -86,8 +86,8 @@ impl Default for WorkerOptions {
             batch_size: DEFAULT_BATCH_SIZE,
             consume_all: DEFAULT_CONSUME_ALL,
             max_runs: DEFAULT_MAX_RUNS,
-            max_runtime: Duration::from_secs(DEFAULT_MAX_RUNTIME_SECS),
-            retry_delay: Duration::from_secs(DEFAULT_RETRY_DELAY_SECS),
+            max_runtime: DEFAULT_MAX_RUNTIME,
+            retry_delay: DEFAULT_RETRY_DELAY,
         }
     }
 }
@@ -102,9 +102,9 @@ impl WorkerOptions {
                 .unwrap_or(DEFAULT_CONSUME_ALL),
             max_runs: get_optional_var::<u8>(prefix, "MAX_RUNS")?.unwrap_or(DEFAULT_MAX_RUNS),
             max_runtime: get_optional_var::<Duration>(prefix, "MAX_RUNTIME")?
-                .unwrap_or(Duration::from_secs(DEFAULT_MAX_RUNTIME_SECS)),
+                .unwrap_or(DEFAULT_MAX_RUNTIME),
             retry_delay: get_optional_var::<Duration>(prefix, "RETRY_ON_ERROR_DELAY")?
-                .unwrap_or(Duration::from_secs(DEFAULT_RETRY_DELAY_SECS)),
+                .unwrap_or(DEFAULT_RETRY_DELAY),
         })
     }
 }

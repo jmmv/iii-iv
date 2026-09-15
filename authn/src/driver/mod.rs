@@ -47,13 +47,13 @@ pub mod testutils;
 const DEFAULT_SESSIONS_CACHE_CAPACITY: usize = 10 * 1024;
 
 /// Default amount of time to keep cached sessions in memory.
-const DEFAULT_SESSIONS_CACHE_TTL_SECONDS: u64 = 60;
+const DEFAULT_SESSIONS_CACHE_TTL: Duration = Duration::from_secs(60);
 
 /// Default value for the `SESSION_MAX_AGE` setting when not specified.
-const DEFAULT_SESSION_MAX_AGE_SECONDS: u64 = 24 * 60 * 60;
+const DEFAULT_SESSION_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// Default value for the `SESSION_MAX_SKEW` setting when not specified.
-const DEFAULT_SESSION_MAX_SKEW_SECONDS: u64 = 60 * 60;
+const DEFAULT_SESSION_MAX_SKEW: Duration = Duration::from_secs(60 * 60);
 
 /// Configuration options for the authentication driver.
 #[derive(Clone, Debug)]
@@ -77,10 +77,10 @@ pub struct AuthnOptions {
 impl Default for AuthnOptions {
     fn default() -> Self {
         Self {
-            sessions_cache_ttl: Duration::from_secs(DEFAULT_SESSIONS_CACHE_TTL_SECONDS),
+            sessions_cache_ttl: DEFAULT_SESSIONS_CACHE_TTL,
             sessions_cache_capacity: DEFAULT_SESSIONS_CACHE_CAPACITY,
-            session_max_age: Duration::from_secs(DEFAULT_SESSION_MAX_AGE_SECONDS),
-            session_max_skew: Duration::from_secs(DEFAULT_SESSION_MAX_SKEW_SECONDS),
+            session_max_age: DEFAULT_SESSION_MAX_AGE,
+            session_max_skew: DEFAULT_SESSION_MAX_SKEW,
         }
     }
 }
@@ -92,11 +92,11 @@ impl AuthnOptions {
             sessions_cache_capacity: get_optional_var::<usize>(prefix, "SESSIONS_CACHE_CAPACITY")?
                 .unwrap_or(DEFAULT_SESSIONS_CACHE_CAPACITY),
             sessions_cache_ttl: get_optional_var::<Duration>(prefix, "SESSIONS_CACHE_TTL")?
-                .unwrap_or_else(|| Duration::from_secs(DEFAULT_SESSIONS_CACHE_TTL_SECONDS)),
+                .unwrap_or(DEFAULT_SESSIONS_CACHE_TTL),
             session_max_age: get_optional_var::<Duration>(prefix, "SESSION_MAX_AGE")?
-                .unwrap_or_else(|| Duration::from_secs(DEFAULT_SESSION_MAX_AGE_SECONDS)),
+                .unwrap_or(DEFAULT_SESSION_MAX_AGE),
             session_max_skew: get_optional_var::<Duration>(prefix, "SESSION_MAX_SKEW")?
-                .unwrap_or_else(|| Duration::from_secs(DEFAULT_SESSION_MAX_SKEW_SECONDS)),
+                .unwrap_or(DEFAULT_SESSION_MAX_SKEW),
         })
     }
 }
