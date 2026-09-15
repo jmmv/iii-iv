@@ -422,6 +422,19 @@ pub mod testutils {
         }
     }
 
+    /// Fully materialized response data for comparison in tests.
+    #[derive(Debug, Eq, PartialEq)]
+    pub struct ResponseSnapshot {
+        /// HTTP status code in the response.
+        status: http::StatusCode,
+
+        /// HTTP headers in the response.
+        headers: HeaderMap,
+
+        /// Raw contents of the response body.
+        body: Vec<u8>,
+    }
+
     impl ResponseChecker {
         /// Expects the resulting headers to contain `name` set to `value`.
         pub fn expect_header<N: Into<String>, V: Into<String>>(
@@ -534,6 +547,16 @@ pub mod testutils {
 
             self.response
         }
+
+        /// Finishes checking the response and returns a snapshot for comparison with other
+        /// responses.
+        pub async fn take_response_snapshot(self) -> ResponseSnapshot {
+            self.verify();
+
+            let (parts, body) = self.response.into_parts();
+            let body = axum::body::to_bytes(body, MAX_BODY_SIZE).await.unwrap().to_vec();
+            ResponseSnapshot { status: parts.status, headers: parts.headers, body }
+        }
     }
 
     /// Generates a test to verify that an API that expects JSON fails when it gets something else.
@@ -624,7 +647,7 @@ pub mod testutils {
         use axum::Json;
         use axum::extract::Form;
         use axum::extract::State;
-        use axum::routing::post;
+        use axum::routing::{get, post};
         use serde::Deserialize;
         use std::sync::Arc;
         use tokio::sync::Mutex;
@@ -676,6 +699,76 @@ pub mod testutils {
                 .route("/capture-headers", post(capture_headers_handler))
                 .with_state(headers.clone());
             (headers, app)
+        }
+
+        async fn response_handler()
+        -> (http::StatusCode, [(HeaderName, &'static str); 1], &'static str) {
+            (http::StatusCode::FORBIDDEN, [(HeaderName::from_static("x-test"), "value")], "body")
+        }
+
+        async fn response_with_different_status_handler()
+        -> (http::StatusCode, [(HeaderName, &'static str); 1], &'static str) {
+            (http::StatusCode::BAD_REQUEST, [(HeaderName::from_static("x-test"), "value")], "body")
+        }
+
+        async fn response_with_different_header_handler()
+        -> (http::StatusCode, [(HeaderName, &'static str); 1], &'static str) {
+            (http::StatusCode::FORBIDDEN, [(HeaderName::from_static("x-test"), "other")], "body")
+        }
+
+        async fn response_with_different_body_handler()
+        -> (http::StatusCode, [(HeaderName, &'static str); 1], &'static str) {
+            (http::StatusCode::FORBIDDEN, [(HeaderName::from_static("x-test"), "value")], "other")
+        }
+
+        fn response_app() -> Router {
+            Router::new()
+                .route("/response", get(response_handler))
+                .route("/different-status", get(response_with_different_status_handler))
+                .route("/different-header", get(response_with_different_header_handler))
+                .route("/different-body", get(response_with_different_body_handler))
+        }
+
+        #[tokio::test]
+        async fn test_response_snapshots_compare_all_response_data() {
+            let expected = OneShotBuilder::new(response_app(), (http::Method::GET, "/response"))
+                .send_empty()
+                .await
+                .expect_status(http::StatusCode::FORBIDDEN)
+                .take_response_snapshot()
+                .await;
+            let actual = OneShotBuilder::new(response_app(), (http::Method::GET, "/response"))
+                .send_empty()
+                .await
+                .expect_status(http::StatusCode::FORBIDDEN)
+                .take_response_snapshot()
+                .await;
+            let different_status =
+                OneShotBuilder::new(response_app(), (http::Method::GET, "/different-status"))
+                    .send_empty()
+                    .await
+                    .expect_status(http::StatusCode::BAD_REQUEST)
+                    .take_response_snapshot()
+                    .await;
+            let different_header =
+                OneShotBuilder::new(response_app(), (http::Method::GET, "/different-header"))
+                    .send_empty()
+                    .await
+                    .expect_status(http::StatusCode::FORBIDDEN)
+                    .take_response_snapshot()
+                    .await;
+            let different_body =
+                OneShotBuilder::new(response_app(), (http::Method::GET, "/different-body"))
+                    .send_empty()
+                    .await
+                    .expect_status(http::StatusCode::FORBIDDEN)
+                    .take_response_snapshot()
+                    .await;
+
+            assert_eq!(expected, actual);
+            assert_ne!(expected, different_status);
+            assert_ne!(expected, different_header);
+            assert_ne!(expected, different_body);
         }
 
         #[tokio::test]
