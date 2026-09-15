@@ -16,18 +16,18 @@
 //! Business logic for user authentication.
 
 use crate::db;
-use crate::model::{AccessToken, User};
+use crate::model::{AccessToken, AuthnTask, User};
+use async_trait::async_trait;
 use derivative::Derivative;
 use futures::lock::Mutex;
 use iii_iv_core::clocks::Clock;
 use iii_iv_core::db::{Db, DbError, TxExecutor};
 use iii_iv_core::driver::{DriverError, DriverResult};
 use iii_iv_core::env::get_optional_var;
-use iii_iv_core::rest::BaseUrls;
-use iii_iv_smtp::driver::SmtpMailer;
-use iii_iv_smtp::model::EmailTemplate;
+use iii_iv_queue::driver::Client;
 use log::warn;
 use lru_time_cache::LruCache;
+use serde::Serialize;
 use std::sync::Arc;
 use std::time::Duration;
 use time::OffsetDateTime;
@@ -40,8 +40,13 @@ mod login;
 mod logout;
 pub use hooks::{AuthnHooks, AuthnNoHooks, NO_EXTENSIONS, NoExtensions};
 mod signup;
+mod tasks;
+pub use tasks::AuthnTaskRunner;
 #[cfg(any(test, feature = "testutils"))]
 pub mod testutils;
+
+/// Default delay before retrying email deliveries.
+const DEFAULT_EMAIL_RETRY_DELAY: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// Default number of sessions to keep cached in memory.
 const DEFAULT_SESSIONS_CACHE_CAPACITY: usize = 10 * 1024;
@@ -59,6 +64,9 @@ const DEFAULT_SESSION_MAX_SKEW: Duration = Duration::from_secs(60 * 60);
 #[derive(Clone, Debug)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct AuthnOptions {
+    /// Delay before retrying email deliveries.
+    pub email_retry_delay: Duration,
+
     /// The number of sessions to keep cached in memory.
     pub sessions_cache_capacity: usize,
 
@@ -77,6 +85,7 @@ pub struct AuthnOptions {
 impl Default for AuthnOptions {
     fn default() -> Self {
         Self {
+            email_retry_delay: DEFAULT_EMAIL_RETRY_DELAY,
             sessions_cache_ttl: DEFAULT_SESSIONS_CACHE_TTL,
             sessions_cache_capacity: DEFAULT_SESSIONS_CACHE_CAPACITY,
             session_max_age: DEFAULT_SESSION_MAX_AGE,
@@ -89,6 +98,8 @@ impl AuthnOptions {
     /// Creates a new set of options from environment variables.
     pub fn from_env(prefix: &str) -> Result<Self, String> {
         Ok(Self {
+            email_retry_delay: get_optional_var::<Duration>(prefix, "EMAIL_RETRY_DELAY")?
+                .unwrap_or(DEFAULT_EMAIL_RETRY_DELAY),
             sessions_cache_capacity: get_optional_var::<usize>(prefix, "SESSIONS_CACHE_CAPACITY")?
                 .unwrap_or(DEFAULT_SESSIONS_CACHE_CAPACITY),
             sessions_cache_ttl: get_optional_var::<Duration>(prefix, "SESSIONS_CACHE_TTL")?
@@ -98,6 +109,43 @@ impl AuthnOptions {
             session_max_skew: get_optional_var::<Duration>(prefix, "SESSION_MAX_SKEW")?
                 .unwrap_or(DEFAULT_SESSION_MAX_SKEW),
         })
+    }
+}
+
+/// Interface used by the authentication driver to enqueue its background tasks.
+#[async_trait]
+trait AuthnTaskEnqueuer: Send + Sync {
+    /// Adds `task` to the queue using the transaction represented by `ex`.
+    async fn enqueue(
+        &self,
+        ex: &mut iii_iv_core::db::Executor,
+        task: AuthnTask,
+    ) -> DriverResult<()>;
+}
+
+/// Adapts authentication tasks to an application's task container.
+struct QueueAuthnTaskEnqueuer<T: Serialize + Send + Sync, F> {
+    /// Application queue client.
+    client: Client<T>,
+
+    /// Function that wraps an authentication task in the application's task type.
+    wrap: F,
+}
+
+#[async_trait]
+impl<T, F> AuthnTaskEnqueuer for QueueAuthnTaskEnqueuer<T, F>
+where
+    T: Serialize + Send + Sync + 'static,
+    F: Fn(AuthnTask) -> T + Send + Sync,
+{
+    async fn enqueue(
+        &self,
+        ex: &mut iii_iv_core::db::Executor,
+        task: AuthnTask,
+    ) -> DriverResult<()> {
+        let task = (self.wrap)(task);
+        self.client.clone().enqueue(ex, &task).await?;
+        Ok(())
     }
 }
 
@@ -116,14 +164,8 @@ pub struct AuthnDriver<H: AuthnHooks> {
     /// Clock instance to obtain the current time.
     clock: Arc<dyn Clock + Send + Sync>,
 
-    /// Service to send email notifications with.
-    mailer: Arc<dyn SmtpMailer + Send + Sync>,
-
-    /// Email template to use for activation emails.
-    activation_template: Arc<EmailTemplate>,
-
-    /// Base URLs of the running service.
-    base_urls: Arc<BaseUrls>,
+    /// Queue to schedule authentication tasks into.
+    task_enqueuer: Arc<dyn AuthnTaskEnqueuer>,
 
     /// Authentication realm to return to requests.
     realm: &'static str,
@@ -141,12 +183,29 @@ pub struct AuthnDriver<H: AuthnHooks> {
 impl<H: AuthnHooks> AuthnDriver<H> {
     /// Creates a new driver backed by the given dependencies.
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub fn new<T, F>(
         db: Arc<dyn Db + Send + Sync>,
         clock: Arc<dyn Clock + Send + Sync>,
-        mailer: Arc<dyn SmtpMailer + Send + Sync>,
-        activation_template: EmailTemplate,
-        base_urls: Arc<BaseUrls>,
+        queue_client: Client<T>,
+        wrap_task: F,
+        realm: &'static str,
+        opts: AuthnOptions,
+        hooks: H,
+    ) -> Self
+    where
+        T: Serialize + Send + Sync + 'static,
+        F: Fn(AuthnTask) -> T + Send + Sync + 'static,
+    {
+        let task_enqueuer =
+            Arc::from(QueueAuthnTaskEnqueuer { client: queue_client, wrap: wrap_task });
+        Self::new_with_task_enqueuer(db, clock, task_enqueuer, realm, opts, hooks)
+    }
+
+    /// Creates a new driver with a prebuilt task enqueuer.
+    fn new_with_task_enqueuer(
+        db: Arc<dyn Db + Send + Sync>,
+        clock: Arc<dyn Clock + Send + Sync>,
+        task_enqueuer: Arc<dyn AuthnTaskEnqueuer>,
         realm: &'static str,
         opts: AuthnOptions,
         hooks: H,
@@ -157,17 +216,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         );
         let sessions_cache = Arc::from(Mutex::from(sessions_cache));
 
-        Self {
-            db,
-            clock,
-            mailer,
-            activation_template: Arc::from(activation_template),
-            base_urls,
-            realm,
-            opts,
-            sessions_cache,
-            hooks,
-        }
+        Self { db, clock, task_enqueuer, realm, opts, sessions_cache, hooks }
     }
 
     /// Returns a reference to the authentication options provided at creation time.
@@ -266,6 +315,7 @@ mod tests {
     pub fn test_options_from_env_all_all_missing() {
         temp_env::with_vars_unset(
             [
+                "AUTHN_EMAIL_RETRY_DELAY",
                 "AUTHN_SESSIONS_CACHE_CAPACITY",
                 "AUTHN_SESSIONS_CACHE_TTL",
                 "AUTHN_SESSION_MAX_AGE",
@@ -283,6 +333,7 @@ mod tests {
     pub fn test_options_from_env_all_optional_present() {
         temp_env::with_vars(
             [
+                ("AUTHN_EMAIL_RETRY_DELAY", Some("50m")),
                 ("AUTHN_SESSIONS_CACHE_CAPACITY", Some("30")),
                 ("AUTHN_SESSIONS_CACHE_TTL", Some("40m")),
                 ("AUTHN_SESSION_MAX_AGE", Some("10m")),
@@ -292,6 +343,7 @@ mod tests {
                 let opts = AuthnOptions::from_env("AUTHN").unwrap();
                 assert_eq!(
                     AuthnOptions {
+                        email_retry_delay: Duration::from_secs(50 * 60),
                         sessions_cache_capacity: 30,
                         sessions_cache_ttl: Duration::from_secs(40 * 60),
                         session_max_age: Duration::from_secs(10 * 60),

@@ -18,6 +18,8 @@
 use crate::db;
 #[cfg(test)]
 use crate::driver::AuthnHooks;
+#[cfg(test)]
+use crate::model::AuthnTask;
 use crate::model::{AccessToken, Password, User};
 use crate::rest::LoginResponse;
 #[cfg(test)]
@@ -39,12 +41,16 @@ use time::OffsetDateTime;
 #[cfg(test)]
 use {
     crate::driver::email::testutils::{get_latest_activation_code, make_test_activation_template},
-    crate::driver::{AuthnDriver, AuthnNoHooks, AuthnOptions, NO_EXTENSIONS, NoExtensions},
+    crate::driver::{
+        AuthnDriver, AuthnNoHooks, AuthnOptions, AuthnTaskRunner, NO_EXTENSIONS, NoExtensions,
+    },
     crate::rest::{ActivationSuccess, app},
+    iii_iv_core::clocks::Clock,
     iii_iv_core::clocks::testutils::SettableClock,
     iii_iv_core::db::{Db, DbError},
     iii_iv_core::driver::DriverError,
     iii_iv_core::rest::BaseUrls,
+    iii_iv_queue::driver::Client,
     iii_iv_smtp::driver::testutils::RecorderSmtpMailer,
     std::sync::Arc,
     time::macros::datetime,
@@ -95,6 +101,8 @@ pub(crate) struct TestContext {
     whoami: String,
     whoami_password: Password,
     mailer: Arc<RecorderSmtpMailer>,
+    task_runner: AuthnTaskRunner,
+    clock: Arc<SettableClock>,
 }
 
 #[cfg(test)]
@@ -188,6 +196,17 @@ impl TestContext {
         email: &EmailAddress,
         exp_username: &Username,
     ) -> Option<u64> {
+        let tasks = iii_iv_queue::db::get_runnable_tasks::<AuthnTask>(
+            &mut self.db.ex().await.unwrap(),
+            u16::MAX,
+            std::time::Duration::ZERO,
+            self.clock.now_utc(),
+        )
+        .await
+        .unwrap();
+        for task in tasks {
+            assert!(self.task_runner.run(task.into_json_task().unwrap()).await.is_ok());
+        }
         get_latest_activation_code(&self.mailer, email, exp_username).await
     }
 }
@@ -234,15 +253,23 @@ impl TestContextBuilder {
     pub(crate) async fn build_with_hooks<H: AuthnHooks>(self, hooks: H) -> TestContext {
         let db = Arc::from(iii_iv_core::db::sqlite::testutils::setup().await);
         db::init_schema(&mut db.ex().await.unwrap()).await.unwrap();
+        iii_iv_queue::db::init_schema(&mut db.ex().await.unwrap()).await.unwrap();
         let clock = Arc::from(SettableClock::new(datetime!(2023-12-01 05:50:00 UTC)));
         let mailer = Arc::from(RecorderSmtpMailer::default());
 
-        let driver = AuthnDriver::new(
+        let base_urls = Arc::from(BaseUrls::from_strs("http://localhost:1234/", None));
+        let task_runner = AuthnTaskRunner::new(
             db.clone(),
-            clock,
             mailer.clone(),
             make_test_activation_template(),
-            Arc::from(BaseUrls::from_strs("http://localhost:1234/", None)),
+            base_urls,
+            &self.opts,
+        );
+        let driver = AuthnDriver::new(
+            db.clone(),
+            clock.clone(),
+            Client::<AuthnTask>::new(clock.clone()),
+            |task| task,
             "the-realm",
             self.opts,
             hooks,
@@ -251,7 +278,7 @@ impl TestContextBuilder {
 
         let whoami_password = Password::new(format!("random-{}", rand::random::<u32>())).unwrap();
 
-        TestContext { app, db, whoami: self.whoami, whoami_password, mailer }
+        TestContext { app, clock, db, whoami: self.whoami, whoami_password, mailer, task_runner }
     }
 
     /// Sets up the test environment with the configured settings.

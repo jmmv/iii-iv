@@ -23,5 +23,7 @@ pub use passwords::{HashedPassword, Password};
 pub use passwords::{hashed_password, password};
 mod session;
 pub use session::Session;
+mod task;
+pub use task::AuthnTask;
 mod user;
 pub use user::User;

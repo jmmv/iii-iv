@@ -20,8 +20,8 @@ use super::AuthnNoHooks;
 use super::{NO_EXTENSIONS, NoExtensions};
 use crate::db;
 use crate::driver::email::testutils::{get_latest_activation_code, make_test_activation_template};
-use crate::driver::{AuthnDriver, AuthnHooks, AuthnOptions};
-use crate::model::{AccessToken, password};
+use crate::driver::{AuthnDriver, AuthnHooks, AuthnOptions, AuthnTaskRunner};
+use crate::model::{AccessToken, AuthnTask, password};
 #[cfg(test)]
 use async_trait::async_trait;
 use iii_iv_core::clocks::Clock;
@@ -31,26 +31,30 @@ use iii_iv_core::driver::{DriverError, DriverResult};
 use iii_iv_core::model::EmailAddress;
 use iii_iv_core::model::Username;
 use iii_iv_core::rest::BaseUrls;
+use iii_iv_queue::driver::Client;
 use iii_iv_smtp::driver::testutils::RecorderSmtpMailer;
 use std::sync::Arc;
+use std::time::Duration;
 
 #[cfg(test)]
 use {
-    iii_iv_core::clocks::testutils::SettableClock, iii_iv_core::db::Executor, std::time::Duration,
-    time::OffsetDateTime, time::macros::datetime,
+    iii_iv_core::clocks::testutils::SettableClock, iii_iv_core::db::Executor, time::OffsetDateTime,
+    time::macros::datetime,
 };
 
 /// State of a running test.
 pub struct TestContext<H: AuthnHooks> {
     /// The clock used by the test.
-    #[cfg(test)]
     pub(super) clock: Arc<dyn Clock + Send + Sync>,
 
     /// The SMTP mailer to capture authentication flow request messages.
-    mailer: Arc<RecorderSmtpMailer>,
+    pub(super) mailer: Arc<RecorderSmtpMailer>,
 
     /// The driver to handle authentication flows.
     driver: AuthnDriver<H>,
+
+    /// Executor for queued authentication tasks.
+    pub(super) task_runner: AuthnTaskRunner,
 }
 
 impl TestContext<AuthnNoHooks> {
@@ -84,27 +88,30 @@ impl<H: AuthnHooks> TestContext<H> {
         hooks: H,
     ) -> Self {
         db::init_schema(&mut db.ex().await.unwrap()).await.unwrap();
+        iii_iv_queue::db::init_schema(&mut db.ex().await.unwrap()).await.unwrap();
         let mailer = Arc::from(RecorderSmtpMailer::default());
         let base_urls = Arc::from(BaseUrls::from_strs(
             "http://localhost:1234/",
             Some("http://no-frontend.example.com"),
         ));
-        let driver = AuthnDriver::new(
-            db,
-            clock.clone(),
+        let task_runner = AuthnTaskRunner::new(
+            db.clone(),
             mailer.clone(),
             make_test_activation_template(),
             base_urls,
+            &opts,
+        );
+        let driver = AuthnDriver::new(
+            db,
+            clock.clone(),
+            Client::<AuthnTask>::new(clock.clone()),
+            |task| task,
             realm,
             opts,
             hooks,
         );
 
-        #[cfg(not(test))]
-        let context = TestContext { mailer, driver };
-        #[cfg(test)]
-        let context = TestContext { clock, mailer, driver };
-        context
+        TestContext { clock, mailer, driver, task_runner }
     }
 
     /// Syntactic sugar to create a user ifor testing purposes.
@@ -117,8 +124,7 @@ impl<H: AuthnHooks> TestContext<H> {
             .signup(username.clone(), password.clone(), email.clone(), H::SignupInput::default())
             .await
             .unwrap();
-        let activation_code =
-            get_latest_activation_code(&self.mailer, &email, username).await.unwrap();
+        let activation_code = self.get_latest_activation_code(&email, username).await.unwrap();
         self.driver.clone().activate(username.clone(), activation_code).await.unwrap();
     }
 
@@ -150,13 +156,28 @@ impl<H: AuthnHooks> TestContext<H> {
 
     /// Gets the latest activation code sent to `email` which, if any, should be for the username
     /// given in `exp_username`.
-    #[cfg(test)]
     pub(crate) async fn get_latest_activation_code(
         &self,
         email: &EmailAddress,
         exp_username: &Username,
     ) -> Option<u64> {
+        self.run_authn_tasks().await;
         get_latest_activation_code(&self.mailer, email, exp_username).await
+    }
+
+    /// Executes all queued authentication tasks without changing their queue state.
+    async fn run_authn_tasks(&self) {
+        let tasks = iii_iv_queue::db::get_runnable_tasks::<AuthnTask>(
+            &mut self.driver.db.ex().await.unwrap(),
+            u16::MAX,
+            Duration::ZERO,
+            self.clock.now_utc(),
+        )
+        .await
+        .unwrap();
+        for task in tasks {
+            assert!(self.task_runner.run(task.into_json_task().unwrap()).await.is_ok());
+        }
     }
 
     /// Returns "now" with an offset in seconds, which can be positive or negative.

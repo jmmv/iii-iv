@@ -16,9 +16,8 @@
 //! Extends the driver with the `signup` method.
 
 use crate::db;
-use crate::driver::email::send_activation_code;
 use crate::driver::{AuthnDriver, AuthnHooks};
-use crate::model::Password;
+use crate::model::{AuthnTask, Password};
 use iii_iv_core::db::DbError;
 use iii_iv_core::driver::{DriverError, DriverResult};
 use iii_iv_core::model::{EmailAddress, Username};
@@ -77,17 +76,12 @@ impl<H: AuthnHooks> AuthnDriver<H> {
 
         self.hooks.signup_hook(&mut tx, now, &user, input).await?;
 
-        // TODO(jmmv): This should leverage the queue somehow, but we need to figure out how that
-        // can be done while also supporting service-specific tasks.
-        send_activation_code(
-            self.mailer.as_ref(),
-            &self.activation_template,
-            &self.base_urls,
-            &user.username,
-            &user.email,
-            activation_code,
-        )
-        .await?;
+        self.task_enqueuer
+            .enqueue(
+                tx.ex(),
+                AuthnTask::SendActivationEmail { activation_code, username: user.username.clone() },
+            )
+            .await?;
 
         tx.commit().await?;
         Ok(())

@@ -13,7 +13,13 @@ workspace = true
 default = ["postgres"]
 postgres = ["iii-iv-core/postgres", "sqlx/postgres"]
 sqlite = ["iii-iv-core/sqlite", "sqlx/sqlite"]
-testutils = ["dep:url", "iii-iv-core/sqlite", "iii-iv-core/testutils", "iii-iv-smtp/testutils"]
+testutils = [
+    "dep:url",
+    "iii-iv-core/sqlite",
+    "iii-iv-core/testutils",
+    "iii-iv-queue/testutils",
+    "iii-iv-smtp/testutils",
+]
 
 [dependencies]
 async-trait = { workspace = true }
@@ -25,6 +31,7 @@ derivative = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }
 iii-iv-core = { path = "../core" }
+iii-iv-queue = { path = "../queue" }
 iii-iv-smtp = { path = "../smtp" }
 json_value_merge = { workspace = true }
 log = { workspace = true }
@@ -45,6 +52,7 @@ features = ["runtime-tokio-rustls", "time"]
 [dev-dependencies]
 futures = { workspace = true }
 iii-iv-core = { path = "../core", features = ["sqlite", "testutils"] }
+iii-iv-queue = { path = "../queue", features = ["sqlite", "testutils"] }
 iii-iv-smtp = { path = "../smtp", features = ["testutils"] }
 serial_test = { workspace = true }
 temp-env = { workspace = true }
