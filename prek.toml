@@ -71,9 +71,18 @@ pass_filenames = false
 always_run = true
 
 [[repos.hooks]]
-id = "cargo-rust"
-name = "Check Rust code (clippy + fmt)"
+id = "cargo-clippy"
+name = "Check Rust clippy"
 language = "script"
-entry = "admin/check-rust.sh"
+entry = "admin/check-clippy.sh"
+pass_filenames = false
+always_run = true
+
+[[repos.hooks]]
+id = "cargo-fmt"
+name = "Check Rust fmt"
+language = "system"
+entry = "cargo"
+args = ["fmt", "--", "--check"]
 pass_filenames = false
 always_run = true
