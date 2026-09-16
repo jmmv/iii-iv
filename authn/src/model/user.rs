@@ -18,12 +18,16 @@
 use crate::model::HashedPassword;
 use iii_iv_core::model::{EmailAddress, Username};
 use time::OffsetDateTime;
+use uuid::Uuid;
 
 /// Representation of a user's information.
 #[derive(Debug, PartialEq)]
 pub struct User {
-    /// Name of the user.
-    pub username: Username,
+    /// Stable identifier for the user.
+    pub id: Uuid,
+
+    /// Name of the user, if the service uses usernames.
+    pub username: Option<Username>,
 
     /// Hashed password.  None if the user is not allowed to log in.
     pub password: Option<HashedPassword>,
@@ -40,8 +44,8 @@ pub struct User {
 
 impl User {
     /// Creates a new user with the given fields.
-    pub fn new(username: Username, email: EmailAddress) -> Self {
-        Self { username, password: None, email, activation_code: None, last_login: None }
+    pub fn new(id: Uuid, username: Option<Username>, email: EmailAddress) -> Self {
+        Self { id, username, password: None, email, activation_code: None, last_login: None }
     }
 
     /// Modifies a user to set or clear its activation code.
@@ -72,8 +76,10 @@ mod tests {
 
     #[test]
     fn test_user_fields() {
-        let user = User::new(username!("foo"), email_address!("a@example.com"));
-        assert_eq!(&username!("foo"), &user.username);
+        let id = Uuid::new_v4();
+        let user = User::new(id, Some(username!("foo")), email_address!("a@example.com"));
+        assert_eq!(id, user.id);
+        assert_eq!(Some(&username!("foo")), user.username.as_ref());
         assert!(user.password.is_none());
         assert_eq!(&email_address!("a@example.com"), &user.email);
         assert!(user.activation_code.is_none());

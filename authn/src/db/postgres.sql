@@ -14,8 +14,12 @@
 -- under the License.
 
 CREATE TABLE IF NOT EXISTS users (
+    -- Stable internal identifier for the user.
+    id UUID PRIMARY KEY NOT NULL,
+
     -- The user's chosen username.
-    username VARCHAR(32) PRIMARY KEY NOT NULL,
+    -- Null for services that identify users by email address.
+    username VARCHAR(32) UNIQUE,
 
     -- The user's hashed password using the bcrypt algorithm.
     -- May be null, in which case the user is denied login.
@@ -37,7 +41,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS sessions (
     access_token CHAR(256) PRIMARY KEY NOT NULL,
 
-    username VARCHAR(32) NOT NULL REFERENCES users (username),
+    user_id UUID NOT NULL REFERENCES users (id),
 
     login_time TIMESTAMPTZ NOT NULL,
 

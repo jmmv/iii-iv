@@ -25,6 +25,7 @@ use iii_iv_queue::model::{ExecError, ExecResult};
 use iii_iv_smtp::driver::SmtpMailer;
 use iii_iv_smtp::model::EmailTemplate;
 use std::sync::Arc;
+use uuid::Uuid;
 
 /// Executor for authentication background tasks.
 #[derive(Clone)]
@@ -47,6 +48,10 @@ pub struct AuthnTaskRunner {
 
 impl AuthnTaskRunner {
     /// Creates an authentication task runner backed by the given dependencies.
+    ///
+    /// The activation template supports `activate_url`, `email`, `user`, `user_id`, and `username`
+    /// substitutions.  `user` is the username when present and the email address otherwise, while
+    /// `username` is empty for username-free services.
     pub fn new(
         db: Arc<dyn Db + Send + Sync>,
         mailer: Arc<dyn SmtpMailer + Send + Sync>,
@@ -66,20 +71,16 @@ impl AuthnTaskRunner {
     /// Executes an authentication task.
     pub async fn run(&self, task: AuthnTask) -> ExecResult {
         match task {
-            AuthnTask::SendActivationEmail { activation_code, username } => {
-                self.send_activation_email(username, activation_code).await
+            AuthnTask::SendActivationEmail { activation_code, user_id } => {
+                self.send_activation_email(user_id, activation_code).await
             }
         }
     }
 
     /// Sends an account activation email if the activation request is still current.
-    async fn send_activation_email(
-        &self,
-        username: iii_iv_core::model::Username,
-        activation_code: u64,
-    ) -> ExecResult {
+    async fn send_activation_email(&self, user_id: Uuid, activation_code: u64) -> ExecResult {
         let mut tx = self.db.begin().await?;
-        let user = match db::get_user_by_username(tx.ex(), username).await {
+        let user = match db::get_user_by_id(tx.ex(), user_id).await {
             Ok(user) => user,
             Err(DbError::NotFound) => {
                 return Ok(Some("Skipped activation email for missing user".to_owned()));
@@ -94,8 +95,7 @@ impl AuthnTaskRunner {
         let message = make_activation_code_message(
             &self.activation_template,
             &self.base_urls,
-            &user.username,
-            &user.email,
+            &user,
             activation_code,
         )
         .map_err(|e| ExecError::Failed(format!("Failed to build activation email: {}", e)))?;
@@ -135,14 +135,15 @@ mod tests {
         let mut ex = db.ex().await.unwrap();
         let user = db::create_user(
             &mut ex,
-            username!("some-user"),
+            Some(username!("some-user")),
             None,
             email_address!("some-user@example.com"),
         )
         .await
         .unwrap();
+        let user_id = user.id;
         db::set_user_activation_code(&mut ex, user, Some(9876)).await.unwrap();
-        AuthnTask::SendActivationEmail { activation_code: 9876, username: username!("some-user") }
+        AuthnTask::SendActivationEmail { activation_code: 9876, user_id }
     }
 
     #[tokio::test]
@@ -155,7 +156,10 @@ mod tests {
         let message =
             context.mailer.expect_one_message(&email_address!("some-user@example.com")).await;
         let (_, body) = parse_message(&message);
-        assert_eq!("http://localhost:1234/api/users/some-user/activate?code=9876", body);
+        let user = db::get_user_by_username(&mut context.ex().await, username!("some-user"))
+            .await
+            .unwrap();
+        assert_eq!(format!("http://localhost:1234/api/users/{}/activate?code=9876", user.id), body);
     }
 
     #[tokio::test]

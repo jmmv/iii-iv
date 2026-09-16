@@ -28,6 +28,7 @@ use sqlx::postgres::PgRow;
 #[cfg(any(feature = "sqlite", test))]
 use sqlx::sqlite::SqliteRow;
 use time::OffsetDateTime;
+use uuid::Uuid;
 
 #[cfg(test)]
 mod tests;
@@ -52,14 +53,12 @@ impl TryFrom<PgRow> for Session {
 
     fn try_from(row: PgRow) -> DbResult<Self> {
         let access_token: String = row.try_get("access_token").map_err(postgres::map_sqlx_error)?;
-        let username: String = row.try_get("username").map_err(postgres::map_sqlx_error)?;
+        let user_id: Uuid = row.try_get("user_id").map_err(postgres::map_sqlx_error)?;
         let login_time: OffsetDateTime =
             row.try_get("login_time").map_err(postgres::map_sqlx_error)?;
 
         let access_token = AccessToken::new(access_token)?;
-        let username = Username::new(username)?;
-
-        Ok(Session::new(access_token, username, login_time))
+        Ok(Session::new(access_token, user_id, login_time))
     }
 }
 
@@ -68,7 +67,8 @@ impl TryFrom<PgRow> for User {
     type Error = DbError;
 
     fn try_from(row: PgRow) -> DbResult<Self> {
-        let username: String = row.try_get("username").map_err(postgres::map_sqlx_error)?;
+        let id: Uuid = row.try_get("id").map_err(postgres::map_sqlx_error)?;
+        let username: Option<String> = row.try_get("username").map_err(postgres::map_sqlx_error)?;
         let password: Option<String> = row.try_get("password").map_err(postgres::map_sqlx_error)?;
         let email: String = row.try_get("email").map_err(postgres::map_sqlx_error)?;
         let activation_code: Option<i64> =
@@ -76,7 +76,8 @@ impl TryFrom<PgRow> for User {
         let last_login: Option<OffsetDateTime> =
             row.try_get("last_login").map_err(postgres::map_sqlx_error)?;
 
-        let mut user = User::new(Username::new(username)?, EmailAddress::new(email)?)
+        let username = username.map(Username::new).transpose()?;
+        let mut user = User::new(id, username, EmailAddress::new(email)?)
             .with_activation_code(activation_code.map(|i| i as u64));
         if let Some(password) = password {
             user = user.with_password(HashedPassword::new(password));
@@ -94,17 +95,16 @@ impl TryFrom<SqliteRow> for Session {
 
     fn try_from(row: SqliteRow) -> DbResult<Self> {
         let access_token: String = row.try_get("access_token").map_err(sqlite::map_sqlx_error)?;
-        let username: String = row.try_get("username").map_err(sqlite::map_sqlx_error)?;
+        let user_id: Uuid = row.try_get("user_id").map_err(sqlite::map_sqlx_error)?;
         let login_time_secs: i64 =
             row.try_get("login_time_secs").map_err(sqlite::map_sqlx_error)?;
         let login_time_nsecs: i64 =
             row.try_get("login_time_nsecs").map_err(sqlite::map_sqlx_error)?;
 
         let access_token = AccessToken::new(access_token)?;
-        let username = Username::new(username)?;
         let login_time = build_timestamp(login_time_secs, login_time_nsecs)?;
 
-        Ok(Session::new(access_token, username, login_time))
+        Ok(Session::new(access_token, user_id, login_time))
     }
 }
 
@@ -113,7 +113,8 @@ impl TryFrom<SqliteRow> for User {
     type Error = DbError;
 
     fn try_from(row: SqliteRow) -> DbResult<Self> {
-        let username: String = row.try_get("username").map_err(sqlite::map_sqlx_error)?;
+        let id: Uuid = row.try_get("id").map_err(sqlite::map_sqlx_error)?;
+        let username: Option<String> = row.try_get("username").map_err(sqlite::map_sqlx_error)?;
         let password: Option<String> = row.try_get("password").map_err(sqlite::map_sqlx_error)?;
         let email: String = row.try_get("email").map_err(sqlite::map_sqlx_error)?;
         let activation_code: Option<i64> =
@@ -123,7 +124,8 @@ impl TryFrom<SqliteRow> for User {
         let last_login_nsecs: Option<i64> =
             row.try_get("last_login_nsecs").map_err(sqlite::map_sqlx_error)?;
 
-        let mut user = User::new(Username::new(username)?, EmailAddress::new(email)?)
+        let username = username.map(Username::new).transpose()?;
+        let mut user = User::new(id, username, EmailAddress::new(email)?)
             .with_activation_code(activation_code.map(|i| i as u64));
         if let Some(password) = password {
             user = user.with_password(HashedPassword::new(password));
@@ -141,20 +143,23 @@ impl TryFrom<SqliteRow> for User {
     }
 }
 
-/// Creates a new user named `username`, with a `password` in hashed form and an `email` address.
+/// Creates a new user with an optional `username`, a hashed `password`, and an `email` address.
 /// The user is created as activated (no activation code) and as not having logged in.
 pub async fn create_user(
     ex: &mut Executor,
-    username: Username,
+    username: Option<Username>,
     password: Option<HashedPassword>,
     email: EmailAddress,
 ) -> DbResult<User> {
+    let id = Uuid::new_v4();
     let rows_affected = match ex {
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
-            let query_str = "INSERT INTO users (username, password, email) VALUES ($1, $2, $3)";
+            let query_str =
+                "INSERT INTO users (id, username, password, email) VALUES ($1, $2, $3, $4)";
             let done = sqlx::query(query_str)
-                .bind(username.as_str())
+                .bind(id)
+                .bind(username.as_ref().map(Username::as_str))
                 .bind(password.as_ref().map(|x| Some(x.as_str())))
                 .bind(email.as_str())
                 .execute(ex)
@@ -165,9 +170,10 @@ pub async fn create_user(
 
         #[cfg(any(feature = "sqlite", test))]
         Executor::Sqlite(ex) => {
-            let query_str = "INSERT INTO users (username, password, email) VALUES (?, ?, ?)";
+            let query_str = "INSERT INTO users (id, username, password, email) VALUES (?, ?, ?, ?)";
             let done = sqlx::query(query_str)
-                .bind(username.as_str())
+                .bind(id)
+                .bind(username.as_ref().map(Username::as_str))
                 .bind(password.as_ref().map(|x| Some(x.as_str())))
                 .bind(email.as_str())
                 .execute(ex)
@@ -183,11 +189,67 @@ pub async fn create_user(
     if rows_affected != 1 {
         return Err(DbError::BackendError("Insertion affected more than one row".to_owned()));
     }
-    let mut user = User::new(username, email);
+    let mut user = User::new(id, username, email);
     if let Some(password) = password {
         user = user.with_password(password);
     }
     Ok(user)
+}
+
+/// Gets information about an existing user by stable ID.
+pub async fn get_user_by_id(ex: &mut Executor, id: Uuid) -> DbResult<User> {
+    match ex {
+        #[cfg(feature = "postgres")]
+        Executor::Postgres(ex) => {
+            let raw_user = sqlx::query("SELECT * FROM users WHERE id = $1")
+                .bind(id)
+                .fetch_one(ex)
+                .await
+                .map_err(postgres::map_sqlx_error)?;
+            User::try_from(raw_user)
+        }
+
+        #[cfg(any(feature = "sqlite", test))]
+        Executor::Sqlite(ex) => {
+            let raw_user = sqlx::query("SELECT * FROM users WHERE id = ?")
+                .bind(id)
+                .fetch_one(ex)
+                .await
+                .map_err(sqlite::map_sqlx_error)?;
+            User::try_from(raw_user)
+        }
+
+        #[allow(unused)]
+        _ => unreachable!(),
+    }
+}
+
+/// Gets information about an existing user by email address.
+pub async fn get_user_by_email(ex: &mut Executor, email: EmailAddress) -> DbResult<User> {
+    match ex {
+        #[cfg(feature = "postgres")]
+        Executor::Postgres(ex) => {
+            let raw_user = sqlx::query("SELECT * FROM users WHERE email = $1")
+                .bind(email.as_str())
+                .fetch_one(ex)
+                .await
+                .map_err(postgres::map_sqlx_error)?;
+            User::try_from(raw_user)
+        }
+
+        #[cfg(any(feature = "sqlite", test))]
+        Executor::Sqlite(ex) => {
+            let raw_user = sqlx::query("SELECT * FROM users WHERE email = ?")
+                .bind(email.as_str())
+                .fetch_one(ex)
+                .await
+                .map_err(sqlite::map_sqlx_error)?;
+            User::try_from(raw_user)
+        }
+
+        #[allow(unused)]
+        _ => unreachable!(),
+    }
 }
 
 /// Gets information about an existing user named `username`.
@@ -220,19 +282,15 @@ pub async fn get_user_by_username(ex: &mut Executor, username: Username) -> DbRe
     }
 }
 
-/// Updates an existing user `username` to have new `last_login` details.
-pub async fn update_user(
-    ex: &mut Executor,
-    username: Username,
-    last_login: OffsetDateTime,
-) -> DbResult<()> {
+/// Updates an existing user `id` to have new `last_login` details.
+pub async fn update_user(ex: &mut Executor, id: Uuid, last_login: OffsetDateTime) -> DbResult<()> {
     let rows_affected = match ex {
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
-            let query_str = "UPDATE users SET last_login = $1 WHERE username = $2";
+            let query_str = "UPDATE users SET last_login = $1 WHERE id = $2";
             let done = sqlx::query(query_str)
                 .bind(last_login)
-                .bind(username.as_str())
+                .bind(id)
                 .execute(ex)
                 .await
                 .map_err(postgres::map_sqlx_error)?;
@@ -245,11 +303,11 @@ pub async fn update_user(
 
             let query_str = "
                 UPDATE users SET last_login_secs = ?, last_login_nsecs = ?
-                WHERE username = ?";
+                WHERE id = ?";
             let done = sqlx::query(query_str)
                 .bind(last_login_secs)
                 .bind(last_login_nsecs)
-                .bind(username.as_str())
+                .bind(id)
                 .execute(ex)
                 .await
                 .map_err(sqlite::map_sqlx_error)?;
@@ -279,10 +337,10 @@ pub async fn set_user_activation_code(
     let rows_affected = match ex {
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
-            let query_str = "UPDATE users SET activation_code = $1 WHERE username = $2";
+            let query_str = "UPDATE users SET activation_code = $1 WHERE id = $2";
             let done = sqlx::query(query_str)
                 .bind(i64_code)
-                .bind(user.username.as_str())
+                .bind(user.id)
                 .execute(ex)
                 .await
                 .map_err(postgres::map_sqlx_error)?;
@@ -291,10 +349,10 @@ pub async fn set_user_activation_code(
 
         #[cfg(any(feature = "sqlite", test))]
         Executor::Sqlite(ex) => {
-            let query_str = "UPDATE users SET activation_code = ? WHERE username = ?";
+            let query_str = "UPDATE users SET activation_code = ? WHERE id = ?";
             let done = sqlx::query(query_str)
                 .bind(i64_code)
-                .bind(user.username.as_str())
+                .bind(user.id)
                 .execute(ex)
                 .await
                 .map_err(sqlite::map_sqlx_error)?;
@@ -318,17 +376,17 @@ pub async fn set_user_activation_code(
 /// does not match (to avoid leaking information about whether the user exists).
 pub(crate) async fn update_user_password(
     ex: &mut Executor,
-    username: Username,
+    user_id: Uuid,
     expected_old_password: &HashedPassword,
     new_password: HashedPassword,
 ) -> DbResult<()> {
     let rows_affected = match ex {
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
-            let query_str = "UPDATE users SET password = $1 WHERE username = $2 AND password = $3";
+            let query_str = "UPDATE users SET password = $1 WHERE id = $2 AND password = $3";
             let done = sqlx::query(query_str)
                 .bind(new_password.as_str())
-                .bind(username.as_str())
+                .bind(user_id)
                 .bind(expected_old_password.as_str())
                 .execute(ex)
                 .await
@@ -338,10 +396,10 @@ pub(crate) async fn update_user_password(
 
         #[cfg(any(feature = "sqlite", test))]
         Executor::Sqlite(ex) => {
-            let query_str = "UPDATE users SET password = ? WHERE username = ? AND password = ?";
+            let query_str = "UPDATE users SET password = ? WHERE id = ? AND password = ?";
             let done = sqlx::query(query_str)
                 .bind(new_password.as_str())
-                .bind(username.as_str())
+                .bind(user_id)
                 .bind(expected_old_password.as_str())
                 .execute(ex)
                 .await
@@ -367,7 +425,7 @@ pub async fn get_session(ex: &mut Executor, access_token: &AccessToken) -> DbRes
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
             let query_str = "
-                SELECT access_token, username, login_time
+                SELECT access_token, user_id, login_time
                 FROM sessions
                 WHERE access_token = $1 AND logout_time IS NULL";
             let raw_session = sqlx::query(query_str)
@@ -381,7 +439,7 @@ pub async fn get_session(ex: &mut Executor, access_token: &AccessToken) -> DbRes
         #[cfg(any(feature = "sqlite", test))]
         Executor::Sqlite(ex) => {
             let query_str = "
-                SELECT access_token, username, login_time_secs, login_time_nsecs
+                SELECT access_token, user_id, login_time_secs, login_time_nsecs
                 FROM sessions
                 WHERE
                     access_token = ? AND
@@ -406,11 +464,11 @@ pub(crate) async fn put_session(ex: &mut Executor, session: &Session) -> DbResul
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
             let query_str =
-                "INSERT INTO sessions (access_token, username, login_time) VALUES ($1, $2, $3)";
+                "INSERT INTO sessions (access_token, user_id, login_time) VALUES ($1, $2, $3)";
 
             let done = sqlx::query(query_str)
                 .bind(session.access_token.as_str())
-                .bind(session.username.as_str())
+                .bind(session.user_id)
                 .bind(session.login_time)
                 .execute(ex)
                 .await
@@ -423,11 +481,11 @@ pub(crate) async fn put_session(ex: &mut Executor, session: &Session) -> DbResul
             let (login_time_secs, login_time_nsecs) = unpack_timestamp(session.login_time);
 
             let query_str = "
-                INSERT INTO sessions (access_token, username, login_time_secs, login_time_nsecs)
+                INSERT INTO sessions (access_token, user_id, login_time_secs, login_time_nsecs)
                 VALUES (?, ?, ?, ?)";
             let done = sqlx::query(query_str)
                 .bind(session.access_token.as_str())
-                .bind(session.username.as_str())
+                .bind(session.user_id)
                 .bind(login_time_secs)
                 .bind(login_time_nsecs)
                 .execute(ex)
@@ -496,17 +554,17 @@ pub(crate) async fn delete_session(
 /// Deletes all sessions for a user.
 pub(crate) async fn delete_sessions_for_user(
     ex: &mut Executor,
-    username: &Username,
+    user_id: Uuid,
     now: OffsetDateTime,
 ) -> DbResult<()> {
     match ex {
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
             let query_str =
-                "UPDATE sessions SET logout_time = $1 WHERE username = $2 AND logout_time IS NULL";
+                "UPDATE sessions SET logout_time = $1 WHERE user_id = $2 AND logout_time IS NULL";
             sqlx::query(query_str)
                 .bind(now)
-                .bind(username.as_str())
+                .bind(user_id)
                 .execute(ex)
                 .await
                 .map_err(postgres::map_sqlx_error)?;
@@ -520,11 +578,11 @@ pub(crate) async fn delete_sessions_for_user(
             let query_str = "
                 UPDATE sessions
                 SET logout_time_secs = ?, logout_time_nsecs = ?
-                WHERE username = ? AND logout_time_secs IS NULL AND logout_time_nsecs IS NULL";
+                WHERE user_id = ? AND logout_time_secs IS NULL AND logout_time_nsecs IS NULL";
             sqlx::query(query_str)
                 .bind(now_secs)
                 .bind(now_nsecs)
-                .bind(username.as_str())
+                .bind(user_id)
                 .execute(ex)
                 .await
                 .map_err(sqlite::map_sqlx_error)?;

@@ -43,9 +43,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
             Err(e) => return Err(e.into()),
         };
 
-        let username = session.username;
-
-        let user = match db::get_user_by_username(tx.ex(), username.clone()).await {
+        let user = match db::get_user_by_id(tx.ex(), session.user_id).await {
             Ok(user) => user,
             Err(DbError::NotFound) => {
                 return Err(DriverError::NotFound("User not found".to_owned()));
@@ -71,7 +69,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         }
 
         let new_password = new_password.validate_and_hash(password_validator)?;
-        match db::update_user_password(tx.ex(), username.clone(), old_hash, new_password).await {
+        match db::update_user_password(tx.ex(), user.id, old_hash, new_password).await {
             Ok(()) => {}
             Err(DbError::NotFound) => {
                 return Err(DriverError::InvalidInput(
@@ -81,7 +79,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
             Err(e) => return Err(e.into()),
         }
 
-        db::delete_sessions_for_user(tx.ex(), &username, now).await?;
+        db::delete_sessions_for_user(tx.ex(), user.id, now).await?;
 
         tx.commit().await?;
 
@@ -117,7 +115,7 @@ mod tests {
             .await
             .unwrap();
 
-        context.driver().login(username.clone(), new_password).await.unwrap();
+        context.driver().login(username.as_str().to_owned(), new_password).await.unwrap();
     }
 
     #[tokio::test]
@@ -146,18 +144,17 @@ mod tests {
         let email = EmailAddress::new("test@example.com").unwrap();
         context
             .driver()
-            .signup(username.clone(), password.clone(), email.clone(), NO_EXTENSIONS)
+            .signup(Some(username.clone()), password.clone(), email.clone(), NO_EXTENSIONS)
             .await
             .unwrap();
 
         let token = {
             let mut tx = context.db().begin().await.unwrap();
-            let _user = db::get_user_by_username(tx.ex(), username.clone()).await.unwrap();
+            let user = db::get_user_by_username(tx.ex(), username.clone()).await.unwrap();
             let access_token = AccessToken::generate();
-            let session =
-                Session::new(access_token.clone(), username.clone(), context.driver().now_utc());
+            let session = Session::new(access_token.clone(), user.id, context.driver().now_utc());
             db::put_session(tx.ex(), &session).await.unwrap();
-            db::update_user(tx.ex(), username.clone(), context.driver().now_utc()).await.unwrap();
+            db::update_user(tx.ex(), user.id, context.driver().now_utc()).await.unwrap();
             tx.commit().await.unwrap();
             access_token
         };

@@ -51,7 +51,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
     /// Creates a new account for a user.
     pub(crate) async fn signup(
         self,
-        username: Username,
+        username: Option<Username>,
         password: Password,
         email: EmailAddress,
         input: H::SignupInput,
@@ -59,13 +59,23 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         let mut tx = self.db.begin().await?;
         let now = self.clock.now_utc();
 
+        match (self.usernames, username.as_ref()) {
+            (true, None) => {
+                return Err(DriverError::InvalidInput("Username is required".to_owned()));
+            }
+            (false, Some(_)) => {
+                return Err(DriverError::InvalidInput("Username is not supported".to_owned()));
+            }
+            _ => {}
+        }
+
         let password = password.validate_and_hash(password_validator)?;
 
         let user = match db::create_user(tx.ex(), username, Some(password), email).await {
             Ok(user) => user,
             Err(DbError::AlreadyExists) => {
                 return Err(DriverError::AlreadyExists(
-                    "Username or email address are already registered".to_owned(),
+                    "Username or email address is already registered".to_owned(),
                 ));
             }
             Err(e) => return Err(e.into()),
@@ -77,10 +87,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         self.hooks.signup_hook(&mut tx, now, &user, input).await?;
 
         self.task_enqueuer
-            .enqueue(
-                tx.ex(),
-                AuthnTask::SendActivationEmail { activation_code, username: user.username.clone() },
-            )
+            .enqueue(tx.ex(), AuthnTask::SendActivationEmail { activation_code, user_id: user.id })
             .await?;
 
         tx.commit().await?;
@@ -114,14 +121,67 @@ mod tests {
             db::get_user_by_username(&mut context.ex().await, username.clone()).await.unwrap_err()
         );
 
-        context.driver().signup(username.clone(), password, email, NO_EXTENSIONS).await.unwrap();
+        context
+            .driver()
+            .signup(Some(username.clone()), password, email, NO_EXTENSIONS)
+            .await
+            .unwrap();
 
         let user =
             db::get_user_by_username(&mut context.ex().await, username.clone()).await.unwrap();
         assert!(user.activation_code.is_some());
         assert_eq!(
             user.activation_code,
-            context.get_latest_activation_code(&user.email, &username).await
+            context.get_latest_activation_code(&user.email, Some(user.id)).await
+        );
+    }
+
+    #[tokio::test]
+    async fn test_signup_without_username_ok() {
+        let context = TestContext::setup_without_usernames(AuthnOptions::default()).await;
+        let email = email_address!("foo@example.com");
+
+        context
+            .driver()
+            .signup(None, password!("sufficiently0complex"), email.clone(), NO_EXTENSIONS)
+            .await
+            .unwrap();
+
+        let user = db::get_user_by_email(&mut context.ex().await, email.clone()).await.unwrap();
+        assert!(user.username.is_none());
+        assert!(user.activation_code.is_some());
+        assert_eq!(
+            user.activation_code,
+            context.get_latest_activation_code(&email, Some(user.id)).await
+        );
+    }
+
+    #[tokio::test]
+    async fn test_signup_username_mode_mismatch() {
+        let context = TestContext::setup(AuthnOptions::default()).await;
+        let result = context
+            .driver()
+            .signup(
+                None,
+                password!("sufficiently0complex"),
+                email_address!("one@example.com"),
+                NO_EXTENSIONS,
+            )
+            .await;
+        assert!(matches!(result, Err(DriverError::InvalidInput(msg)) if msg.contains("required")));
+
+        let context = TestContext::setup_without_usernames(AuthnOptions::default()).await;
+        let result = context
+            .driver()
+            .signup(
+                Some(username!("hello")),
+                password!("sufficiently0complex"),
+                email_address!("two@example.com"),
+                NO_EXTENSIONS,
+            )
+            .await;
+        assert!(
+            matches!(result, Err(DriverError::InvalidInput(msg)) if msg.contains("not supported"))
         );
     }
 
@@ -132,20 +192,20 @@ mod tests {
         let username = username!("hello");
         let email = email_address!("other@example.com");
 
-        db::create_user(&mut context.ex().await, username.clone(), None, email.clone())
+        db::create_user(&mut context.ex().await, Some(username.clone()), None, email.clone())
             .await
             .unwrap();
 
         match context
             .driver()
-            .signup(username.clone(), password!("the1password"), email.clone(), NO_EXTENSIONS)
+            .signup(Some(username.clone()), password!("the1password"), email.clone(), NO_EXTENSIONS)
             .await
         {
             Err(DriverError::AlreadyExists(msg)) => assert!(msg.contains("already registered")),
             e => panic!("{:?}", e),
         }
 
-        assert!(context.get_latest_activation_code(&email, &username).await.is_none());
+        assert!(context.get_latest_activation_code(&email, None).await.is_none());
     }
 
     #[tokio::test]
@@ -154,20 +214,25 @@ mod tests {
 
         let email = email_address!("foo@example.com");
 
-        db::create_user(&mut context.ex().await, username!("some"), None, email.clone())
+        db::create_user(&mut context.ex().await, Some(username!("some")), None, email.clone())
             .await
             .unwrap();
 
         match context
             .driver()
-            .signup(username!("other"), password!("the1password"), email.clone(), NO_EXTENSIONS)
+            .signup(
+                Some(username!("other")),
+                password!("the1password"),
+                email.clone(),
+                NO_EXTENSIONS,
+            )
             .await
         {
             Err(DriverError::AlreadyExists(msg)) => assert!(msg.contains("already registered")),
             e => panic!("{:?}", e),
         }
 
-        assert!(context.get_latest_activation_code(&email, &username!("x")).await.is_none());
+        assert!(context.get_latest_activation_code(&email, None).await.is_none());
     }
 
     #[tokio::test]
@@ -186,7 +251,7 @@ mod tests {
             match context
                 .driver()
                 .signup(
-                    username.clone(),
+                    Some(username.clone()),
                     Password::new(password).unwrap(),
                     email.clone(),
                     NO_EXTENSIONS,
@@ -200,7 +265,7 @@ mod tests {
                 e => panic!("{:?}", e),
             }
 
-            assert!(context.get_latest_activation_code(&email, &username).await.is_none());
+            assert!(context.get_latest_activation_code(&email, None).await.is_none());
         }
     }
 
@@ -213,6 +278,7 @@ mod tests {
             db.clone(),
             clock,
             "the-realm",
+            true,
             FailingSignupHook,
         )
         .await;
@@ -228,7 +294,7 @@ mod tests {
         match context
             .driver()
             .signup(
-                username.clone(),
+                Some(username.clone()),
                 password!("sufficiently0complex"),
                 email.clone(),
                 NO_EXTENSIONS,
@@ -244,6 +310,6 @@ mod tests {
             db::get_user_by_username(&mut context.ex().await, username.clone()).await.unwrap_err()
         );
 
-        assert!(context.get_latest_activation_code(&email, &username).await.is_none());
+        assert!(context.get_latest_activation_code(&email, None).await.is_none());
     }
 }

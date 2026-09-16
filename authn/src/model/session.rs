@@ -16,8 +16,8 @@
 //! The `Session` data type.
 
 use crate::model::AccessToken;
-use iii_iv_core::model::Username;
 use time::OffsetDateTime;
+use uuid::Uuid;
 
 /// Represents a user session.
 #[cfg_attr(test, derive(Clone, Debug, PartialEq))]
@@ -25,8 +25,8 @@ pub struct Session {
     /// The access token for the session, which acts as its identifier.
     pub access_token: AccessToken,
 
-    /// The username for this session.
-    pub username: Username,
+    /// The user that owns this session.
+    pub user_id: Uuid,
 
     /// Timestamp to represent when the session was initiated.
     pub login_time: OffsetDateTime,
@@ -36,10 +36,10 @@ impl Session {
     /// Creates a new session from its parts.
     pub(crate) fn new(
         access_token: AccessToken,
-        username: Username,
+        user_id: Uuid,
         login_time: OffsetDateTime,
     ) -> Self {
-        Self { access_token, username, login_time }
+        Self { access_token, user_id, login_time }
     }
 }
 
@@ -51,11 +51,11 @@ mod tests {
     #[test]
     fn test_session() {
         let token = AccessToken::generate();
-        let username = Username::new("foo").unwrap();
+        let user_id = Uuid::new_v4();
         let login_time = datetime!(2022-05-17 06:46:53 UTC);
-        let session = Session::new(token.clone(), username.clone(), login_time);
+        let session = Session::new(token.clone(), user_id, login_time);
         assert_eq!(&token, &session.access_token);
-        assert_eq!(&username, &session.username);
+        assert_eq!(user_id, session.user_id);
         assert_eq!(login_time, session.login_time);
         assert_eq!(token, session.access_token);
     }

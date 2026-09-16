@@ -16,7 +16,8 @@
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS users (
-    username TEXT PRIMARY KEY NOT NULL,
+    id UUID PRIMARY KEY NOT NULL,
+    username TEXT UNIQUE,
     password TEXT,
     email TEXT UNIQUE NOT NULL,
     activation_code INTEGER,
@@ -28,7 +29,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS sessions (
     access_token TEXT PRIMARY KEY NOT NULL,
-    username TEXT NOT NULL REFERENCES users (username),
+    user_id UUID NOT NULL REFERENCES users (id),
     login_time_secs INTEGER NOT NULL,
     login_time_nsecs INTEGER NOT NULL,
     logout_time_secs INTEGER,

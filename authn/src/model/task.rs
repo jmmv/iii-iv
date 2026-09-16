@@ -18,8 +18,8 @@
 //! These types represent persisted tasks in the database, so changes must remain wire-compatible
 //! with tasks that may still be runnable.
 
-use iii_iv_core::model::Username;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 /// A background task owned by the authentication service.
 #[derive(Deserialize, Serialize)]
@@ -31,24 +31,20 @@ pub enum AuthnTask {
         activation_code: u64,
 
         /// Account that needs to be activated.
-        username: Username,
+        user_id: Uuid,
     },
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use iii_iv_core::model::username;
-
     #[test]
     fn test_serde() {
-        let task = AuthnTask::SendActivationEmail {
-            activation_code: 1234,
-            username: username!("some-user"),
-        };
+        let user_id = Uuid::nil();
+        let task = AuthnTask::SendActivationEmail { activation_code: 1234, user_id };
         let json = serde_json::to_string(&task).unwrap();
         assert_eq!(
-            r#"{"SendActivationEmail":{"activation_code":1234,"username":"some-user"}}"#,
+            r#"{"SendActivationEmail":{"activation_code":1234,"user_id":"00000000-0000-0000-0000-000000000000"}}"#,
             json
         );
         assert_eq!(task, serde_json::from_str(&json).unwrap());

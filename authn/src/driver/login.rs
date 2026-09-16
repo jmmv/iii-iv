@@ -20,20 +20,31 @@ use crate::driver::{AuthnDriver, AuthnHooks};
 use crate::model::{AccessToken, Password, Session};
 use iii_iv_core::db::DbError;
 use iii_iv_core::driver::{DriverError, DriverResult};
-use iii_iv_core::model::Username;
+use iii_iv_core::model::{EmailAddress, Username};
 use std::sync::Arc;
 
 impl<H: AuthnHooks> AuthnDriver<H> {
-    /// Logs a user with `username` and `password`.
+    /// Logs a user with their configured login identifier and `password`.
     pub(crate) async fn login(
         self,
-        username: Username,
+        login: String,
         password: Password,
     ) -> DriverResult<(Session, H::LoginOutput)> {
         let mut tx = self.db.begin().await?;
         let now = self.clock.now_utc();
 
-        let user = match db::get_user_by_username(tx.ex(), username.clone()).await {
+        let user_result = if self.usernames {
+            match Username::new(login) {
+                Ok(username) => db::get_user_by_username(tx.ex(), username).await,
+                Err(e) => return Err(e.into()),
+            }
+        } else {
+            match EmailAddress::new(login) {
+                Ok(email) => db::get_user_by_email(tx.ex(), email).await,
+                Err(e) => return Err(e.into()),
+            }
+        };
+        let user = match user_result {
             Ok(user) => user,
             Err(DbError::NotFound) => {
                 return Err(DriverError::Unauthorized("Unknown user".to_owned()));
@@ -55,10 +66,10 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         }
 
         let access_token = AccessToken::generate();
-        let session = Session::new(access_token.clone(), username.clone(), now);
+        let session = Session::new(access_token.clone(), user.id, now);
         db::put_session(tx.ex(), &session).await?;
 
-        db::update_user(tx.ex(), username.clone(), now).await?;
+        db::update_user(tx.ex(), user.id, now).await?;
 
         let output = self.hooks.login_hook(&mut tx, now, &user).await?;
 
@@ -92,9 +103,9 @@ mod tests {
         let username = username!("hello");
         let password = password!("password");
 
-        db::create_user(
+        let user = db::create_user(
             &mut context.ex().await,
-            username.clone(),
+            Some(username.clone()),
             Some(password.clone().validate_and_hash(|_| None).unwrap()),
             email_address!("some@example.com"),
         )
@@ -103,16 +114,44 @@ mod tests {
 
         let before = context.driver().now_utc();
         let (response, NO_EXTENSIONS) =
-            context.driver().login(username.clone(), password).await.unwrap();
+            context.driver().login(username.as_str().to_owned(), password).await.unwrap();
         let after = context.driver().now_utc();
 
         let session =
             db::get_session(&mut context.ex().await, &response.access_token).await.unwrap();
-        assert_eq!(&username, &session.username);
+        assert_eq!(user.id, session.user_id);
         assert!(session.login_time >= before && session.login_time <= after);
         let user = db::get_user_by_username(&mut context.ex().await, username).await.unwrap();
         assert!(user.last_login.unwrap() >= before && user.last_login.unwrap() <= after);
         assert_eq!(&email_address!("some@example.com"), &user.email);
+    }
+
+    #[tokio::test]
+    async fn test_login_by_email_without_usernames() {
+        let context = TestContext::setup_without_usernames(AuthnOptions::default()).await;
+        let password = password!("password");
+        let email = email_address!("some@example.com");
+        let user = db::create_user(
+            &mut context.ex().await,
+            None,
+            Some(password.clone().validate_and_hash(|_| None).unwrap()),
+            email.clone(),
+        )
+        .await
+        .unwrap();
+
+        let (session, NO_EXTENSIONS) =
+            context.driver().login(email.as_str().to_owned(), password).await.unwrap();
+
+        assert_eq!(user.id, session.user_id);
+    }
+
+    #[tokio::test]
+    async fn test_login_by_email_rejected_with_usernames() {
+        let context = TestContext::setup(AuthnOptions::default()).await;
+        let result =
+            context.driver().login("some@example.com".to_owned(), password!("password")).await;
+        assert!(matches!(result, Err(DriverError::InvalidInput(_))));
     }
 
     #[tokio::test]
@@ -122,9 +161,9 @@ mod tests {
         let username = username!("hello");
         let password = password!("password");
 
-        db::create_user(
+        let user = db::create_user(
             &mut context.ex().await,
-            username.clone(),
+            Some(username.clone()),
             Some(password.clone().validate_and_hash(|_| None).unwrap()),
             email_address!("some@example.com"),
         )
@@ -132,7 +171,7 @@ mod tests {
         .unwrap();
         db::update_user(
             &mut context.ex().await,
-            username.clone(),
+            user.id,
             OffsetDateTime::from_unix_timestamp(1).unwrap(),
         )
         .await
@@ -140,12 +179,12 @@ mod tests {
 
         let before = context.driver().now_utc();
         let (response, NO_EXTENSIONS) =
-            context.driver().login(username.clone(), password).await.unwrap();
+            context.driver().login(username.as_str().to_owned(), password).await.unwrap();
         let after = context.driver().now_utc();
 
         let session =
             db::get_session(&mut context.ex().await, &response.access_token).await.unwrap();
-        assert_eq!(&username, &session.username);
+        assert_eq!(user.id, session.user_id);
         assert!(session.login_time >= before && session.login_time <= after);
         let user = db::get_user_by_username(&mut context.ex().await, username).await.unwrap();
         assert!(user.last_login.unwrap() >= before && user.last_login.unwrap() <= after);
@@ -156,7 +195,7 @@ mod tests {
     async fn test_login_unknown_user() {
         let context = TestContext::setup(AuthnOptions::default()).await;
 
-        match context.driver().login(username!("foo"), password!("bar")).await {
+        match context.driver().login("foo".to_owned(), password!("bar")).await {
             Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("Unknown user")),
             e => panic!("{:?}", e),
         }
@@ -170,14 +209,14 @@ mod tests {
 
         db::create_user(
             &mut context.ex().await,
-            username.clone(),
+            Some(username.clone()),
             Some(Password::new("ABC").unwrap().validate_and_hash(|_| None).unwrap()),
             email_address!("some@example.com"),
         )
         .await
         .unwrap();
 
-        match context.driver().login(username, password!("abc")).await {
+        match context.driver().login(username.as_str().to_owned(), password!("abc")).await {
             Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("Invalid password")),
             e => panic!("{:?}", e),
         }
@@ -191,14 +230,14 @@ mod tests {
 
         db::create_user(
             &mut context.ex().await,
-            username.clone(),
+            Some(username.clone()),
             None,
             email_address!("some@example.com"),
         )
         .await
         .unwrap();
 
-        match context.driver().login(username, password!("irrelevant")).await {
+        match context.driver().login(username.as_str().to_owned(), password!("irrelevant")).await {
             Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("Login not allowed")),
             e => panic!("{:?}", e),
         }
@@ -213,7 +252,7 @@ mod tests {
 
         let user = db::create_user(
             &mut context.ex().await,
-            username.clone(),
+            Some(username.clone()),
             Some(password.clone().validate_and_hash(|_| None).unwrap()),
             email_address!("some@example.com"),
         )
@@ -221,7 +260,7 @@ mod tests {
         .unwrap();
         db::set_user_activation_code(&mut context.ex().await, user, Some(50)).await.unwrap();
 
-        match context.driver().login(username, password).await {
+        match context.driver().login(username.as_str().to_owned(), password).await {
             Err(DriverError::NotActivated) => (),
             e => panic!("{:?}", e),
         }
@@ -236,7 +275,7 @@ mod tests {
 
         db::create_user(
             &mut context.ex().await,
-            username.clone(),
+            Some(username.clone()),
             Some(password.clone().validate_and_hash(|_| None).unwrap()),
             email_address!("some@example.com"),
         )
@@ -245,7 +284,7 @@ mod tests {
 
         assert_eq!(0, context.driver().sessions_cache.lock().await.len());
         let (session, NO_EXTENSIONS) =
-            context.driver().login(username.clone(), password).await.unwrap();
+            context.driver().login(username.as_str().to_owned(), password).await.unwrap();
         let driver = context.driver();
         let cache = driver.sessions_cache.lock().await;
         assert_eq!(1, cache.len());
@@ -261,6 +300,7 @@ mod tests {
             db.clone(),
             clock,
             "the-realm",
+            true,
             FailingLoginHook,
         )
         .await;
@@ -270,7 +310,7 @@ mod tests {
 
         db::create_user(
             &mut context.ex().await,
-            username.clone(),
+            Some(username.clone()),
             Some(password.clone().validate_and_hash(|_| None).unwrap()),
             email_address!("some@example.com"),
         )
@@ -281,7 +321,7 @@ mod tests {
             db::get_user_by_username(&mut context.ex().await, username.clone()).await.unwrap();
         let last_login_before = user_before.last_login;
 
-        match context.driver().login(username.clone(), password).await {
+        match context.driver().login(username.as_str().to_owned(), password).await {
             Err(DriverError::BackendError(msg)) => assert!(msg.contains("hook-failure-test")),
             e => panic!("{:?}", e),
         }

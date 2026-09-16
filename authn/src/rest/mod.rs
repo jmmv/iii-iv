@@ -73,7 +73,7 @@ mod tests {
             .await;
 
         let request = SignupRequest {
-            username: "the-user".into(),
+            username: Some("the-user".into()),
             password: password!("The1234Password"),
             email: "new@example.com".into(),
         };
@@ -99,12 +99,10 @@ mod tests {
             .expect_error("Account.*not.*activated")
             .await;
 
+        let user_id = context.user_id(&username!("the-user")).await;
         let request = ActivateRequest {
             code: context
-                .get_latest_activation_code(
-                    &email_address!("new@example.com"),
-                    &username!("the-user"),
-                )
+                .get_latest_activation_code(&email_address!("new@example.com"), Some(user_id))
                 .await
                 .unwrap(),
         };
@@ -113,7 +111,8 @@ mod tests {
             (
                 Method::GET,
                 format!(
-                    "/api/test/users/the-user/activate?{}",
+                    "/api/test/users/{}/activate?{}",
+                    user_id,
                     serde_urlencoded::to_string(request).unwrap()
                 ),
             ),
@@ -152,5 +151,62 @@ mod tests {
             .await;
         assert!(!context.session_exists(&access_token1).await);
         assert!(context.session_exists(&access_token2).await);
+    }
+
+    #[tokio::test]
+    async fn test_e2e_signup_flow_without_usernames() {
+        let mut context = TestContextBuilder::new()
+            .with_activation_success(ActivationSuccess::DefaultHtml)
+            .with_usernames(false)
+            .build()
+            .await;
+        let email = email_address!("new@example.com");
+
+        let request = SignupRequest {
+            username: None,
+            password: password!("The1234Password"),
+            email: email.clone(),
+        };
+        OneShotBuilder::new(context.app(), (Method::POST, "/api/test/signup"))
+            .send_json(request)
+            .await
+            .expect_empty()
+            .await;
+
+        let user_id = context.user_id_by_email(&email).await;
+        let request = ActivateRequest {
+            code: context.get_latest_activation_code(&email, Some(user_id)).await.unwrap(),
+        };
+        OneShotBuilder::new(
+            context.app(),
+            (
+                Method::GET,
+                format!(
+                    "/api/test/users/{}/activate?{}",
+                    user_id,
+                    serde_urlencoded::to_string(request).unwrap()
+                ),
+            ),
+        )
+        .send_empty()
+        .await
+        .expect_text("new@example.com, your account has been successfully activated")
+        .await;
+
+        let response = OneShotBuilder::new(context.app(), (Method::POST, "/api/test/login"))
+            .with_basic_auth(email.as_str(), "The1234Password")
+            .send_empty()
+            .await
+            .expect_json::<LoginResponse>()
+            .await;
+        assert!(context.session_exists(&response.access_token).await);
+
+        OneShotBuilder::new(context.app(), (Method::POST, "/api/test/logout"))
+            .with_bearer_auth(response.access_token.as_str())
+            .send_empty()
+            .await
+            .expect_empty()
+            .await;
+        assert!(!context.session_exists(&response.access_token).await);
     }
 }

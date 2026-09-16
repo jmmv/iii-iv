@@ -64,7 +64,15 @@ impl TestContext<AuthnNoHooks> {
     pub(crate) async fn setup(opts: AuthnOptions) -> Self {
         let db = Arc::from(iii_iv_core::db::sqlite::testutils::setup().await);
         let clock = Arc::from(SettableClock::new(datetime!(2023-12-01 05:50:00 UTC)));
-        Self::setup_with(opts, db, clock, "the-realm").await
+        Self::setup_with(opts, db, clock, "the-realm", true).await
+    }
+
+    /// Initializes the driver for a service that does not use usernames.
+    #[cfg(test)]
+    pub(crate) async fn setup_without_usernames(opts: AuthnOptions) -> Self {
+        let db = Arc::from(iii_iv_core::db::sqlite::testutils::setup().await);
+        let clock = Arc::from(SettableClock::new(datetime!(2023-12-01 05:50:00 UTC)));
+        Self::setup_with(opts, db, clock, "the-realm", false).await
     }
 
     /// Initializes the test context using the given already-initialized objects.
@@ -73,8 +81,9 @@ impl TestContext<AuthnNoHooks> {
         db: Arc<dyn Db + Send + Sync>,
         clock: Arc<dyn Clock + Send + Sync>,
         realm: &'static str,
+        usernames: bool,
     ) -> Self {
-        TestContext::setup_with_hooks(opts, db, clock, realm, AuthnNoHooks).await
+        TestContext::setup_with_hooks(opts, db, clock, realm, usernames, AuthnNoHooks).await
     }
 }
 
@@ -85,6 +94,7 @@ impl<H: AuthnHooks> TestContext<H> {
         db: Arc<dyn Db + Send + Sync>,
         clock: Arc<dyn Clock + Send + Sync>,
         realm: &'static str,
+        usernames: bool,
         hooks: H,
     ) -> Self {
         db::init_schema(&mut db.ex().await.unwrap()).await.unwrap();
@@ -107,6 +117,7 @@ impl<H: AuthnHooks> TestContext<H> {
             Client::<AuthnTask>::new(clock.clone()),
             |task| task,
             realm,
+            usernames,
             opts,
             hooks,
         );
@@ -121,11 +132,20 @@ impl<H: AuthnHooks> TestContext<H> {
         let email = EmailAddress::new(format!("{}@example.com", username.as_str())).unwrap();
         self.driver
             .clone()
-            .signup(username.clone(), password.clone(), email.clone(), H::SignupInput::default())
+            .signup(
+                Some(username.clone()),
+                password.clone(),
+                email.clone(),
+                H::SignupInput::default(),
+            )
             .await
             .unwrap();
-        let activation_code = self.get_latest_activation_code(&email, username).await.unwrap();
-        self.driver.clone().activate(username.clone(), activation_code).await.unwrap();
+        let user =
+            db::get_user_by_username(&mut self.driver.db.ex().await.unwrap(), username.clone())
+                .await
+                .unwrap();
+        let activation_code = self.get_latest_activation_code(&email, Some(user.id)).await.unwrap();
+        self.driver.clone().activate(user.id, activation_code).await.unwrap();
     }
 
     /// Syntactic sugar to create and log a user in for testing purposes.
@@ -133,7 +153,8 @@ impl<H: AuthnHooks> TestContext<H> {
         let password = password!("test0password");
         self.create_active_user(&username).await;
 
-        let (response, _output) = self.driver.clone().login(username, password).await.unwrap();
+        let (response, _output) =
+            self.driver.clone().login(username.as_str().to_owned(), password).await.unwrap();
         response.access_token
     }
 
@@ -154,15 +175,14 @@ impl<H: AuthnHooks> TestContext<H> {
         self.driver.clone()
     }
 
-    /// Gets the latest activation code sent to `email` which, if any, should be for the username
-    /// given in `exp_username`.
+    /// Gets the latest activation code sent to `email` for `exp_user_id`, if any.
     pub(crate) async fn get_latest_activation_code(
         &self,
         email: &EmailAddress,
-        exp_username: &Username,
+        exp_user_id: Option<uuid::Uuid>,
     ) -> Option<u64> {
         self.run_authn_tasks().await;
-        get_latest_activation_code(&self.mailer, email, exp_username).await
+        get_latest_activation_code(&self.mailer, email, exp_user_id).await
     }
 
     /// Executes all queued authentication tasks without changing their queue state.

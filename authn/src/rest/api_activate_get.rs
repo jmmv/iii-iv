@@ -18,11 +18,11 @@
 use crate::driver::{AuthnDriver, AuthnHooks};
 use axum::extract::{Path, Query, State};
 use axum::response::{Html, IntoResponse, Redirect};
-use iii_iv_core::model::Username;
 use iii_iv_core::rest::{EmptyBody, RestError};
 use iii_iv_core::template;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
+use uuid::Uuid;
 
 /// Default HTML to return when an account is successfully activated.
 const DEFAULT_ACTIVATED_TEMPLATE: &str = r#"<html>
@@ -31,7 +31,7 @@ const DEFAULT_ACTIVATED_TEMPLATE: &str = r#"<html>
 <body>
 <h1>Success!</h1>
 
-<p>%username%, your account has been successfully activated.</p>
+<p>%user%, your account has been successfully activated.</p>
 
 </body>
 </html>
@@ -45,6 +45,10 @@ pub struct ActivateRequest {
 }
 
 /// Successful response to return when an account activation completes.
+///
+/// Custom templates support `email`, `user`, `user_id`, and `username` substitutions.  `user` is
+/// the username when present and the email address otherwise, while `username` is empty for
+/// username-free services.
 #[derive(Clone, Debug, Default)]
 pub enum ActivationSuccess {
     /// Returns the built-in success page.
@@ -66,11 +70,24 @@ pub(crate) async fn handler<H: AuthnHooks>(
     Query(request): Query<ActivateRequest>,
     _: EmptyBody,
 ) -> Result<impl IntoResponse, RestError> {
-    let user = Username::new(user)?;
+    let user_id = Uuid::parse_str(&user)
+        .map_err(|e| RestError::InvalidRequest(format!("Invalid user ID: {}", e)))?;
 
-    driver.activate(user.clone(), request.code).await?;
+    let user = driver.activate(user_id, request.code).await?;
 
-    let substs = &[("username", user.as_str())];
+    let user_id = user.id.to_string();
+    let username = user.username.as_ref().map(|username| username.as_str()).unwrap_or("");
+    let display_name = user
+        .username
+        .as_ref()
+        .map(|username| username.as_str())
+        .unwrap_or_else(|| user.email.as_str());
+    let substs = &[
+        ("email", user.email.as_str()),
+        ("user", display_name),
+        ("user_id", user_id.as_str()),
+        ("username", username),
+    ];
 
     let response = match activation_success {
         ActivationSuccess::DefaultHtml => {
@@ -97,12 +114,12 @@ mod tests {
     use axum::http;
     use iii_iv_core::{rest::testutils::OneShotBuilder, test_payload_must_be_empty};
 
-    fn route(username: &str, query: ActivateRequest) -> (http::Method, String) {
+    fn route(user_id: Uuid, query: ActivateRequest) -> (http::Method, String) {
         (
             http::Method::GET,
             format!(
                 "/api/test/users/{}/activate?{}",
-                username,
+                user_id,
                 serde_urlencoded::to_string(query).unwrap()
             ),
         )
@@ -118,7 +135,7 @@ mod tests {
         let user = context.create_inactive_whoami_user(8991).await;
 
         let request = ActivateRequest { code: 8991 };
-        let body = OneShotBuilder::new(context.app(), route(user.username.as_str(), request))
+        let body = OneShotBuilder::new(context.app(), route(user.id, request))
             .send_empty()
             .await
             .take_body_as_text()
@@ -127,7 +144,7 @@ mod tests {
         assert!(body.contains("Success"));
         assert!(body.contains(&format!("{}, your", context.whoami().as_str())));
 
-        assert!(context.user_is_active(&user.username).await);
+        assert!(context.user_is_active(user.username.as_ref().unwrap()).await);
     }
 
     #[tokio::test]
@@ -141,7 +158,7 @@ mod tests {
         let user = context.create_inactive_whoami_user(8991).await;
 
         let request = ActivateRequest { code: 8991 };
-        let body = OneShotBuilder::new(context.app(), route(user.username.as_str(), request))
+        let body = OneShotBuilder::new(context.app(), route(user.id, request))
             .send_empty()
             .await
             .take_body_as_text()
@@ -149,7 +166,7 @@ mod tests {
 
         assert_eq!(format!("All good, {}!", context.whoami().as_str()), body);
 
-        assert!(context.user_is_active(&user.username).await);
+        assert!(context.user_is_active(user.username.as_ref().unwrap()).await);
     }
 
     #[tokio::test]
@@ -163,7 +180,7 @@ mod tests {
         let user = context.create_inactive_whoami_user(8991).await;
 
         let request = ActivateRequest { code: 8991 };
-        OneShotBuilder::new(context.app(), route(user.username.as_str(), request))
+        OneShotBuilder::new(context.app(), route(user.id, request))
             .send_empty()
             .await
             .expect_status(http::StatusCode::SEE_OTHER)
@@ -177,7 +194,7 @@ mod tests {
             .expect_empty()
             .await;
 
-        assert!(context.user_is_active(&user.username).await);
+        assert!(context.user_is_active(user.username.as_ref().unwrap()).await);
     }
 
     #[tokio::test]
@@ -190,30 +207,32 @@ mod tests {
         let user = context.create_inactive_whoami_user(8991).await;
 
         let request = ActivateRequest { code: 123 };
-        OneShotBuilder::new(context.app(), route(user.username.as_str(), request))
+        OneShotBuilder::new(context.app(), route(user.id, request))
             .send_empty()
             .await
             .expect_status(http::StatusCode::BAD_REQUEST)
             .expect_error("Invalid activation code")
             .await;
 
-        assert!(!context.user_is_active(&user.username).await);
+        assert!(!context.user_is_active(user.username.as_ref().unwrap()).await);
     }
 
     #[tokio::test]
-    async fn test_bad_username() {
+    async fn test_bad_user_id() {
         let context = TestContextBuilder::new()
             .with_activation_success(ActivationSuccess::DefaultHtml)
             .build()
             .await;
 
-        let request = ActivateRequest { code: 1 };
-        OneShotBuilder::new(context.into_app(), route("not%20valid", request))
-            .send_empty()
-            .await
-            .expect_status(http::StatusCode::BAD_REQUEST)
-            .expect_error("Unsupported character")
-            .await;
+        OneShotBuilder::new(
+            context.into_app(),
+            (http::Method::GET, "/api/test/users/not-valid/activate?code=1"),
+        )
+        .send_empty()
+        .await
+        .expect_status(http::StatusCode::BAD_REQUEST)
+        .expect_error("Invalid user ID")
+        .await;
     }
 
     test_payload_must_be_empty!(
@@ -222,6 +241,6 @@ mod tests {
             .build()
             .await
             .into_app(),
-        route("irrelevant", ActivateRequest { code: 0 })
+        route(Uuid::nil(), ActivateRequest { code: 0 })
     );
 }
