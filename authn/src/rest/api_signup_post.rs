@@ -26,8 +26,8 @@ use serde::{Deserialize, Serialize};
 /// Message sent to the server to create an account.
 #[derive(Deserialize, Serialize)]
 pub struct SignupRequest {
-    /// Desired username.
-    pub username: Username,
+    /// Desired username.  Must be present exactly when the service uses usernames.
+    pub username: Option<Username>,
 
     /// Desired password.
     pub password: Password,
@@ -65,7 +65,7 @@ mod tests {
         let mut context = TestContextBuilder::new().build().await;
 
         let request = SignupRequest {
-            username: "new".into(),
+            username: Some("new".into()),
             password: password!("hello4World"),
             email: "new@example.com".into(),
         };
@@ -81,7 +81,7 @@ mod tests {
             TestContextBuilder::new().build_with_hooks(AuthnTestHooks::default()).await;
 
         let request = SignupRequest {
-            username: "new".into(),
+            username: Some("new".into()),
             password: password!("hello4World"),
             email: "new@example.com".into(),
         };
@@ -102,7 +102,7 @@ mod tests {
             TestContextBuilder::new().build_with_hooks(AuthnTestHooks::default()).await;
 
         let request = SignupRequest {
-            username: "new".into(),
+            username: Some("new".into()),
             password: password!("hello4World"),
             email: "new@example.com".into(),
         };
@@ -125,7 +125,7 @@ mod tests {
         context.create_whoami_user().await;
 
         let request = SignupRequest {
-            username: context.whoami(),
+            username: Some(context.whoami()),
             password: password!("hello0World"),
             email: "other@example.com".into(),
         };
@@ -142,7 +142,7 @@ mod tests {
         let context = TestContextBuilder::new().with_whoami("not valid").build().await;
 
         let request = SignupRequest {
-            username: Username::new_invalid("not valid"),
+            username: Some(Username::new_invalid("not valid")),
             password: password!("hello"),
             email: "some@example.com".into(),
         };
@@ -159,7 +159,7 @@ mod tests {
         let context = TestContextBuilder::new().with_whoami("not valid").build().await;
 
         let request = SignupRequest {
-            username: "valid".into(),
+            username: Some("valid".into()),
             password: password!("hello"),
             email: EmailAddress::new_invalid("some.example.com"),
         };

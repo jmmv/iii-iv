@@ -82,7 +82,13 @@ mod tests {
             .expect_empty()
             .await;
 
-        do_test_login(context.app(), "/api/test", &user.username, &password!("new1password")).await;
+        do_test_login(
+            context.app(),
+            "/api/test",
+            user.username.as_ref().unwrap(),
+            &password!("new1password"),
+        )
+        .await;
     }
 
     #[tokio::test]

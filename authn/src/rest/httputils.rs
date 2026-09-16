@@ -25,7 +25,6 @@ use base64::Engine;
 use base64::engine::general_purpose;
 use http::header::{self, HeaderMap};
 use http::{HeaderValue, StatusCode};
-use iii_iv_core::model::Username;
 use iii_iv_core::rest::{RestError, RestResult, get_unique_header};
 use json_value_merge::Merge;
 use serde::Serialize;
@@ -180,10 +179,13 @@ fn get_authorization_header<'a>(
 }
 
 /// Assumes that the `headers` contain basic authentication credentials and extracts them.
+///
+/// The first tuple element is the unparsed login identifier.  Callers must interpret it as a
+/// username or email address according to their authentication configuration.
 pub fn get_basic_auth(
     headers: &HeaderMap,
     exp_realm: &'static str,
-) -> RestResult<(Username, Password)> {
+) -> RestResult<(String, Password)> {
     let base64_payload = get_authorization_header(headers, "Basic", exp_realm)?;
 
     let payload = match general_purpose::STANDARD.decode(base64_payload) {
@@ -210,7 +212,7 @@ pub fn get_basic_auth(
         }
     };
 
-    let split = match payload.chars().position(|x| x == ':') {
+    let split = match payload.find(':') {
         Some(index) => index,
         None => {
             return Err(RestError::Unauthorized {
@@ -224,7 +226,7 @@ pub fn get_basic_auth(
     let (username, password) = payload.split_at(split);
     let password = &password[1..];
 
-    Ok((Username::new(username)?, Password::new(password)?))
+    Ok((username.to_owned(), Password::new(password)?))
 }
 
 /// Checks if the request has an authorization header.
@@ -262,7 +264,6 @@ mod tests {
     use crate::model::password;
     use axum::body::{self, Body};
     use http::{HeaderValue, Request};
-    use iii_iv_core::model::username;
     use serde::Deserialize;
 
     #[derive(Serialize)]
@@ -375,7 +376,7 @@ mod tests {
             format!("Basic {}", general_purpose::STANDARD.encode("hello:bye")).parse().unwrap(),
         );
         assert_eq!(
-            (username!("hello"), password!("bye")),
+            ("hello".to_owned(), password!("bye")),
             get_basic_auth(&headers, "the-realm").unwrap()
         );
     }

@@ -170,6 +170,9 @@ pub struct AuthnDriver<H: AuthnHooks> {
     /// Authentication realm to return to requests.
     realm: &'static str,
 
+    /// Whether accounts have usernames and use them to log in.
+    usernames: bool,
+
     /// Options for the authentication driver.
     opts: AuthnOptions,
 
@@ -189,6 +192,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         queue_client: Client<T>,
         wrap_task: F,
         realm: &'static str,
+        usernames: bool,
         opts: AuthnOptions,
         hooks: H,
     ) -> Self
@@ -198,7 +202,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
     {
         let task_enqueuer =
             Arc::from(QueueAuthnTaskEnqueuer { client: queue_client, wrap: wrap_task });
-        Self::new_with_task_enqueuer(db, clock, task_enqueuer, realm, opts, hooks)
+        Self::new_with_task_enqueuer(db, clock, task_enqueuer, realm, usernames, opts, hooks)
     }
 
     /// Creates a new driver with a prebuilt task enqueuer.
@@ -207,6 +211,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         clock: Arc<dyn Clock + Send + Sync>,
         task_enqueuer: Arc<dyn AuthnTaskEnqueuer>,
         realm: &'static str,
+        usernames: bool,
         opts: AuthnOptions,
         hooks: H,
     ) -> Self {
@@ -216,7 +221,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         );
         let sessions_cache = Arc::from(Mutex::from(sessions_cache));
 
-        Self { db, clock, task_enqueuer, realm, opts, sessions_cache, hooks }
+        Self { db, clock, task_enqueuer, realm, usernames, opts, sessions_cache, hooks }
     }
 
     /// Returns a reference to the authentication options provided at creation time.
@@ -252,7 +257,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
             Err(e) => return Err(e.into()),
         };
 
-        let whoami = db::get_user_by_username(tx.ex(), session.username.clone()).await?;
+        let whoami = db::get_user_by_id(tx.ex(), session.user_id).await?;
 
         let login_time = session.login_time;
         let expired = login_time < (now - self.opts.session_max_age);
@@ -461,7 +466,7 @@ mod tests {
         assert_eq!(last_login1, user.last_login.unwrap());
 
         // Modify the cached user's last login to an arbitrary value.
-        update_user(tx.ex(), username!("user"), last_login2).await.unwrap();
+        update_user(tx.ex(), user.id, last_login2).await.unwrap();
 
         // Re-fetch the user session, which should come from the cache and not see the updated
         // database value.

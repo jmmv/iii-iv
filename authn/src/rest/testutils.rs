@@ -65,14 +65,10 @@ pub async fn create_test_user(
 ) -> User {
     let password = password.validate_and_hash(|_| None).unwrap();
 
-    let user = User::new(username, email)
-        .with_password(password)
-        .with_last_login(OffsetDateTime::from_unix_timestamp(100100).unwrap());
-    db::create_user(ex, user.username.clone(), user.password.clone(), user.email.clone())
-        .await
-        .unwrap();
-    db::update_user(ex, user.username.clone(), user.last_login.unwrap()).await.unwrap();
-    user
+    let user = db::create_user(ex, Some(username), Some(password), email).await.unwrap();
+    let last_login = OffsetDateTime::from_unix_timestamp(100100).unwrap();
+    db::update_user(ex, user.id, last_login).await.unwrap();
+    user.with_last_login(last_login)
 }
 
 /// Logs the `username` in with `password` and returns the access token for the session.
@@ -149,6 +145,19 @@ impl TestContext {
         }
     }
 
+    /// Returns the stable ID for the user named `username`.
+    pub(crate) async fn user_id(&mut self, username: &Username) -> uuid::Uuid {
+        db::get_user_by_username(&mut self.db.ex().await.unwrap(), username.clone())
+            .await
+            .unwrap()
+            .id
+    }
+
+    /// Returns the stable ID for the user with `email`.
+    pub(crate) async fn user_id_by_email(&mut self, email: &EmailAddress) -> uuid::Uuid {
+        db::get_user_by_email(&mut self.db.ex().await.unwrap(), email.clone()).await.unwrap().id
+    }
+
     /// Checks if the user with `username` exists and is active by directly querying the backing
     /// database.
     pub(crate) async fn user_is_active(&mut self, username: &Username) -> bool {
@@ -189,12 +198,11 @@ impl TestContext {
         &self.whoami_password
     }
 
-    /// Gets the latest activation code sent to `email` which, if any, should be for the username
-    /// given in `exp_username`.
+    /// Gets the latest activation code sent to `email` for `exp_user_id`, if any.
     pub(crate) async fn get_latest_activation_code(
         &self,
         email: &EmailAddress,
-        exp_username: &Username,
+        exp_user_id: Option<uuid::Uuid>,
     ) -> Option<u64> {
         let tasks = iii_iv_queue::db::get_runnable_tasks::<AuthnTask>(
             &mut self.db.ex().await.unwrap(),
@@ -207,7 +215,7 @@ impl TestContext {
         for task in tasks {
             assert!(self.task_runner.run(task.into_json_task().unwrap()).await.is_ok());
         }
-        get_latest_activation_code(&self.mailer, email, exp_username).await
+        get_latest_activation_code(&self.mailer, email, exp_user_id).await
     }
 }
 
@@ -217,6 +225,7 @@ impl TestContext {
 pub(crate) struct TestContextBuilder {
     whoami: String,
     activation_success: ActivationSuccess,
+    usernames: bool,
     opts: AuthnOptions,
 }
 
@@ -227,6 +236,7 @@ impl TestContextBuilder {
         Self {
             whoami: "whoami".to_owned(),
             activation_success: ActivationSuccess::DefaultHtml,
+            usernames: true,
             opts: AuthnOptions::default(),
         }
     }
@@ -246,6 +256,12 @@ impl TestContextBuilder {
     /// Overrides the default authentication options.
     pub(crate) fn with_opts(mut self, opts: AuthnOptions) -> Self {
         self.opts = opts;
+        self
+    }
+
+    /// Configures whether the service uses usernames.
+    pub(crate) fn with_usernames(mut self, usernames: bool) -> Self {
+        self.usernames = usernames;
         self
     }
 
@@ -271,6 +287,7 @@ impl TestContextBuilder {
             Client::<AuthnTask>::new(clock.clone()),
             |task| task,
             "the-realm",
+            self.usernames,
             self.opts,
             hooks,
         );
@@ -316,7 +333,10 @@ impl AuthnHooks for AuthnTestHooks {
         user: &User,
     ) -> DriverResult<Self::LoginOutput> {
         Ok(LoginTestOutput {
-            welcome_message: format!("Welcome to the test service, {}", user.username.as_str()),
+            welcome_message: format!(
+                "Welcome to the test service, {}",
+                user.username.as_ref().map(Username::as_str).unwrap_or(user.email.as_str())
+            ),
         })
     }
 
@@ -330,12 +350,12 @@ impl AuthnHooks for AuthnTestHooks {
         input: Self::SignupInput,
     ) -> DriverResult<()> {
         if input.create_shadow_user {
-            let shadow_username =
-                Username::new(format!("{}-shadow", user.username.as_str())).unwrap();
+            let username = user.username.as_ref().expect("Test hook requires usernames");
+            let shadow_username = Username::new(format!("{}-shadow", username.as_str())).unwrap();
             let email =
                 EmailAddress::new(format!("{}-shadow@example.com", shadow_username.as_str()))
                     .unwrap();
-            db::create_user(tx.ex(), shadow_username, None, email).await.unwrap();
+            db::create_user(tx.ex(), Some(shadow_username), None, email).await.unwrap();
         }
         Ok(())
     }
