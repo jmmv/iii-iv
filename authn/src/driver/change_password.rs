@@ -21,7 +21,6 @@ use crate::driver::{AuthnDriver, AuthnHooks};
 use crate::model::{AccessToken, Password};
 use iii_iv_core::db::DbError;
 use iii_iv_core::driver::{DriverError, DriverResult};
-use iii_iv_core::model::Username;
 
 impl<H: AuthnHooks> AuthnDriver<H> {
     /// Changes the password for a user after verifying the old password.
@@ -30,7 +29,6 @@ impl<H: AuthnHooks> AuthnDriver<H> {
     pub(crate) async fn change_password(
         self,
         token: AccessToken,
-        username: Username,
         old_password: Password,
         new_password: Password,
     ) -> DriverResult<()> {
@@ -45,9 +43,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
             Err(e) => return Err(e.into()),
         };
 
-        if session.username != username {
-            return Err(DriverError::NotFound("Entity not found".to_owned()));
-        }
+        let username = session.username;
 
         let user = match db::get_user_by_username(tx.ex(), username.clone()).await {
             Ok(user) => user,
@@ -117,33 +113,11 @@ mod tests {
 
         context
             .driver()
-            .change_password(token, username.clone(), old_password.clone(), new_password.clone())
+            .change_password(token, old_password.clone(), new_password.clone())
             .await
             .unwrap();
 
         context.driver().login(username.clone(), new_password).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_change_password_user_not_found() {
-        let context = TestContext::setup(AuthnOptions::default()).await;
-        let username = username!("test");
-
-        let token = context.do_test_login(username.clone()).await;
-
-        match context
-            .driver()
-            .change_password(
-                token,
-                username!("nonexistent"),
-                password!("old0password"),
-                password!("new1password"),
-            )
-            .await
-        {
-            Err(DriverError::NotFound(msg)) => assert!(msg.contains("Entity not found")),
-            e => panic!("{:?}", e),
-        }
     }
 
     #[tokio::test]
@@ -155,12 +129,7 @@ mod tests {
 
         match context
             .driver()
-            .change_password(
-                token,
-                username.clone(),
-                password!("wrong0password"),
-                password!("new1password"),
-            )
+            .change_password(token, password!("wrong0password"), password!("new1password"))
             .await
         {
             Err(DriverError::InvalidInput(msg)) => assert!(msg.contains("Invalid password")),
@@ -195,7 +164,7 @@ mod tests {
 
         match context
             .driver()
-            .change_password(token, username.clone(), password.clone(), password!("new1password"))
+            .change_password(token, password.clone(), password!("new1password"))
             .await
         {
             Err(DriverError::NotActivated) => (),
@@ -221,7 +190,6 @@ mod tests {
                 .driver()
                 .change_password(
                     token.clone(),
-                    username.clone(),
                     old_password.clone(),
                     Password::new(new_password_str).unwrap(),
                 )
@@ -248,12 +216,7 @@ mod tests {
 
         context
             .driver()
-            .change_password(
-                token.clone(),
-                username.clone(),
-                old_password.clone(),
-                new_password.clone(),
-            )
+            .change_password(token.clone(), old_password.clone(), new_password.clone())
             .await
             .unwrap();
 
@@ -272,23 +235,13 @@ mod tests {
 
         context
             .driver()
-            .change_password(
-                token.clone(),
-                username.clone(),
-                password!("test0password"),
-                password!("new1password"),
-            )
+            .change_password(token.clone(), password!("test0password"), password!("new1password"))
             .await
             .unwrap();
 
         match context
             .driver()
-            .change_password(
-                token,
-                username.clone(),
-                password!("test0password"),
-                password!("another1password"),
-            )
+            .change_password(token, password!("test0password"), password!("another1password"))
             .await
         {
             Err(DriverError::NotFound(msg)) => {

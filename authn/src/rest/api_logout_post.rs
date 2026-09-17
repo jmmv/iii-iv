@@ -17,20 +17,18 @@
 
 use crate::driver::{AuthnDriver, AuthnHooks};
 use crate::rest::get_bearer_auth;
-use axum::extract::{Path, State};
+use axum::extract::State;
 use axum::http::HeaderMap;
-use iii_iv_core::model::Username;
 use iii_iv_core::rest::{EmptyBody, RestError};
 
 /// POST handler for this API.
 pub(crate) async fn handler<H: AuthnHooks>(
     State(driver): State<AuthnDriver<H>>,
-    Path(user): Path<Username>,
     headers: HeaderMap,
     _: EmptyBody,
 ) -> Result<(), RestError> {
     let access_token = get_bearer_auth(&headers, driver.realm())?;
-    driver.logout(access_token, user).await?;
+    driver.logout(access_token).await?;
 
     Ok(())
 }
@@ -43,20 +41,20 @@ mod tests {
     use iii_iv_core::rest::testutils::OneShotBuilder;
     use iii_iv_core::test_payload_must_be_empty;
 
-    fn route(username: &str) -> (http::Method, String) {
-        (http::Method::POST, format!("/api/test/users/{}/logout", username))
+    fn route() -> (http::Method, &'static str) {
+        (http::Method::POST, "/api/test/logout")
     }
 
     #[tokio::test]
     async fn test_ok() {
         let mut context = TestContextBuilder::new().build().await;
 
-        let user = context.create_whoami_user().await;
+        context.create_whoami_user().await;
         let token = context.access_token().await;
 
         assert!(context.session_exists(&token).await);
 
-        OneShotBuilder::new(context.app(), route(user.username.as_str()))
+        OneShotBuilder::new(context.app(), route())
             .with_bearer_auth(token.as_str())
             .send_empty()
             .await
@@ -70,10 +68,10 @@ mod tests {
     async fn test_not_found() {
         let mut context = TestContextBuilder::new().build().await;
 
-        let user = context.create_whoami_user().await;
+        context.create_whoami_user().await;
         let token = AccessToken::generate();
 
-        OneShotBuilder::new(context.app(), route(user.username.as_str()))
+        OneShotBuilder::new(context.app(), route())
             .with_bearer_auth(token.as_str())
             .send_empty()
             .await
@@ -84,20 +82,5 @@ mod tests {
         assert!(!context.session_exists(&token).await);
     }
 
-    #[tokio::test]
-    async fn test_bad_username() {
-        let context = TestContextBuilder::new().build().await;
-
-        OneShotBuilder::new(context.app(), route("not%20valid"))
-            .send_empty()
-            .await
-            .expect_status(http::StatusCode::BAD_REQUEST)
-            .expect_text("Unsupported character")
-            .await;
-    }
-
-    test_payload_must_be_empty!(
-        TestContextBuilder::new().build().await.into_app(),
-        route("irrelevant")
-    );
+    test_payload_must_be_empty!(TestContextBuilder::new().build().await.into_app(), route());
 }

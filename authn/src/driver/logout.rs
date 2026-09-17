@@ -18,19 +18,15 @@
 use crate::db;
 use crate::driver::{AuthnDriver, AuthnHooks};
 use crate::model::AccessToken;
-use iii_iv_core::driver::{DriverError, DriverResult};
-use iii_iv_core::model::Username;
+use iii_iv_core::driver::DriverResult;
 
 impl<H: AuthnHooks> AuthnDriver<H> {
     /// Marks a session as deleted.
-    pub(crate) async fn logout(self, token: AccessToken, username: Username) -> DriverResult<()> {
+    pub(crate) async fn logout(self, token: AccessToken) -> DriverResult<()> {
         let mut tx = self.db.begin().await?;
         let now = self.clock.now_utc();
 
         let session = db::get_session(tx.ex(), &token).await?;
-        if session.username != username {
-            return Err(DriverError::NotFound("Entity not found".to_owned()));
-        }
         db::delete_session(tx.ex(), session, now).await?;
 
         tx.commit().await?;
@@ -63,7 +59,7 @@ mod tests {
         let username = username!("test");
 
         let token = context.do_test_login(username.clone()).await;
-        context.driver().logout(token.clone(), username).await.unwrap();
+        context.driver().logout(token.clone()).await.unwrap();
 
         match db::get_session(&mut context.ex().await, &token).await {
             Err(DbError::NotFound) => (),
@@ -79,25 +75,10 @@ mod tests {
 
         let token1 = context.do_test_login(username1.clone()).await;
         let token2 = context.do_test_login(username!("test2")).await;
-        context.driver().logout(token1.clone(), username1).await.unwrap();
+        context.driver().logout(token1.clone()).await.unwrap();
 
         db::get_session(&mut context.ex().await, &token1).await.unwrap_err();
         db::get_session(&mut context.ex().await, &token2).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_invalid_user_error() {
-        let context = TestContext::setup(AuthnOptions::default()).await;
-
-        let username1 = username!("test1");
-        let username2 = username!("test2");
-
-        let token1 = context.do_test_login(username1.clone()).await;
-        let err1 = context.driver().logout(token1.clone(), username2).await.unwrap_err();
-        context.driver().logout(token1.clone(), username1.clone()).await.unwrap();
-        let err2 = context.driver().logout(token1.clone(), username1).await.unwrap_err();
-
-        assert_eq!(err1, err2);
     }
 
     #[tokio::test]
@@ -125,7 +106,7 @@ mod tests {
         tx.commit().await.unwrap();
         assert_eq!(1, context.driver().sessions_cache.lock().await.len());
 
-        context.driver().logout(token.clone(), username).await.unwrap();
+        context.driver().logout(token.clone()).await.unwrap();
         assert_eq!(0, context.driver().sessions_cache.lock().await.len());
     }
 }

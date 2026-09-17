@@ -19,9 +19,8 @@ use crate::driver::{AuthnDriver, AuthnHooks};
 use crate::model::Password;
 use crate::rest::get_bearer_auth;
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::State;
 use axum::http::HeaderMap;
-use iii_iv_core::model::Username;
 use iii_iv_core::rest::RestError;
 use serde::{Deserialize, Serialize};
 
@@ -35,10 +34,9 @@ pub struct ChangePasswordRequest {
     pub new_password: Password,
 }
 
-/// PUT /users/{user}/password handler.
+/// PUT /password handler.
 pub(crate) async fn handler<H: AuthnHooks>(
     State(driver): State<AuthnDriver<H>>,
-    Path(username): Path<Username>,
     headers: HeaderMap,
     Json(request): Json<ChangePasswordRequest>,
 ) -> Result<(), RestError> {
@@ -46,7 +44,7 @@ pub(crate) async fn handler<H: AuthnHooks>(
 
     driver
         .clone()
-        .change_password(access_token, username, request.old_password, request.new_password)
+        .change_password(access_token, request.old_password, request.new_password)
         .await?;
 
     Ok(())
@@ -61,8 +59,8 @@ mod tests {
     use axum::http;
     use iii_iv_core::rest::testutils::OneShotBuilder;
 
-    fn route(username: &str) -> (http::Method, String) {
-        (http::Method::PUT, format!("/api/test/users/{}/password", username))
+    fn route() -> (http::Method, &'static str) {
+        (http::Method::PUT, "/api/test/password")
     }
 
     #[tokio::test]
@@ -77,7 +75,7 @@ mod tests {
 
         let request = ChangePasswordRequest { old_password: old_password.clone(), new_password };
 
-        OneShotBuilder::new(context.app(), route(user.username.as_str()))
+        OneShotBuilder::new(context.app(), route())
             .with_bearer_auth(token.as_str())
             .send_json(&request)
             .await
@@ -91,7 +89,7 @@ mod tests {
     async fn test_wrong_old_password() {
         let mut context = TestContextBuilder::new().build().await;
 
-        let user = context.create_whoami_user().await;
+        context.create_whoami_user().await;
         let token = context.access_token().await;
 
         let new_password = password!("new1password");
@@ -99,7 +97,7 @@ mod tests {
         let request =
             ChangePasswordRequest { old_password: password!("wrong0password"), new_password };
 
-        OneShotBuilder::new(context.app(), route(user.username.as_str()))
+        OneShotBuilder::new(context.app(), route())
             .with_bearer_auth(token.as_str())
             .send_json(&request)
             .await
@@ -119,28 +117,7 @@ mod tests {
             new_password: password!("new1password"),
         };
 
-        OneShotBuilder::new(context.app(), route("whoami"))
-            .with_bearer_auth(token.as_str())
-            .send_json(&request)
-            .await
-            .expect_status(http::StatusCode::NOT_FOUND)
-            .expect_error("Entity not found")
-            .await;
-    }
-
-    #[tokio::test]
-    async fn test_username_mismatch() {
-        let mut context = TestContextBuilder::new().build().await;
-
-        context.create_whoami_user().await;
-        let token = context.access_token().await;
-
-        let request = ChangePasswordRequest {
-            old_password: password!("test0password"),
-            new_password: password!("new1password"),
-        };
-
-        OneShotBuilder::new(context.app(), route("other"))
+        OneShotBuilder::new(context.app(), route())
             .with_bearer_auth(token.as_str())
             .send_json(&request)
             .await

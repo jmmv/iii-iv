@@ -45,8 +45,8 @@ pub fn app<H: AuthnHooks>(driver: AuthnDriver<H>, activation_success: Activation
 
     Router::new()
         .route("/login", post(api_login_post::handler))
-        .route("/users/{user}/logout", post(api_logout_post::handler))
-        .route("/users/{user}/password", put(api_change_password_put::handler))
+        .route("/logout", post(api_logout_post::handler))
+        .route("/password", put(api_change_password_put::handler))
         .route("/signup", post(api_signup_post::handler))
         .with_state(driver)
         .merge(activate_router)
@@ -144,7 +144,7 @@ mod tests {
 
         assert_ne!(access_token1, access_token2);
 
-        OneShotBuilder::new(context.app(), (Method::POST, "/api/test/users/the-user/logout"))
+        OneShotBuilder::new(context.app(), (Method::POST, "/api/test/logout"))
             .with_bearer_auth(access_token1.as_str())
             .send_empty()
             .await
