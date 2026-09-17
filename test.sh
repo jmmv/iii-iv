@@ -74,8 +74,8 @@ The -a flag specifies extra arguments to the test programs.  This flag can be
 used multiple times and the values all accumulate.
 
 The -f flag specifies the individual features to test.  This flag can be used
-multiple times and the valus all accumulate.  If not specified, all known
-features are tested individually.
+multiple times and the values all accumulate.  If not specified, only default
+features are tested.
 EOF
 }
 
@@ -113,7 +113,7 @@ main() {
     done
     shift $((OPTIND - 1))
 
-    [ -n "${features}" ] || features="default postgres sqlite testutils"
+    [ -n "${features}" ] || features=default
 
     [ -e ./.github ] || err "Must be run from the root of the workspace"
 
