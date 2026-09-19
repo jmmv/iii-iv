@@ -16,7 +16,7 @@
 //! API to create a new user account.
 
 use crate::driver::{AuthnDriver, AuthnHooks};
-use crate::model::Password;
+use crate::model::{CouponName, Password};
 use crate::rest::httputils::JsonMultipart;
 use axum::extract::State;
 use iii_iv_core::model::{EmailAddress, Username};
@@ -35,6 +35,9 @@ pub struct SignupRequest {
     /// Email address for the user, needed to validate their account signup process and to contact
     /// the user for service changes.
     pub email: EmailAddress,
+
+    /// Coupon that authorizes and is attributed to this signup, if any.
+    pub coupon: Option<CouponName>,
 }
 
 /// POST handler for this API.
@@ -42,19 +45,22 @@ pub(crate) async fn handler<H: AuthnHooks>(
     State(driver): State<AuthnDriver<H>>,
     JsonMultipart(request, extensions): JsonMultipart<SignupRequest, H::SignupInput>,
 ) -> Result<(), RestError> {
-    driver.signup(request.username, request.password, request.email, extensions).await?;
+    driver
+        .signup(request.username, request.password, request.email, request.coupon, extensions)
+        .await?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::password;
+    use crate::model::{Coupon, coupon_name, password};
     use crate::rest::testutils::*;
     use axum::http;
     use iii_iv_core::model::username;
     use iii_iv_core::{rest::testutils::OneShotBuilder, test_payload_must_be_json};
     use std::collections::HashMap;
+    use time::macros::datetime;
 
     fn route() -> (http::Method, String) {
         (http::Method::POST, "/api/test/signup".to_owned())
@@ -68,6 +74,7 @@ mod tests {
             username: Some("new".into()),
             password: password!("hello4World"),
             email: "new@example.com".into(),
+            coupon: None,
         };
         OneShotBuilder::new(context.app(), route()).send_json(request).await.expect_empty().await;
 
@@ -84,6 +91,7 @@ mod tests {
             username: Some("new".into()),
             password: password!("hello4World"),
             email: "new@example.com".into(),
+            coupon: None,
         };
         OneShotBuilder::new(context.into_app(), route())
             .send_json(request)
@@ -91,6 +99,31 @@ mod tests {
             .expect_status(http::StatusCode::BAD_REQUEST)
             .expect_error("Signups are not open at this moment")
             .await;
+    }
+
+    #[tokio::test]
+    async fn test_signups_closed_with_coupon() {
+        let opts = crate::driver::AuthnOptions { open_signups: false, ..Default::default() };
+        let mut context = TestContextBuilder::new().with_opts(opts).build().await;
+        let coupon = Coupon::new(
+            coupon_name!("BETA100"),
+            datetime!(2023-12-01 0:00 UTC),
+            datetime!(2023-12-02 0:00 UTC),
+            1,
+        )
+        .unwrap();
+        context.create_coupon(&coupon).await;
+
+        let request = SignupRequest {
+            username: Some("new".into()),
+            password: password!("hello4World"),
+            email: "new@example.com".into(),
+            coupon: Some(CouponName::new("beta100").unwrap()),
+        };
+        OneShotBuilder::new(context.app(), route()).send_json(request).await.expect_empty().await;
+
+        assert_eq!(Some(coupon.name.clone()), context.user_coupon(&username!("new")).await);
+        assert_eq!(1, context.coupon_usages(&coupon.name).await);
     }
 
     #[tokio::test]
@@ -102,6 +135,7 @@ mod tests {
             username: Some("new".into()),
             password: password!("hello4World"),
             email: "new@example.com".into(),
+            coupon: None,
         };
         let extensions = SignupTestInput::default();
         OneShotBuilder::new(context.app(), route())
@@ -123,6 +157,7 @@ mod tests {
             username: Some("new".into()),
             password: password!("hello4World"),
             email: "new@example.com".into(),
+            coupon: None,
         };
         let extensions = SignupTestInput { create_shadow_user: true };
         OneShotBuilder::new(context.app(), route())
@@ -146,6 +181,7 @@ mod tests {
             username: Some(context.whoami()),
             password: password!("hello0World"),
             email: "other@example.com".into(),
+            coupon: None,
         };
         OneShotBuilder::new(context.into_app(), route())
             .send_json(request)
@@ -163,6 +199,7 @@ mod tests {
             username: Some(Username::new_invalid("not valid")),
             password: password!("hello"),
             email: "some@example.com".into(),
+            coupon: None,
         };
         OneShotBuilder::new(context.into_app(), route())
             .send_json(request)
@@ -180,6 +217,7 @@ mod tests {
             username: Some("valid".into()),
             password: password!("hello"),
             email: EmailAddress::new_invalid("some.example.com"),
+            coupon: None,
         };
         OneShotBuilder::new(context.into_app(), route())
             .send_json(request)

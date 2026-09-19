@@ -76,6 +76,7 @@ mod tests {
             username: Some("the-user".into()),
             password: password!("The1234Password"),
             email: "new@example.com".into(),
+            coupon: None,
         };
         OneShotBuilder::new(context.app(), (Method::POST, "/api/test/signup"))
             .send_json(request)
@@ -166,6 +167,7 @@ mod tests {
             username: None,
             password: password!("The1234Password"),
             email: email.clone(),
+            coupon: None,
         };
         OneShotBuilder::new(context.app(), (Method::POST, "/api/test/signup"))
             .send_json(request)

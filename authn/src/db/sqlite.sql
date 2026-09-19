@@ -15,11 +15,29 @@
 
 PRAGMA foreign_keys = ON;
 
+CREATE TABLE IF NOT EXISTS coupons (
+    name TEXT PRIMARY KEY NOT NULL,
+    valid_from_secs INTEGER NOT NULL,
+    valid_from_nsecs INTEGER NOT NULL,
+    valid_until_secs INTEGER NOT NULL,
+    valid_until_nsecs INTEGER NOT NULL,
+    max_usages INTEGER NOT NULL,
+    usages INTEGER NOT NULL DEFAULT 0,
+    CHECK (length(name) BETWEEN 1 AND 16),
+    CHECK (name NOT GLOB '*[^A-Z0-9_-]*'),
+    CHECK (valid_from_secs < valid_until_secs
+           OR (valid_from_secs = valid_until_secs
+               AND valid_from_nsecs < valid_until_nsecs)),
+    CHECK (max_usages BETWEEN 0 AND 4294967295),
+    CHECK (usages BETWEEN 0 AND max_usages)
+);
+
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY NOT NULL,
     username TEXT UNIQUE,
     password TEXT,
     email TEXT UNIQUE NOT NULL,
+    coupon TEXT REFERENCES coupons (name),
     activation_code INTEGER,
     last_login_secs INTEGER,
     last_login_nsecs INTEGER,

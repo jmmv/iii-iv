@@ -17,7 +17,7 @@
 
 use crate::db;
 use crate::driver::{AuthnDriver, AuthnHooks};
-use crate::model::{AuthnTask, Password};
+use crate::model::{AuthnTask, CouponName, Password};
 use iii_iv_core::db::DbError;
 use iii_iv_core::driver::{DriverError, DriverResult};
 use iii_iv_core::model::{EmailAddress, Username};
@@ -54,9 +54,10 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         username: Option<Username>,
         password: Password,
         email: EmailAddress,
+        coupon: Option<CouponName>,
         input: H::SignupInput,
     ) -> DriverResult<()> {
-        if !self.opts.open_signups {
+        if !self.opts.open_signups && coupon.is_none() {
             return Err(DriverError::InvalidInput(
                 "Signups are not open at this moment".to_owned(),
             ));
@@ -64,6 +65,27 @@ impl<H: AuthnHooks> AuthnDriver<H> {
 
         let mut tx = self.db.begin().await?;
         let now = self.clock.now_utc();
+
+        if let Some(coupon) = coupon.as_ref() {
+            let details = match db::get_coupon(tx.ex(), coupon).await {
+                Ok(details) => details,
+                Err(DbError::NotFound) => {
+                    return Err(DriverError::InvalidInput("Invalid coupon".to_owned()));
+                }
+                Err(error) => return Err(error.into()),
+            };
+            if !details.is_valid(now) {
+                return Err(DriverError::InvalidInput("Invalid coupon".to_owned()));
+            }
+            if let Err(error) = db::redeem_coupon(tx.ex(), coupon).await {
+                return match error {
+                    DbError::NotFound => {
+                        Err(DriverError::InvalidInput("Invalid coupon".to_owned()))
+                    }
+                    error => Err(error.into()),
+                };
+            }
+        }
 
         match (self.usernames, username.as_ref()) {
             (true, None) => {
@@ -77,7 +99,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
 
         let password = password.validate_and_hash(password_validator)?;
 
-        let user = match db::create_user(tx.ex(), username, Some(password), email).await {
+        let user = match db::create_user(tx.ex(), username, Some(password), email, coupon).await {
             Ok(user) => user,
             Err(DbError::AlreadyExists) => {
                 return Err(DriverError::AlreadyExists(
@@ -106,7 +128,7 @@ mod tests {
     use super::*;
     use crate::driver::testutils::*;
     use crate::driver::{AuthnOptions, NO_EXTENSIONS};
-    use crate::model::password;
+    use crate::model::{Coupon, coupon_name, password};
     use iii_iv_core::clocks::testutils::SettableClock;
     use iii_iv_core::db::DbError;
     use iii_iv_core::driver::DriverError;
@@ -129,7 +151,7 @@ mod tests {
 
         context
             .driver()
-            .signup(Some(username.clone()), password, email, NO_EXTENSIONS)
+            .signup(Some(username.clone()), password, email, None, NO_EXTENSIONS)
             .await
             .unwrap();
 
@@ -157,6 +179,7 @@ mod tests {
                     Some(username.clone()),
                     password!("sufficiently0complex"),
                     email.clone(),
+                    None,
                     NO_EXTENSIONS,
                 )
                 .await
@@ -170,13 +193,153 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_signup_closed_with_coupon() {
+        let opts = AuthnOptions { open_signups: false, ..Default::default() };
+        let context = TestContext::setup(opts).await;
+        let coupon =
+            Coupon::new(coupon_name!("BETA100"), context.now_delta(-1), context.now_delta(1), 1)
+                .unwrap();
+        db::create_coupon(&mut context.ex().await, &coupon).await.unwrap();
+
+        let username = username!("hello");
+        context
+            .driver()
+            .signup(
+                Some(username.clone()),
+                password!("sufficiently0complex"),
+                email_address!("foo@example.com"),
+                Some(coupon.name.clone()),
+                NO_EXTENSIONS,
+            )
+            .await
+            .unwrap();
+
+        let user = db::get_user_by_username(&mut context.ex().await, username).await.unwrap();
+        assert_eq!(Some(&coupon.name), user.coupon.as_ref());
+        assert_eq!(1, db::get_coupon(&mut context.ex().await, &coupon.name).await.unwrap().usages);
+
+        assert_eq!(
+            Err(DriverError::InvalidInput("Invalid coupon".to_owned())),
+            context
+                .driver()
+                .signup(
+                    Some(username!("other")),
+                    password!("sufficiently0complex"),
+                    email_address!("other@example.com"),
+                    Some(coupon.name.clone()),
+                    NO_EXTENSIONS,
+                )
+                .await
+        );
+    }
+
+    #[tokio::test]
+    async fn test_signup_invalid_coupon() {
+        let context = TestContext::setup(AuthnOptions::default()).await;
+
+        assert_eq!(
+            Err(DriverError::InvalidInput("Invalid coupon".to_owned())),
+            context
+                .driver()
+                .signup(
+                    Some(username!("hello")),
+                    password!("sufficiently0complex"),
+                    email_address!("foo@example.com"),
+                    Some(coupon_name!("UNKNOWN")),
+                    NO_EXTENSIONS,
+                )
+                .await
+        );
+    }
+
+    #[tokio::test]
+    async fn test_signup_coupon_validity_window() {
+        let context = TestContext::setup(AuthnOptions::default()).await;
+
+        for coupon in [
+            Coupon::new(coupon_name!("NOT-YET"), context.now_delta(1), context.now_delta(2), 1)
+                .unwrap(),
+            Coupon::new(coupon_name!("ENDED"), context.now_delta(-1), context.now_delta(0), 1)
+                .unwrap(),
+        ] {
+            db::create_coupon(&mut context.ex().await, &coupon).await.unwrap();
+            assert_eq!(
+                Err(DriverError::InvalidInput("Invalid coupon".to_owned())),
+                context
+                    .driver()
+                    .signup(
+                        Some(username!("hello")),
+                        password!("sufficiently0complex"),
+                        email_address!("foo@example.com"),
+                        Some(coupon.name.clone()),
+                        NO_EXTENSIONS,
+                    )
+                    .await
+            );
+            assert_eq!(
+                0,
+                db::get_coupon(&mut context.ex().await, &coupon.name).await.unwrap().usages
+            );
+        }
+
+        let coupon =
+            Coupon::new(coupon_name!("STARTS-NOW"), context.now_delta(0), context.now_delta(1), 1)
+                .unwrap();
+        db::create_coupon(&mut context.ex().await, &coupon).await.unwrap();
+        context
+            .driver()
+            .signup(
+                Some(username!("hello")),
+                password!("sufficiently0complex"),
+                email_address!("foo@example.com"),
+                Some(coupon.name),
+                NO_EXTENSIONS,
+            )
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_signup_failure_restores_coupon_usage() {
+        let context = TestContext::setup(AuthnOptions::default()).await;
+        let coupon =
+            Coupon::new(coupon_name!("BETA100"), context.now_delta(-1), context.now_delta(1), 1)
+                .unwrap();
+        db::create_coupon(&mut context.ex().await, &coupon).await.unwrap();
+        db::create_user(
+            &mut context.ex().await,
+            Some(username!("hello")),
+            None,
+            email_address!("existing@example.com"),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            context
+                .driver()
+                .signup(
+                    Some(username!("hello")),
+                    password!("sufficiently0complex"),
+                    email_address!("new@example.com"),
+                    Some(coupon.name.clone()),
+                    NO_EXTENSIONS,
+                )
+                .await
+                .is_err()
+        );
+        assert_eq!(0, db::get_coupon(&mut context.ex().await, &coupon.name).await.unwrap().usages);
+    }
+
+    #[tokio::test]
     async fn test_signup_without_username_ok() {
         let context = TestContext::setup_without_usernames(AuthnOptions::default()).await;
         let email = email_address!("foo@example.com");
 
         context
             .driver()
-            .signup(None, password!("sufficiently0complex"), email.clone(), NO_EXTENSIONS)
+            .signup(None, password!("sufficiently0complex"), email.clone(), None, NO_EXTENSIONS)
             .await
             .unwrap();
 
@@ -198,6 +361,7 @@ mod tests {
                 None,
                 password!("sufficiently0complex"),
                 email_address!("one@example.com"),
+                None,
                 NO_EXTENSIONS,
             )
             .await;
@@ -210,6 +374,7 @@ mod tests {
                 Some(username!("hello")),
                 password!("sufficiently0complex"),
                 email_address!("two@example.com"),
+                None,
                 NO_EXTENSIONS,
             )
             .await;
@@ -225,13 +390,19 @@ mod tests {
         let username = username!("hello");
         let email = email_address!("other@example.com");
 
-        db::create_user(&mut context.ex().await, Some(username.clone()), None, email.clone())
+        db::create_user(&mut context.ex().await, Some(username.clone()), None, email.clone(), None)
             .await
             .unwrap();
 
         match context
             .driver()
-            .signup(Some(username.clone()), password!("the1password"), email.clone(), NO_EXTENSIONS)
+            .signup(
+                Some(username.clone()),
+                password!("the1password"),
+                email.clone(),
+                None,
+                NO_EXTENSIONS,
+            )
             .await
         {
             Err(DriverError::AlreadyExists(msg)) => assert!(msg.contains("already registered")),
@@ -247,9 +418,15 @@ mod tests {
 
         let email = email_address!("foo@example.com");
 
-        db::create_user(&mut context.ex().await, Some(username!("some")), None, email.clone())
-            .await
-            .unwrap();
+        db::create_user(
+            &mut context.ex().await,
+            Some(username!("some")),
+            None,
+            email.clone(),
+            None,
+        )
+        .await
+        .unwrap();
 
         match context
             .driver()
@@ -257,6 +434,7 @@ mod tests {
                 Some(username!("other")),
                 password!("the1password"),
                 email.clone(),
+                None,
                 NO_EXTENSIONS,
             )
             .await
@@ -287,6 +465,7 @@ mod tests {
                     Some(username.clone()),
                     Password::new(password).unwrap(),
                     email.clone(),
+                    None,
                     NO_EXTENSIONS,
                 )
                 .await
@@ -330,6 +509,7 @@ mod tests {
                 Some(username.clone()),
                 password!("sufficiently0complex"),
                 email.clone(),
+                None,
                 NO_EXTENSIONS,
             )
             .await
@@ -344,5 +524,39 @@ mod tests {
         );
 
         assert!(context.get_latest_activation_code(&email, None).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_signup_hook_failure_restores_coupon_usage() {
+        let db = Arc::from(iii_iv_core::db::sqlite::testutils::setup().await);
+        let clock = Arc::from(SettableClock::new(datetime!(2023-12-01 05:50:00 UTC)));
+        let context = TestContext::setup_with_hooks(
+            AuthnOptions::default(),
+            db,
+            clock,
+            "the-realm",
+            true,
+            FailingSignupHook,
+        )
+        .await;
+        let coupon =
+            Coupon::new(coupon_name!("BETA100"), context.now_delta(-1), context.now_delta(1), 1)
+                .unwrap();
+        db::create_coupon(&mut context.ex().await, &coupon).await.unwrap();
+
+        assert!(
+            context
+                .driver()
+                .signup(
+                    Some(username!("hello")),
+                    password!("sufficiently0complex"),
+                    email_address!("foo@example.com"),
+                    Some(coupon.name.clone()),
+                    NO_EXTENSIONS,
+                )
+                .await
+                .is_err()
+        );
+        assert_eq!(0, db::get_coupon(&mut context.ex().await, &coupon.name).await.unwrap().usages);
     }
 }

@@ -13,6 +13,24 @@
 -- License for the specific language governing permissions and limitations
 -- under the License.
 
+CREATE TABLE IF NOT EXISTS coupons (
+    -- Canonical, user-facing coupon name.
+    name VARCHAR(16) PRIMARY KEY NOT NULL,
+
+    -- Half-open interval during which the coupon can be redeemed.
+    valid_from TIMESTAMPTZ NOT NULL,
+    valid_until TIMESTAMPTZ NOT NULL,
+
+    -- Maximum and consumed numbers of successful signups.
+    max_usages BIGINT NOT NULL,
+    usages BIGINT NOT NULL DEFAULT 0,
+
+    CHECK (name ~ '^[A-Z0-9_-]+$'),
+    CHECK (valid_from < valid_until),
+    CHECK (max_usages BETWEEN 0 AND 4294967295),
+    CHECK (usages BETWEEN 0 AND max_usages)
+);
+
 CREATE TABLE IF NOT EXISTS users (
     -- Stable internal identifier for the user.
     id UUID PRIMARY KEY NOT NULL,
@@ -27,6 +45,9 @@ CREATE TABLE IF NOT EXISTS users (
 
     -- The user's email address.
     email VARCHAR(64) UNIQUE NOT NULL,
+
+    -- Coupon used during signup, if any.
+    coupon VARCHAR(16) REFERENCES coupons (name),
 
     -- Activation code.  If present, the account has not been activated yet.
     --

@@ -136,6 +136,7 @@ impl<H: AuthnHooks> TestContext<H> {
                 Some(username.clone()),
                 password.clone(),
                 email.clone(),
+                None,
                 H::SignupInput::default(),
             )
             .await

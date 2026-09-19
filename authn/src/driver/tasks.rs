@@ -138,6 +138,7 @@ mod tests {
             Some(username!("some-user")),
             None,
             email_address!("some-user@example.com"),
+            None,
         )
         .await
         .unwrap();
