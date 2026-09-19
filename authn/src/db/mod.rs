@@ -282,6 +282,36 @@ pub async fn get_user_by_username(ex: &mut Executor, username: Username) -> DbRe
     }
 }
 
+/// Deletes a user.
+pub async fn delete_user(ex: &mut Executor, id: Uuid) -> DbResult<()> {
+    let rows_affected = match ex {
+        #[cfg(feature = "postgres")]
+        Executor::Postgres(ex) => sqlx::query("DELETE FROM users WHERE id = $1")
+            .bind(id)
+            .execute(ex)
+            .await
+            .map_err(postgres::map_sqlx_error)?
+            .rows_affected(),
+
+        #[cfg(any(feature = "sqlite", test))]
+        Executor::Sqlite(ex) => sqlx::query("DELETE FROM users WHERE id = ?")
+            .bind(id)
+            .execute(ex)
+            .await
+            .map_err(sqlite::map_sqlx_error)?
+            .rows_affected(),
+
+        #[allow(unused)]
+        _ => unreachable!(),
+    };
+
+    match rows_affected {
+        0 => Err(DbError::NotFound),
+        1 => Ok(()),
+        _ => Err(DbError::BackendError("Deletion affected more than one row".to_owned())),
+    }
+}
+
 /// Updates an existing user `id` to have new `last_login` details.
 pub async fn update_user(ex: &mut Executor, id: Uuid, last_login: OffsetDateTime) -> DbResult<()> {
     let rows_affected = match ex {
