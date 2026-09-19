@@ -87,6 +87,20 @@ async fn test_user_corrupted_email(ex: &mut Executor) {
     }
 }
 
+async fn test_users_delete_ok(ex: &mut Executor) {
+    let user1 = create_simple_user(ex, "some-username-1").await;
+    let user2 = create_simple_user(ex, "some-username-2").await;
+
+    delete_user(ex, user1.id).await.unwrap();
+
+    assert_eq!(DbError::NotFound, get_user_by_id(ex, user1.id).await.unwrap_err());
+    assert_eq!(user2, get_user_by_id(ex, user2.id).await.unwrap());
+}
+
+async fn test_users_delete_not_found(ex: &mut Executor) {
+    assert_eq!(DbError::NotFound, delete_user(ex, Uuid::new_v4()).await.unwrap_err());
+}
+
 async fn test_users_update_ok(ex: &mut Executor) {
     let user = create_user(
         ex,
@@ -303,6 +317,8 @@ macro_rules! generate_db_tests [
             test_user_without_username,
             test_user_corrupted_name,
             test_user_corrupted_email,
+            test_users_delete_ok,
+            test_users_delete_not_found,
             test_users_update_ok,
             test_users_update_not_found,
             test_set_user_activation_code_ok,
