@@ -21,6 +21,8 @@ use crate::driver::AuthnHooks;
 #[cfg(test)]
 use crate::model::AuthnTask;
 use crate::model::{AccessToken, Password, User};
+#[cfg(test)]
+use crate::model::{Coupon, CouponName};
 use crate::rest::LoginResponse;
 #[cfg(test)]
 use async_trait::async_trait;
@@ -65,7 +67,7 @@ pub async fn create_test_user(
 ) -> User {
     let password = password.validate_and_hash(|_| None).unwrap();
 
-    let user = db::create_user(ex, Some(username), Some(password), email).await.unwrap();
+    let user = db::create_user(ex, Some(username), Some(password), email, None).await.unwrap();
     let last_login = OffsetDateTime::from_unix_timestamp(100100).unwrap();
     db::update_user(ex, user.id, last_login).await.unwrap();
     user.with_last_login(last_login)
@@ -156,6 +158,24 @@ impl TestContext {
     /// Returns the stable ID for the user with `email`.
     pub(crate) async fn user_id_by_email(&mut self, email: &EmailAddress) -> uuid::Uuid {
         db::get_user_by_email(&mut self.db.ex().await.unwrap(), email.clone()).await.unwrap().id
+    }
+
+    /// Creates a coupon by directly modifying the backing database.
+    pub(crate) async fn create_coupon(&mut self, coupon: &Coupon) {
+        db::create_coupon(&mut self.db.ex().await.unwrap(), coupon).await.unwrap();
+    }
+
+    /// Returns the coupon attributed to the named user.
+    pub(crate) async fn user_coupon(&mut self, username: &Username) -> Option<CouponName> {
+        db::get_user_by_username(&mut self.db.ex().await.unwrap(), username.clone())
+            .await
+            .unwrap()
+            .coupon
+    }
+
+    /// Returns the number of usages consumed from a coupon.
+    pub(crate) async fn coupon_usages(&mut self, name: &CouponName) -> u32 {
+        db::get_coupon(&mut self.db.ex().await.unwrap(), name).await.unwrap().usages
     }
 
     /// Checks if the user with `username` exists and is active by directly querying the backing
@@ -355,7 +375,7 @@ impl AuthnHooks for AuthnTestHooks {
             let email =
                 EmailAddress::new(format!("{}-shadow@example.com", shadow_username.as_str()))
                     .unwrap();
-            db::create_user(tx.ex(), Some(shadow_username), None, email).await.unwrap();
+            db::create_user(tx.ex(), Some(shadow_username), None, email, None).await.unwrap();
         }
         Ok(())
     }

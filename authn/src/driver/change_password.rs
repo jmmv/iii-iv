@@ -144,7 +144,7 @@ mod tests {
         let email = EmailAddress::new("test@example.com").unwrap();
         context
             .driver()
-            .signup(Some(username.clone()), password.clone(), email.clone(), NO_EXTENSIONS)
+            .signup(Some(username.clone()), password.clone(), email.clone(), None, NO_EXTENSIONS)
             .await
             .unwrap();
 

@@ -108,6 +108,7 @@ mod tests {
             Some(username.clone()),
             Some(password.clone().validate_and_hash(|_| None).unwrap()),
             email_address!("some@example.com"),
+            None,
         )
         .await
         .unwrap();
@@ -136,6 +137,7 @@ mod tests {
             None,
             Some(password.clone().validate_and_hash(|_| None).unwrap()),
             email.clone(),
+            None,
         )
         .await
         .unwrap();
@@ -166,6 +168,7 @@ mod tests {
             Some(username.clone()),
             Some(password.clone().validate_and_hash(|_| None).unwrap()),
             email_address!("some@example.com"),
+            None,
         )
         .await
         .unwrap();
@@ -212,6 +215,7 @@ mod tests {
             Some(username.clone()),
             Some(Password::new("ABC").unwrap().validate_and_hash(|_| None).unwrap()),
             email_address!("some@example.com"),
+            None,
         )
         .await
         .unwrap();
@@ -233,6 +237,7 @@ mod tests {
             Some(username.clone()),
             None,
             email_address!("some@example.com"),
+            None,
         )
         .await
         .unwrap();
@@ -255,6 +260,7 @@ mod tests {
             Some(username.clone()),
             Some(password.clone().validate_and_hash(|_| None).unwrap()),
             email_address!("some@example.com"),
+            None,
         )
         .await
         .unwrap();
@@ -278,6 +284,7 @@ mod tests {
             Some(username.clone()),
             Some(password.clone().validate_and_hash(|_| None).unwrap()),
             email_address!("some@example.com"),
+            None,
         )
         .await
         .unwrap();
@@ -313,6 +320,7 @@ mod tests {
             Some(username.clone()),
             Some(password.clone().validate_and_hash(|_| None).unwrap()),
             email_address!("some@example.com"),
+            None,
         )
         .await
         .unwrap();

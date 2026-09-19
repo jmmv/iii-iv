@@ -16,7 +16,7 @@
 //! Common tests for any database implementation.
 
 use crate::db::*;
-use crate::model::{AccessToken, Session, User, hashed_password};
+use crate::model::{AccessToken, Coupon, Session, User, coupon_name, hashed_password};
 use iii_iv_core::db::{DbError, Executor};
 use iii_iv_core::model::{EmailAddress, Username, email_address, username};
 use time::macros::datetime;
@@ -29,9 +29,65 @@ async fn create_simple_user(ex: &mut Executor, username: &'static str) -> User {
         Some(username!(username)),
         None,
         EmailAddress::new(format!("{}@example.com", username)).unwrap(),
+        None,
     )
     .await
     .unwrap()
+}
+
+async fn test_coupons_ok(ex: &mut Executor) {
+    let coupon = Coupon::new(
+        coupon_name!("BETA100"),
+        datetime!(2026-01-01 0:00 UTC),
+        datetime!(2026-02-01 0:00 UTC),
+        100,
+    )
+    .unwrap();
+    create_coupon(ex, &coupon).await.unwrap();
+    assert_eq!(coupon, get_coupon(ex, &coupon_name!("BETA100")).await.unwrap());
+
+    assert_eq!(DbError::AlreadyExists, create_coupon(ex, &coupon).await.unwrap_err());
+    assert_eq!(DbError::NotFound, get_coupon(ex, &coupon_name!("UNKNOWN")).await.unwrap_err());
+}
+
+async fn test_coupon_redemption(ex: &mut Executor) {
+    let valid_from = datetime!(2026-01-01 0:00 UTC);
+    let valid_until = datetime!(2026-02-01 0:00 UTC);
+    let coupon = Coupon::new(coupon_name!("LIMITED"), valid_from, valid_until, 2).unwrap();
+    create_coupon(ex, &coupon).await.unwrap();
+
+    redeem_coupon(ex, &coupon.name).await.unwrap();
+    redeem_coupon(ex, &coupon.name).await.unwrap();
+    assert_eq!(2, get_coupon(ex, &coupon.name).await.unwrap().usages);
+    assert_eq!(DbError::NotFound, redeem_coupon(ex, &coupon.name).await.unwrap_err());
+    assert_eq!(DbError::NotFound, redeem_coupon(ex, &coupon_name!("UNKNOWN")).await.unwrap_err());
+}
+
+async fn test_user_with_coupon(ex: &mut Executor) {
+    let coupon = Coupon::new(
+        coupon_name!("ATTRIBUTED"),
+        datetime!(2026-01-01 0:00 UTC),
+        datetime!(2026-02-01 0:00 UTC),
+        1,
+    )
+    .unwrap();
+    create_coupon(ex, &coupon).await.unwrap();
+    redeem_coupon(ex, &coupon.name).await.unwrap();
+
+    let user = create_user(
+        ex,
+        Some(username!("coupon-user")),
+        None,
+        email_address!("coupon@example.com"),
+        Some(coupon.name.clone()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(Some(&coupon.name), user.coupon.as_ref());
+    assert_eq!(user, get_user_by_id(ex, user.id).await.unwrap());
+
+    delete_user(ex, user.id).await.unwrap();
+    assert_eq!(1, get_coupon(ex, &coupon.name).await.unwrap().usages);
 }
 
 async fn test_users_ok(ex: &mut Executor) {
@@ -40,6 +96,7 @@ async fn test_users_ok(ex: &mut Executor) {
         Some(username!("some-username")),
         Some(hashed_password!("some-hash")),
         email_address!("a@example.com"),
+        None,
     )
     .await
     .unwrap();
@@ -62,7 +119,7 @@ async fn test_users_not_found(ex: &mut Executor) {
 
 async fn test_user_without_username(ex: &mut Executor) {
     let email = email_address!("email-only@example.com");
-    let user = create_user(ex, None, None, email.clone()).await.unwrap();
+    let user = create_user(ex, None, None, email.clone(), None).await.unwrap();
 
     assert!(user.username.is_none());
     assert_eq!(user, get_user_by_email(ex, email).await.unwrap());
@@ -71,7 +128,9 @@ async fn test_user_without_username(ex: &mut Executor) {
 
 async fn test_user_corrupted_name(ex: &mut Executor) {
     let invalid = Username::new_invalid("this@is!invalid");
-    create_user(ex, Some(invalid.clone()), None, email_address!("a@example.com")).await.unwrap();
+    create_user(ex, Some(invalid.clone()), None, email_address!("a@example.com"), None)
+        .await
+        .unwrap();
     match get_user_by_username(ex, invalid).await.unwrap_err() {
         DbError::DataIntegrityError(msg) if msg.contains("Unsupported character") => (),
         e => panic!("Unexpected error: {:?}", e),
@@ -80,7 +139,7 @@ async fn test_user_corrupted_name(ex: &mut Executor) {
 
 async fn test_user_corrupted_email(ex: &mut Executor) {
     let invalid = EmailAddress::new_invalid("this_is_invalid");
-    create_user(ex, Some(username!("a")), None, invalid).await.unwrap();
+    create_user(ex, Some(username!("a")), None, invalid, None).await.unwrap();
     match get_user_by_username(ex, username!("a")).await.unwrap_err() {
         DbError::DataIntegrityError(msg) if msg.contains("valid address") => (),
         e => panic!("Unexpected error: {:?}", e),
@@ -107,6 +166,7 @@ async fn test_users_update_ok(ex: &mut Executor) {
         Some(username!("some-username")),
         Some(hashed_password!("some-hash")),
         email_address!("a@example.com"),
+        None,
     )
     .await
     .unwrap();
@@ -137,6 +197,7 @@ async fn test_set_user_activation_code_ok(ex: &mut Executor) {
         Some(username!("some-username")),
         Some(hashed_password!("some-hash")),
         email_address!("a@example.com"),
+        None,
     )
     .await
     .unwrap();
@@ -175,6 +236,7 @@ async fn test_update_user_password_ok(ex: &mut Executor) {
         Some(username!("some-username")),
         Some(hashed_password!("original-hash")),
         email_address!("a@example.com"),
+        None,
     )
     .await
     .unwrap();
@@ -198,6 +260,7 @@ async fn test_update_user_password_not_found(ex: &mut Executor) {
         Some(username!("some-username")),
         Some(hashed_password!("original-hash")),
         email_address!("a@example.com"),
+        None,
     )
     .await
     .unwrap();
@@ -222,6 +285,7 @@ async fn test_update_user_password_wrong_old_password(ex: &mut Executor) {
         Some(username!("some-username")),
         Some(hashed_password!("original-hash")),
         email_address!("a@example.com"),
+        None,
     )
     .await
     .unwrap();
@@ -314,6 +378,9 @@ macro_rules! generate_db_tests [
             $crate::db::tests,
             test_users_ok,
             test_users_not_found,
+            test_coupons_ok,
+            test_coupon_redemption,
+            test_user_with_coupon,
             test_user_without_username,
             test_user_corrupted_name,
             test_user_corrupted_email,

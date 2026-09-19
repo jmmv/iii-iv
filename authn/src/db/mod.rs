@@ -15,7 +15,7 @@
 
 //! Database abstraction to manipulate users and authentication.
 
-use crate::model::{AccessToken, HashedPassword, Session, User};
+use crate::model::{AccessToken, Coupon, CouponName, HashedPassword, Session, User};
 #[cfg(feature = "postgres")]
 use iii_iv_core::db::postgres;
 #[cfg(any(feature = "sqlite", test))]
@@ -47,6 +47,186 @@ pub async fn init_schema(ex: &mut Executor) -> DbResult<()> {
     }
 }
 
+/// Converts a persisted coupon count into its model representation.
+fn coupon_count_as_u32(count: i64, field: &str) -> DbResult<u32> {
+    u32::try_from(count)
+        .map_err(|_| DbError::DataIntegrityError(format!("Coupon {} does not fit in a u32", field)))
+}
+
+#[cfg(feature = "postgres")]
+impl TryFrom<PgRow> for Coupon {
+    type Error = DbError;
+
+    fn try_from(row: PgRow) -> DbResult<Self> {
+        let name: String = row.try_get("name").map_err(postgres::map_sqlx_error)?;
+        let valid_from: OffsetDateTime =
+            row.try_get("valid_from").map_err(postgres::map_sqlx_error)?;
+        let valid_until: OffsetDateTime =
+            row.try_get("valid_until").map_err(postgres::map_sqlx_error)?;
+        let max_usages: i64 = row.try_get("max_usages").map_err(postgres::map_sqlx_error)?;
+        let usages: i64 = row.try_get("usages").map_err(postgres::map_sqlx_error)?;
+
+        Ok(Coupon {
+            name: CouponName::new(name)?,
+            valid_from,
+            valid_until,
+            max_usages: coupon_count_as_u32(max_usages, "max_usages")?,
+            usages: coupon_count_as_u32(usages, "usages")?,
+        })
+    }
+}
+
+#[cfg(any(feature = "sqlite", test))]
+impl TryFrom<SqliteRow> for Coupon {
+    type Error = DbError;
+
+    fn try_from(row: SqliteRow) -> DbResult<Self> {
+        let name: String = row.try_get("name").map_err(sqlite::map_sqlx_error)?;
+        let valid_from_secs: i64 =
+            row.try_get("valid_from_secs").map_err(sqlite::map_sqlx_error)?;
+        let valid_from_nsecs: i64 =
+            row.try_get("valid_from_nsecs").map_err(sqlite::map_sqlx_error)?;
+        let valid_until_secs: i64 =
+            row.try_get("valid_until_secs").map_err(sqlite::map_sqlx_error)?;
+        let valid_until_nsecs: i64 =
+            row.try_get("valid_until_nsecs").map_err(sqlite::map_sqlx_error)?;
+        let max_usages: i64 = row.try_get("max_usages").map_err(sqlite::map_sqlx_error)?;
+        let usages: i64 = row.try_get("usages").map_err(sqlite::map_sqlx_error)?;
+
+        Ok(Coupon {
+            name: CouponName::new(name)?,
+            valid_from: build_timestamp(valid_from_secs, valid_from_nsecs)?,
+            valid_until: build_timestamp(valid_until_secs, valid_until_nsecs)?,
+            max_usages: coupon_count_as_u32(max_usages, "max_usages")?,
+            usages: coupon_count_as_u32(usages, "usages")?,
+        })
+    }
+}
+
+/// Creates a coupon for use by tests of services embedding authn.
+#[cfg(any(test, feature = "testutils"))]
+pub async fn create_coupon(ex: &mut Executor, coupon: &Coupon) -> DbResult<()> {
+    let rows_affected = match ex {
+        #[cfg(feature = "postgres")]
+        Executor::Postgres(ex) => {
+            let query_str = "
+                INSERT INTO coupons
+                    (name, valid_from, valid_until, max_usages, usages)
+                VALUES ($1, $2, $3, $4, $5)";
+            sqlx::query(query_str)
+                .bind(coupon.name.as_str())
+                .bind(coupon.valid_from)
+                .bind(coupon.valid_until)
+                .bind(i64::from(coupon.max_usages))
+                .bind(i64::from(coupon.usages))
+                .execute(ex)
+                .await
+                .map_err(postgres::map_sqlx_error)?
+                .rows_affected()
+        }
+
+        #[cfg(any(feature = "sqlite", test))]
+        Executor::Sqlite(ex) => {
+            let (valid_from_secs, valid_from_nsecs) = unpack_timestamp(coupon.valid_from);
+            let (valid_until_secs, valid_until_nsecs) = unpack_timestamp(coupon.valid_until);
+            let query_str = "
+                INSERT INTO coupons
+                    (name, valid_from_secs, valid_from_nsecs,
+                     valid_until_secs, valid_until_nsecs, max_usages, usages)
+                VALUES (?, ?, ?, ?, ?, ?, ?)";
+            sqlx::query(query_str)
+                .bind(coupon.name.as_str())
+                .bind(valid_from_secs)
+                .bind(valid_from_nsecs)
+                .bind(valid_until_secs)
+                .bind(valid_until_nsecs)
+                .bind(i64::from(coupon.max_usages))
+                .bind(i64::from(coupon.usages))
+                .execute(ex)
+                .await
+                .map_err(sqlite::map_sqlx_error)?
+                .rows_affected()
+        }
+
+        #[allow(unused)]
+        _ => unreachable!(),
+    };
+
+    if rows_affected == 1 {
+        Ok(())
+    } else {
+        Err(DbError::BackendError("Insertion affected more than one row".to_owned()))
+    }
+}
+
+/// Gets a coupon by name.
+pub(crate) async fn get_coupon(ex: &mut Executor, name: &CouponName) -> DbResult<Coupon> {
+    match ex {
+        #[cfg(feature = "postgres")]
+        Executor::Postgres(ex) => {
+            let row = sqlx::query("SELECT * FROM coupons WHERE name = $1")
+                .bind(name.as_str())
+                .fetch_one(ex)
+                .await
+                .map_err(postgres::map_sqlx_error)?;
+            Coupon::try_from(row)
+        }
+
+        #[cfg(any(feature = "sqlite", test))]
+        Executor::Sqlite(ex) => {
+            let row = sqlx::query("SELECT * FROM coupons WHERE name = ?")
+                .bind(name.as_str())
+                .fetch_one(ex)
+                .await
+                .map_err(sqlite::map_sqlx_error)?;
+            Coupon::try_from(row)
+        }
+
+        #[allow(unused)]
+        _ => unreachable!(),
+    }
+}
+
+/// Atomically consumes one available usage of a coupon.
+pub(crate) async fn redeem_coupon(ex: &mut Executor, name: &CouponName) -> DbResult<()> {
+    let rows_affected = match ex {
+        #[cfg(feature = "postgres")]
+        Executor::Postgres(ex) => {
+            let query_str = "
+                UPDATE coupons SET usages = usages + 1
+                WHERE name = $1 AND usages < max_usages";
+            sqlx::query(query_str)
+                .bind(name.as_str())
+                .execute(ex)
+                .await
+                .map_err(postgres::map_sqlx_error)?
+                .rows_affected()
+        }
+
+        #[cfg(any(feature = "sqlite", test))]
+        Executor::Sqlite(ex) => {
+            let query_str = "
+                UPDATE coupons SET usages = usages + 1
+                WHERE name = ? AND usages < max_usages";
+            sqlx::query(query_str)
+                .bind(name.as_str())
+                .execute(ex)
+                .await
+                .map_err(sqlite::map_sqlx_error)?
+                .rows_affected()
+        }
+
+        #[allow(unused)]
+        _ => unreachable!(),
+    };
+
+    match rows_affected {
+        0 => Err(DbError::NotFound),
+        1 => Ok(()),
+        _ => Err(DbError::BackendError("Update affected more than one row".to_owned())),
+    }
+}
+
 #[cfg(feature = "postgres")]
 impl TryFrom<PgRow> for Session {
     type Error = DbError;
@@ -71,6 +251,7 @@ impl TryFrom<PgRow> for User {
         let username: Option<String> = row.try_get("username").map_err(postgres::map_sqlx_error)?;
         let password: Option<String> = row.try_get("password").map_err(postgres::map_sqlx_error)?;
         let email: String = row.try_get("email").map_err(postgres::map_sqlx_error)?;
+        let coupon: Option<String> = row.try_get("coupon").map_err(postgres::map_sqlx_error)?;
         let activation_code: Option<i64> =
             row.try_get("activation_code").map_err(postgres::map_sqlx_error)?;
         let last_login: Option<OffsetDateTime> =
@@ -79,6 +260,9 @@ impl TryFrom<PgRow> for User {
         let username = username.map(Username::new).transpose()?;
         let mut user = User::new(id, username, EmailAddress::new(email)?)
             .with_activation_code(activation_code.map(|i| i as u64));
+        if let Some(coupon) = coupon {
+            user = user.with_coupon(CouponName::new(coupon)?);
+        }
         if let Some(password) = password {
             user = user.with_password(HashedPassword::new(password));
         }
@@ -117,6 +301,7 @@ impl TryFrom<SqliteRow> for User {
         let username: Option<String> = row.try_get("username").map_err(sqlite::map_sqlx_error)?;
         let password: Option<String> = row.try_get("password").map_err(sqlite::map_sqlx_error)?;
         let email: String = row.try_get("email").map_err(sqlite::map_sqlx_error)?;
+        let coupon: Option<String> = row.try_get("coupon").map_err(sqlite::map_sqlx_error)?;
         let activation_code: Option<i64> =
             row.try_get("activation_code").map_err(sqlite::map_sqlx_error)?;
         let last_login_secs: Option<i64> =
@@ -127,6 +312,9 @@ impl TryFrom<SqliteRow> for User {
         let username = username.map(Username::new).transpose()?;
         let mut user = User::new(id, username, EmailAddress::new(email)?)
             .with_activation_code(activation_code.map(|i| i as u64));
+        if let Some(coupon) = coupon {
+            user = user.with_coupon(CouponName::new(coupon)?);
+        }
         if let Some(password) = password {
             user = user.with_password(HashedPassword::new(password));
         }
@@ -143,25 +331,29 @@ impl TryFrom<SqliteRow> for User {
     }
 }
 
-/// Creates a new user with an optional `username`, a hashed `password`, and an `email` address.
+/// Creates a new user with an optional `username`, a hashed `password`, an `email` address,
+/// and a `coupon`.
 /// The user is created as activated (no activation code) and as not having logged in.
 pub async fn create_user(
     ex: &mut Executor,
     username: Option<Username>,
     password: Option<HashedPassword>,
     email: EmailAddress,
+    coupon: Option<CouponName>,
 ) -> DbResult<User> {
     let id = Uuid::new_v4();
     let rows_affected = match ex {
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
-            let query_str =
-                "INSERT INTO users (id, username, password, email) VALUES ($1, $2, $3, $4)";
+            let query_str = "
+                INSERT INTO users (id, username, password, email, coupon)
+                VALUES ($1, $2, $3, $4, $5)";
             let done = sqlx::query(query_str)
                 .bind(id)
                 .bind(username.as_ref().map(Username::as_str))
                 .bind(password.as_ref().map(|x| Some(x.as_str())))
                 .bind(email.as_str())
+                .bind(coupon.as_ref().map(CouponName::as_str))
                 .execute(ex)
                 .await
                 .map_err(postgres::map_sqlx_error)?;
@@ -170,12 +362,15 @@ pub async fn create_user(
 
         #[cfg(any(feature = "sqlite", test))]
         Executor::Sqlite(ex) => {
-            let query_str = "INSERT INTO users (id, username, password, email) VALUES (?, ?, ?, ?)";
+            let query_str = "
+                INSERT INTO users (id, username, password, email, coupon)
+                VALUES (?, ?, ?, ?, ?)";
             let done = sqlx::query(query_str)
                 .bind(id)
                 .bind(username.as_ref().map(Username::as_str))
                 .bind(password.as_ref().map(|x| Some(x.as_str())))
                 .bind(email.as_str())
+                .bind(coupon.as_ref().map(CouponName::as_str))
                 .execute(ex)
                 .await
                 .map_err(sqlite::map_sqlx_error)?;
@@ -192,6 +387,9 @@ pub async fn create_user(
     let mut user = User::new(id, username, email);
     if let Some(password) = password {
         user = user.with_password(password);
+    }
+    if let Some(coupon) = coupon {
+        user = user.with_coupon(coupon);
     }
     Ok(user)
 }

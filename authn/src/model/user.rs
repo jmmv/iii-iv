@@ -15,7 +15,7 @@
 
 //! The `User` data type.
 
-use crate::model::HashedPassword;
+use crate::model::{CouponName, HashedPassword};
 use iii_iv_core::model::{EmailAddress, Username};
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -35,6 +35,9 @@ pub struct User {
     /// Email of the user.
     pub email: EmailAddress,
 
+    /// Coupon used to sign up this user, if any.
+    pub coupon: Option<CouponName>,
+
     /// Token required to activate the user if not active yet.
     pub activation_code: Option<u64>,
 
@@ -45,12 +48,26 @@ pub struct User {
 impl User {
     /// Creates a new user with the given fields.
     pub fn new(id: Uuid, username: Option<Username>, email: EmailAddress) -> Self {
-        Self { id, username, password: None, email, activation_code: None, last_login: None }
+        Self {
+            id,
+            username,
+            password: None,
+            email,
+            coupon: None,
+            activation_code: None,
+            last_login: None,
+        }
     }
 
     /// Modifies a user to set or clear its activation code.
     pub fn with_activation_code(mut self, code: Option<u64>) -> Self {
         self.activation_code = code;
+        self
+    }
+
+    /// Modifies a user to record the coupon used during signup.
+    pub fn with_coupon(mut self, coupon: CouponName) -> Self {
+        self.coupon = Some(coupon);
         self
     }
 
@@ -70,7 +87,7 @@ impl User {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::hashed_password;
+    use crate::model::{coupon_name, hashed_password};
     use iii_iv_core::model::{email_address, username};
     use time::macros::datetime;
 
@@ -82,14 +99,17 @@ mod tests {
         assert_eq!(Some(&username!("foo")), user.username.as_ref());
         assert!(user.password.is_none());
         assert_eq!(&email_address!("a@example.com"), &user.email);
+        assert!(user.coupon.is_none());
         assert!(user.activation_code.is_none());
         assert!(user.last_login.is_none());
 
         let user = user
             .with_activation_code(Some(123))
+            .with_coupon(coupon_name!("BETA100"))
             .with_last_login(datetime!(2022-04-02 05:38:00 UTC))
             .with_password(hashed_password!("password-hash"));
         assert_eq!(Some(123), user.activation_code);
+        assert_eq!(Some(&coupon_name!("BETA100")), user.coupon.as_ref());
         assert_eq!(Some(&hashed_password!("password-hash")), user.password.as_ref());
         assert_eq!(Some(datetime!(2022-04-02 05:38:00 UTC)), user.last_login);
     }

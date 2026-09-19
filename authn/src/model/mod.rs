@@ -17,6 +17,10 @@
 
 mod accesstoken;
 pub use accesstoken::AccessToken;
+mod coupon;
+#[cfg(any(test, feature = "testutils"))]
+pub use coupon::coupon_name;
+pub use coupon::{Coupon, CouponName};
 mod passwords;
 pub use passwords::{HashedPassword, Password};
 #[cfg(any(test, feature = "testutils"))]
