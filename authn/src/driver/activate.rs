@@ -80,6 +80,18 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_activate_when_signups_closed() {
+        let opts = AuthnOptions { open_signups: false, ..Default::default() };
+        let context = TestContext::setup(opts).await;
+
+        let user_id = create_test_user(&mut context.ex().await, Some(42)).await;
+        context.driver().activate(user_id, 42).await.unwrap();
+
+        let user = db::get_user_by_id(&mut context.ex().await, user_id).await.unwrap();
+        assert!(user.activation_code.is_none());
+    }
+
+    #[tokio::test]
     async fn test_activate_bad_code() {
         let context = TestContext::setup(AuthnOptions::default()).await;
 

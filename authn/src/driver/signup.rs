@@ -56,6 +56,12 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         email: EmailAddress,
         input: H::SignupInput,
     ) -> DriverResult<()> {
+        if !self.opts.open_signups {
+            return Err(DriverError::InvalidInput(
+                "Signups are not open at this moment".to_owned(),
+            ));
+        }
+
         let mut tx = self.db.begin().await?;
         let now = self.clock.now_utc();
 
@@ -134,6 +140,33 @@ mod tests {
             user.activation_code,
             context.get_latest_activation_code(&user.email, Some(user.id)).await
         );
+    }
+
+    #[tokio::test]
+    async fn test_signup_closed() {
+        let opts = AuthnOptions { open_signups: false, ..Default::default() };
+        let context = TestContext::setup(opts).await;
+
+        let username = username!("hello");
+        let email = email_address!("foo@example.com");
+        assert_eq!(
+            Err(DriverError::InvalidInput("Signups are not open at this moment".to_owned())),
+            context
+                .driver()
+                .signup(
+                    Some(username.clone()),
+                    password!("sufficiently0complex"),
+                    email.clone(),
+                    NO_EXTENSIONS,
+                )
+                .await
+        );
+
+        assert_eq!(
+            DbError::NotFound,
+            db::get_user_by_username(&mut context.ex().await, username).await.unwrap_err()
+        );
+        assert!(context.get_latest_activation_code(&email, None).await.is_none());
     }
 
     #[tokio::test]

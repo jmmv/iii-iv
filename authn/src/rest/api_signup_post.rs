@@ -76,6 +76,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_signups_closed() {
+        let opts = crate::driver::AuthnOptions { open_signups: false, ..Default::default() };
+        let context = TestContextBuilder::new().with_opts(opts).build().await;
+
+        let request = SignupRequest {
+            username: Some("new".into()),
+            password: password!("hello4World"),
+            email: "new@example.com".into(),
+        };
+        OneShotBuilder::new(context.into_app(), route())
+            .send_json(request)
+            .await
+            .expect_status(http::StatusCode::BAD_REQUEST)
+            .expect_error("Signups are not open at this moment")
+            .await;
+    }
+
+    #[tokio::test]
     async fn test_ok_with_hooks_not_present() {
         let mut context =
             TestContextBuilder::new().build_with_hooks(AuthnTestHooks::default()).await;
