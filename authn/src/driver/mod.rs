@@ -67,6 +67,9 @@ pub struct AuthnOptions {
     /// Delay before retrying email deliveries.
     pub email_retry_delay: Duration,
 
+    /// Whether users can sign up without an invitation.
+    pub open_signups: bool,
+
     /// The number of sessions to keep cached in memory.
     pub sessions_cache_capacity: usize,
 
@@ -86,6 +89,7 @@ impl Default for AuthnOptions {
     fn default() -> Self {
         Self {
             email_retry_delay: DEFAULT_EMAIL_RETRY_DELAY,
+            open_signups: true,
             sessions_cache_ttl: DEFAULT_SESSIONS_CACHE_TTL,
             sessions_cache_capacity: DEFAULT_SESSIONS_CACHE_CAPACITY,
             session_max_age: DEFAULT_SESSION_MAX_AGE,
@@ -100,6 +104,7 @@ impl AuthnOptions {
         Ok(Self {
             email_retry_delay: get_optional_var::<Duration>(prefix, "EMAIL_RETRY_DELAY")?
                 .unwrap_or(DEFAULT_EMAIL_RETRY_DELAY),
+            open_signups: get_optional_var::<bool>(prefix, "OPEN_SIGNUPS")?.unwrap_or(true),
             sessions_cache_capacity: get_optional_var::<usize>(prefix, "SESSIONS_CACHE_CAPACITY")?
                 .unwrap_or(DEFAULT_SESSIONS_CACHE_CAPACITY),
             sessions_cache_ttl: get_optional_var::<Duration>(prefix, "SESSIONS_CACHE_TTL")?
@@ -321,6 +326,7 @@ mod tests {
         temp_env::with_vars_unset(
             [
                 "AUTHN_EMAIL_RETRY_DELAY",
+                "AUTHN_OPEN_SIGNUPS",
                 "AUTHN_SESSIONS_CACHE_CAPACITY",
                 "AUTHN_SESSIONS_CACHE_TTL",
                 "AUTHN_SESSION_MAX_AGE",
@@ -339,6 +345,7 @@ mod tests {
         temp_env::with_vars(
             [
                 ("AUTHN_EMAIL_RETRY_DELAY", Some("50m")),
+                ("AUTHN_OPEN_SIGNUPS", Some("false")),
                 ("AUTHN_SESSIONS_CACHE_CAPACITY", Some("30")),
                 ("AUTHN_SESSIONS_CACHE_TTL", Some("40m")),
                 ("AUTHN_SESSION_MAX_AGE", Some("10m")),
@@ -349,6 +356,7 @@ mod tests {
                 assert_eq!(
                     AuthnOptions {
                         email_retry_delay: Duration::from_secs(50 * 60),
+                        open_signups: false,
                         sessions_cache_capacity: 30,
                         sessions_cache_ttl: Duration::from_secs(40 * 60),
                         session_max_age: Duration::from_secs(10 * 60),
