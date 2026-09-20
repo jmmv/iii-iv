@@ -37,6 +37,8 @@ features = ["runtime-tokio-rustls", "time"]
 iii-iv-core = { path = "../core", features = ["sqlite", "testutils"] }
 rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+serial_test = { workspace = true }
+temp-env = { workspace = true }
 time = { workspace = true, features = ["formatting"] }
 tokio = { workspace = true, features = ["rt", "macros", "rt-multi-thread"] }
 

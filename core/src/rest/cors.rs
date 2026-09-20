@@ -210,14 +210,14 @@ mod tests {
     #[serial(CORS)]
     fn test_new_cors_layer_nothing() {
         let overrides: [(&str, Option<&str>); 4] = [
-            ("CORS_CORS_ALLOW_ORIGIN", None),
-            ("CORS_CORS_ALLOW_CREDENTIALS", None),
-            ("CORS_CORS_ALLOW_METHODS", None),
-            ("CORS_CORS_ALLOW_HEADERS", None),
+            ("TEST_CORS_ALLOW_ORIGIN", None),
+            ("TEST_CORS_ALLOW_CREDENTIALS", None),
+            ("TEST_CORS_ALLOW_METHODS", None),
+            ("TEST_CORS_ALLOW_HEADERS", None),
         ];
         temp_env::with_vars(overrides, || {
             let base_urls = BaseUrls::from_strs("https://backend.example.com", None);
-            let layer = new_cors_layer("CORS", &base_urls).unwrap();
+            let layer = new_cors_layer("TEST", &base_urls).unwrap();
             assert_origin(&[], &layer);
             assert_credentials(false, &layer);
             assert_methods(None, &layer);
@@ -229,14 +229,14 @@ mod tests {
     #[serial(CORS)]
     fn test_new_cors_layer_only_env() {
         let overrides = [
-            ("CORS_CORS_ALLOW_ORIGIN", Some("https://a.example.com,http://b.example.com")),
-            ("CORS_CORS_ALLOW_CREDENTIALS", Some("true")),
-            ("CORS_CORS_ALLOW_METHODS", Some("PUT,PATCH")),
-            ("CORS_CORS_ALLOW_HEADERS", Some("X-Custom")),
+            ("TEST_CORS_ALLOW_ORIGIN", Some("https://a.example.com,http://b.example.com")),
+            ("TEST_CORS_ALLOW_CREDENTIALS", Some("true")),
+            ("TEST_CORS_ALLOW_METHODS", Some("PUT,PATCH")),
+            ("TEST_CORS_ALLOW_HEADERS", Some("X-Custom")),
         ];
         temp_env::with_vars(overrides, || {
             let base_urls = BaseUrls::from_strs("https://backend.example.com", None);
-            let layer = new_cors_layer("CORS", &base_urls).unwrap();
+            let layer = new_cors_layer("TEST", &base_urls).unwrap();
             assert_origin(&["https://a.example.com", "http://b.example.com"], &layer);
             assert_credentials(true, &layer);
             assert_methods(Some("PUT,PATCH"), &layer);
@@ -248,17 +248,17 @@ mod tests {
     #[serial(CORS)]
     fn test_new_cors_layer_only_frontend() {
         let overrides: [(&str, Option<&str>); 4] = [
-            ("CORS_CORS_ALLOW_ORIGIN", None),
-            ("CORS_CORS_ALLOW_CREDENTIALS", None),
-            ("CORS_CORS_ALLOW_METHODS", None),
-            ("CORS_CORS_ALLOW_HEADERS", None),
+            ("TEST_CORS_ALLOW_ORIGIN", None),
+            ("TEST_CORS_ALLOW_CREDENTIALS", None),
+            ("TEST_CORS_ALLOW_METHODS", None),
+            ("TEST_CORS_ALLOW_HEADERS", None),
         ];
         temp_env::with_vars(overrides, || {
             let base_urls = BaseUrls::from_strs(
                 "https://backend.example.com",
                 Some("https://frontend.example.com:1234/foo/"),
             );
-            let layer = new_cors_layer("CORS", &base_urls).unwrap();
+            let layer = new_cors_layer("TEST", &base_urls).unwrap();
             assert_origin(&["https://frontend.example.com:1234/foo"], &layer);
             assert_credentials(true, &layer);
             assert_methods(Some("DELETE,GET,PATCH,POST"), &layer);
@@ -270,17 +270,17 @@ mod tests {
     #[serial(CORS)]
     fn test_new_cors_layer_env_and_frontend() {
         let overrides = [
-            ("CORS_CORS_ALLOW_ORIGIN", Some("https://var.example.com")),
-            ("CORS_CORS_ALLOW_CREDENTIALS", Some("false")),
-            ("CORS_CORS_ALLOW_METHODS", Some("PUT")),
-            ("CORS_CORS_ALLOW_HEADERS", Some("X-Custom")),
+            ("TEST_CORS_ALLOW_ORIGIN", Some("https://var.example.com")),
+            ("TEST_CORS_ALLOW_CREDENTIALS", Some("false")),
+            ("TEST_CORS_ALLOW_METHODS", Some("PUT")),
+            ("TEST_CORS_ALLOW_HEADERS", Some("X-Custom")),
         ];
         temp_env::with_vars(overrides, || {
             let base_urls = BaseUrls::from_strs(
                 "https://backend.example.com",
                 Some("https://frontend.example.com:1234/foo/"),
             );
-            let layer = new_cors_layer("CORS", &base_urls).unwrap();
+            let layer = new_cors_layer("TEST", &base_urls).unwrap();
             assert_origin(
                 &["https://var.example.com", "https://frontend.example.com:1234/foo"],
                 &layer,
@@ -295,14 +295,14 @@ mod tests {
     #[serial(CORS)]
     fn test_new_cors_layer_all_origins() {
         let overrides = [
-            ("CORS_CORS_ALLOW_ORIGIN", Some("*")),
-            ("CORS_CORS_ALLOW_CREDENTIALS", None),
-            ("CORS_CORS_ALLOW_METHODS", None),
-            ("CORS_CORS_ALLOW_HEADERS", None),
+            ("TEST_CORS_ALLOW_ORIGIN", Some("*")),
+            ("TEST_CORS_ALLOW_CREDENTIALS", None),
+            ("TEST_CORS_ALLOW_METHODS", None),
+            ("TEST_CORS_ALLOW_HEADERS", None),
         ];
         temp_env::with_vars(overrides, || {
             let base_urls = BaseUrls::from_strs("https://backend.example.com", None);
-            let layer = new_cors_layer("CORS", &base_urls).unwrap();
+            let layer = new_cors_layer("TEST", &base_urls).unwrap();
             assert_origin(&["*"], &layer);
             assert_credentials(false, &layer);
             assert_methods(None, &layer);

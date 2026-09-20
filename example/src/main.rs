@@ -38,7 +38,7 @@ async fn main() {
     };
     let addr = (Ipv4Addr::LOCALHOST, port);
 
-    let db_opts = PostgresOptions::from_env("PGSQL_PROD").unwrap();
+    let db_opts = PostgresOptions::from_env("EXAMPLE").unwrap();
     let db = Arc::from(PostgresDb::connect(db_opts).unwrap());
     init_schema(&mut db.ex().await.unwrap()).await.unwrap();
 

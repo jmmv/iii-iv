@@ -22,18 +22,18 @@ touch config.env
 chmod 600 config.env
 
 cat >>config.env <<EOF
-export PGSQL_TEST_DATABASE="${USER}-test"
-export PGSQL_TEST_USERNAME="${USER}"
+export TEST_POSTGRES_DATABASE="${USER}-test"
+export TEST_POSTGRES_USERNAME="${USER}"
 
 # Use peer authentication.  This is the default, but be clear.
-unset PGSQL_TEST_HOST
-unset PGSQL_TEST_PORT
-unset PGSQL_TEST_PASSWORD
+unset TEST_POSTGRES_HOST
+unset TEST_POSTGRES_PORT
+unset TEST_POSTGRES_PASSWORD
 EOF
 
 . ./config.env
 
 sudo systemctl start postgresql
 pg_isready
-sudo -u postgres psql -c "CREATE USER \"${PGSQL_TEST_USERNAME}\";"
-sudo -u postgres psql -c "CREATE DATABASE \"${PGSQL_TEST_DATABASE}\" OWNER \"${PGSQL_TEST_USERNAME}\";"
+sudo -u postgres psql -c "CREATE USER \"${TEST_POSTGRES_USERNAME}\";"
+sudo -u postgres psql -c "CREATE DATABASE \"${TEST_POSTGRES_DATABASE}\" OWNER \"${TEST_POSTGRES_USERNAME}\";"

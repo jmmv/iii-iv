@@ -109,12 +109,11 @@ pub struct AzureGeoLocatorOptions {
 }
 
 impl AzureGeoLocatorOptions {
-    /// Creates a set of options from from environment variables whose name is prefixed with the
-    /// given `prefix`.
+    /// Creates a set of options from environment variables for the service named by `prefix`.
     ///
-    /// This will use variables such as `<prefix>_KEY`.
+    /// This will use variables such as `<prefix>_AZURE_GEO_LOCATOR_KEY`.
     pub fn from_env(prefix: &str) -> Result<Self, String> {
-        Ok(Self { key: get_required_var::<String>(prefix, "KEY")? })
+        Ok(Self { key: get_required_var::<String>(prefix, "AZURE_GEO_LOCATOR_KEY")? })
     }
 }
 
@@ -196,36 +195,36 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    #[serial(AZURE_MAPS)]
+    #[serial(AZURE_GEO_LOCATOR)]
     pub fn test_azuregeolocatoroptions_from_env_all_present() {
-        let overrides = [("AZURE_MAPS_KEY", Some("the-key"))];
+        let overrides = [("TEST_AZURE_GEO_LOCATOR_KEY", Some("the-key"))];
         temp_env::with_vars(overrides, || {
-            let opts = AzureGeoLocatorOptions::from_env("AZURE_MAPS").unwrap();
+            let opts = AzureGeoLocatorOptions::from_env("TEST").unwrap();
             assert_eq!(AzureGeoLocatorOptions { key: "the-key".to_owned() }, opts);
         });
     }
 
     #[test]
-    #[serial(AZURE_MAPS)]
+    #[serial(AZURE_GEO_LOCATOR)]
     pub fn test_azuregeolocatoroptions_from_env_use_defaults() {
-        let overrides = [("AZURE_MAPS_KEY", Some("the-key"))];
+        let overrides = [("TEST_AZURE_GEO_LOCATOR_KEY", Some("the-key"))];
         temp_env::with_vars(overrides, || {
-            let opts = AzureGeoLocatorOptions::from_env("AZURE_MAPS").unwrap();
+            let opts = AzureGeoLocatorOptions::from_env("TEST").unwrap();
             assert_eq!(AzureGeoLocatorOptions { key: "the-key".to_owned() }, opts);
         });
     }
 
     #[test]
-    #[serial(AZURE_MAPS)]
+    #[serial(AZURE_GEO_LOCATOR)]
     pub fn test_azuregeolocatoroptions_from_env_missing() {
-        temp_env::with_var_unset("AZURE_MAPS_KEY", || {
-            let err = AzureGeoLocatorOptions::from_env("AZURE_MAPS").unwrap_err();
-            assert!(err.contains("AZURE_MAPS_KEY not present"));
+        temp_env::with_var_unset("TEST_AZURE_GEO_LOCATOR_KEY", || {
+            let err = AzureGeoLocatorOptions::from_env("TEST").unwrap_err();
+            assert!(err.contains("TEST_AZURE_GEO_LOCATOR_KEY not present"));
         });
     }
 
     fn setup() -> AzureGeoLocator {
-        AzureGeoLocator::new(AzureGeoLocatorOptions::from_env("AZURE_MAPS").unwrap())
+        AzureGeoLocator::new(AzureGeoLocatorOptions::from_env("TEST").unwrap())
     }
 
     /// Performs an Azure geolocation query with retries.
