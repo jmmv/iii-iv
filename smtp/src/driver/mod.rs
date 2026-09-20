@@ -50,17 +50,16 @@ pub struct SmtpOptions {
 }
 
 impl SmtpOptions {
-    /// Initializes a set of options from environment variables whose name is prefixed with the
-    /// given `prefix`.
+    /// Initializes a set of options from environment variables for the service named by `prefix`.
     ///
-    /// This will use variables such as `<prefix>_RELAY`, `<prefix>_USERNAME`, `<prefix>_PASSWORD`
-    /// and `<prefix>_MAX_DAILY_EMAILS`.
+    /// This will use variables such as `<prefix>_SMTP_RELAY`, `<prefix>_SMTP_USERNAME`,
+    /// `<prefix>_SMTP_PASSWORD` and `<prefix>_SMTP_MAX_DAILY_EMAILS`.
     pub fn from_env(prefix: &str) -> Result<Self, String> {
         Ok(Self {
-            relay: get_required_var::<String>(prefix, "RELAY")?,
-            username: get_required_var::<String>(prefix, "USERNAME")?,
-            password: get_required_var::<String>(prefix, "PASSWORD")?,
-            max_daily_emails: get_optional_var::<usize>(prefix, "MAX_DAILY_EMAILS")?,
+            relay: get_required_var::<String>(prefix, "SMTP_RELAY")?,
+            username: get_required_var::<String>(prefix, "SMTP_USERNAME")?,
+            password: get_required_var::<String>(prefix, "SMTP_PASSWORD")?,
+            max_daily_emails: get_optional_var::<usize>(prefix, "SMTP_MAX_DAILY_EMAILS")?,
         })
     }
 }
@@ -200,12 +199,12 @@ mod tests {
     #[serial(SMTP)]
     fn test_smtp_options_from_env_all_required_present() {
         let overrides = [
-            ("SMTP_RELAY", Some("the-relay")),
-            ("SMTP_USERNAME", Some("the-username")),
-            ("SMTP_PASSWORD", Some("the-password")),
+            ("TEST_SMTP_RELAY", Some("the-relay")),
+            ("TEST_SMTP_USERNAME", Some("the-username")),
+            ("TEST_SMTP_PASSWORD", Some("the-password")),
         ];
         temp_env::with_vars(overrides, || {
-            let opts = SmtpOptions::from_env("SMTP").unwrap();
+            let opts = SmtpOptions::from_env("TEST").unwrap();
             assert_eq!(
                 SmtpOptions {
                     relay: "the-relay".to_owned(),
@@ -222,13 +221,13 @@ mod tests {
     #[serial(SMTP)]
     fn test_smtp_options_from_env_all_required_and_optional_present() {
         let overrides = [
-            ("SMTP_RELAY", Some("the-relay")),
-            ("SMTP_USERNAME", Some("the-username")),
-            ("SMTP_PASSWORD", Some("the-password")),
-            ("SMTP_MAX_DAILY_EMAILS", Some("123")),
+            ("TEST_SMTP_RELAY", Some("the-relay")),
+            ("TEST_SMTP_USERNAME", Some("the-username")),
+            ("TEST_SMTP_PASSWORD", Some("the-password")),
+            ("TEST_SMTP_MAX_DAILY_EMAILS", Some("123")),
         ];
         temp_env::with_vars(overrides, || {
-            let opts = SmtpOptions::from_env("SMTP").unwrap();
+            let opts = SmtpOptions::from_env("TEST").unwrap();
             assert_eq!(
                 SmtpOptions {
                     relay: "the-relay".to_owned(),
@@ -245,9 +244,9 @@ mod tests {
     #[serial(SMTP)]
     fn test_smtp_options_from_env_missing() {
         let overrides = [
-            ("SMTP_RELAY", Some("the-relay")),
-            ("SMTP_USERNAME", Some("the-username")),
-            ("SMTP_PASSWORD", Some("the-password")),
+            ("TEST_SMTP_RELAY", Some("the-relay")),
+            ("TEST_SMTP_USERNAME", Some("the-username")),
+            ("TEST_SMTP_PASSWORD", Some("the-password")),
         ];
         for (var, _) in overrides {
             // Keep all variables except one.
@@ -259,7 +258,7 @@ mod tests {
             }
 
             temp_env::with_vars(overrides, || {
-                let err = SmtpOptions::from_env("SMTP").unwrap_err();
+                let err = SmtpOptions::from_env("TEST").unwrap_err();
                 assert!(err.contains(&format!("{} not present", var)));
             });
         }

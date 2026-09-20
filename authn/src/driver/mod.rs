@@ -99,19 +99,25 @@ impl Default for AuthnOptions {
 }
 
 impl AuthnOptions {
-    /// Creates a new set of options from environment variables.
+    /// Creates a new set of options from environment variables for the service named by `prefix`.
+    ///
+    /// This will use variables such as `<prefix>_AUTHN_EMAIL_RETRY_DELAY` and
+    /// `<prefix>_AUTHN_OPEN_SIGNUPS`.
     pub fn from_env(prefix: &str) -> Result<Self, String> {
         Ok(Self {
-            email_retry_delay: get_optional_var::<Duration>(prefix, "EMAIL_RETRY_DELAY")?
+            email_retry_delay: get_optional_var::<Duration>(prefix, "AUTHN_EMAIL_RETRY_DELAY")?
                 .unwrap_or(DEFAULT_EMAIL_RETRY_DELAY),
-            open_signups: get_optional_var::<bool>(prefix, "OPEN_SIGNUPS")?.unwrap_or(true),
-            sessions_cache_capacity: get_optional_var::<usize>(prefix, "SESSIONS_CACHE_CAPACITY")?
-                .unwrap_or(DEFAULT_SESSIONS_CACHE_CAPACITY),
-            sessions_cache_ttl: get_optional_var::<Duration>(prefix, "SESSIONS_CACHE_TTL")?
+            open_signups: get_optional_var::<bool>(prefix, "AUTHN_OPEN_SIGNUPS")?.unwrap_or(true),
+            sessions_cache_capacity: get_optional_var::<usize>(
+                prefix,
+                "AUTHN_SESSIONS_CACHE_CAPACITY",
+            )?
+            .unwrap_or(DEFAULT_SESSIONS_CACHE_CAPACITY),
+            sessions_cache_ttl: get_optional_var::<Duration>(prefix, "AUTHN_SESSIONS_CACHE_TTL")?
                 .unwrap_or(DEFAULT_SESSIONS_CACHE_TTL),
-            session_max_age: get_optional_var::<Duration>(prefix, "SESSION_MAX_AGE")?
+            session_max_age: get_optional_var::<Duration>(prefix, "AUTHN_SESSION_MAX_AGE")?
                 .unwrap_or(DEFAULT_SESSION_MAX_AGE),
-            session_max_skew: get_optional_var::<Duration>(prefix, "SESSION_MAX_SKEW")?
+            session_max_skew: get_optional_var::<Duration>(prefix, "AUTHN_SESSION_MAX_SKEW")?
                 .unwrap_or(DEFAULT_SESSION_MAX_SKEW),
         })
     }
@@ -325,15 +331,15 @@ mod tests {
     pub fn test_options_from_env_all_all_missing() {
         temp_env::with_vars_unset(
             [
-                "AUTHN_EMAIL_RETRY_DELAY",
-                "AUTHN_OPEN_SIGNUPS",
-                "AUTHN_SESSIONS_CACHE_CAPACITY",
-                "AUTHN_SESSIONS_CACHE_TTL",
-                "AUTHN_SESSION_MAX_AGE",
-                "AUTHN_SESSION_MAX_SKEW",
+                "TEST_AUTHN_EMAIL_RETRY_DELAY",
+                "TEST_AUTHN_OPEN_SIGNUPS",
+                "TEST_AUTHN_SESSIONS_CACHE_CAPACITY",
+                "TEST_AUTHN_SESSIONS_CACHE_TTL",
+                "TEST_AUTHN_SESSION_MAX_AGE",
+                "TEST_AUTHN_SESSION_MAX_SKEW",
             ],
             || {
-                let opts = AuthnOptions::from_env("AUTHN").unwrap();
+                let opts = AuthnOptions::from_env("TEST").unwrap();
                 assert_eq!(AuthnOptions::default(), opts);
             },
         );
@@ -344,15 +350,15 @@ mod tests {
     pub fn test_options_from_env_all_optional_present() {
         temp_env::with_vars(
             [
-                ("AUTHN_EMAIL_RETRY_DELAY", Some("50m")),
-                ("AUTHN_OPEN_SIGNUPS", Some("false")),
-                ("AUTHN_SESSIONS_CACHE_CAPACITY", Some("30")),
-                ("AUTHN_SESSIONS_CACHE_TTL", Some("40m")),
-                ("AUTHN_SESSION_MAX_AGE", Some("10m")),
-                ("AUTHN_SESSION_MAX_SKEW", Some("20m")),
+                ("TEST_AUTHN_EMAIL_RETRY_DELAY", Some("50m")),
+                ("TEST_AUTHN_OPEN_SIGNUPS", Some("false")),
+                ("TEST_AUTHN_SESSIONS_CACHE_CAPACITY", Some("30")),
+                ("TEST_AUTHN_SESSIONS_CACHE_TTL", Some("40m")),
+                ("TEST_AUTHN_SESSION_MAX_AGE", Some("10m")),
+                ("TEST_AUTHN_SESSION_MAX_SKEW", Some("20m")),
             ],
             || {
-                let opts = AuthnOptions::from_env("AUTHN").unwrap();
+                let opts = AuthnOptions::from_env("TEST").unwrap();
                 assert_eq!(
                     AuthnOptions {
                         email_retry_delay: Duration::from_secs(50 * 60),

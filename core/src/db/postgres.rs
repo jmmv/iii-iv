@@ -79,22 +79,22 @@ pub struct PostgresOptions {
 }
 
 impl PostgresOptions {
-    /// Initializes a set of options from environment variables whose name is prefixed with the
-    /// given `prefix`.
+    /// Initializes a set of options from environment variables for the service named by `prefix`.
     ///
-    /// This will use variables such as `<prefix>_HOST`, `<prefix>_PORT`, `<prefix>_DATABASE`,
-    /// `<prefix>_USERNAME`, `<prefix>_PASSWORD`, `<prefix>_MIN_CONNECTIONS`,
-    /// `<prefix>_MAX_CONNECTIONS` and `<prefix>_MAX_RETRIES`.
+    /// This will use variables such as `<prefix>_POSTGRES_HOST`, `<prefix>_POSTGRES_PORT`,
+    /// `<prefix>_POSTGRES_DATABASE`, `<prefix>_POSTGRES_USERNAME`,
+    /// `<prefix>_POSTGRES_PASSWORD`, `<prefix>_POSTGRES_MIN_CONNECTIONS`,
+    /// `<prefix>_POSTGRES_MAX_CONNECTIONS` and `<prefix>_POSTGRES_MAX_RETRIES`.
     pub fn from_env(prefix: &str) -> Result<PostgresOptions, String> {
         Ok(PostgresOptions {
-            host: get_optional_var::<String>(prefix, "HOST")?,
-            port: get_optional_var::<u16>(prefix, "PORT")?,
-            database: get_required_var::<String>(prefix, "DATABASE")?,
-            username: get_required_var::<String>(prefix, "USERNAME")?,
-            password: get_optional_var::<String>(prefix, "PASSWORD")?,
-            min_connections: get_optional_var::<u32>(prefix, "MIN_CONNECTIONS")?,
-            max_connections: get_optional_var::<u32>(prefix, "MAX_CONNECTIONS")?,
-            max_retries: get_optional_var::<u16>(prefix, "MAX_RETRIES")?
+            host: get_optional_var::<String>(prefix, "POSTGRES_HOST")?,
+            port: get_optional_var::<u16>(prefix, "POSTGRES_PORT")?,
+            database: get_required_var::<String>(prefix, "POSTGRES_DATABASE")?,
+            username: get_required_var::<String>(prefix, "POSTGRES_USERNAME")?,
+            password: get_optional_var::<String>(prefix, "POSTGRES_PASSWORD")?,
+            min_connections: get_optional_var::<u32>(prefix, "POSTGRES_MIN_CONNECTIONS")?,
+            max_connections: get_optional_var::<u32>(prefix, "POSTGRES_MAX_CONNECTIONS")?,
+            max_retries: get_optional_var::<u16>(prefix, "POSTGRES_MAX_RETRIES")?
                 .unwrap_or(DEFAULT_MAX_RETRIES),
         })
     }
@@ -413,7 +413,7 @@ pub mod testutils {
     pub async fn setup() -> PostgresDb {
         let _can_fail = env_logger::builder().is_test(true).try_init();
 
-        let mut opts = PostgresOptions::from_env("PGSQL_TEST").unwrap();
+        let mut opts = PostgresOptions::from_env("TEST").unwrap();
         opts.min_connections = Some(1);
         opts.max_connections = Some(1);
         let db = PostgresDb::connect(opts).unwrap();
@@ -440,7 +440,7 @@ mod tests {
             // connections to 1 but we need at least 2 for the concurrent tests to succeed.
             // This means that the tests cannot write to the database because we did not set
             // up the `search_path`.
-            let db = Arc::from(PostgresDb::connect(PostgresOptions::from_env("PGSQL_TEST").unwrap()).unwrap());
+            let db = Arc::from(PostgresDb::connect(PostgresOptions::from_env("TEST").unwrap()).unwrap());
             (db.clone(), db)
         },
         #[ignore = "Requires environment configuration and is expensive"]
@@ -455,18 +455,18 @@ mod tests {
     );
 
     #[test]
-    #[serial(PGSQL)]
+    #[serial(POSTGRES)]
     pub fn test_postgres_options_from_env_all_required_present() {
         temp_env::with_vars(
             [
-                ("PGSQL_HOST", None),
-                ("PGSQL_PORT", None),
-                ("PGSQL_DATABASE", Some("the-database")),
-                ("PGSQL_USERNAME", Some("the-username")),
-                ("PGSQL_PASSWORD", None),
+                ("TEST_POSTGRES_HOST", None),
+                ("TEST_POSTGRES_PORT", None),
+                ("TEST_POSTGRES_DATABASE", Some("the-database")),
+                ("TEST_POSTGRES_USERNAME", Some("the-username")),
+                ("TEST_POSTGRES_PASSWORD", None),
             ],
             || {
-                let opts = PostgresOptions::from_env("PGSQL").unwrap();
+                let opts = PostgresOptions::from_env("TEST").unwrap();
                 assert_eq!(
                     PostgresOptions {
                         host: None,
@@ -485,21 +485,21 @@ mod tests {
     }
 
     #[test]
-    #[serial(PGSQL)]
+    #[serial(POSTGRES)]
     pub fn test_postgres_options_from_env_all_required_and_optional_present() {
         temp_env::with_vars(
             [
-                ("PGSQL_HOST", Some("the-host")),
-                ("PGSQL_PORT", Some("1234")),
-                ("PGSQL_DATABASE", Some("the-database")),
-                ("PGSQL_USERNAME", Some("the-username")),
-                ("PGSQL_PASSWORD", Some("the-password")),
-                ("PGSQL_MIN_CONNECTIONS", Some("10")),
-                ("PGSQL_MAX_CONNECTIONS", Some("20")),
-                ("PGSQL_MAX_RETRIES", Some("30")),
+                ("TEST_POSTGRES_HOST", Some("the-host")),
+                ("TEST_POSTGRES_PORT", Some("1234")),
+                ("TEST_POSTGRES_DATABASE", Some("the-database")),
+                ("TEST_POSTGRES_USERNAME", Some("the-username")),
+                ("TEST_POSTGRES_PASSWORD", Some("the-password")),
+                ("TEST_POSTGRES_MIN_CONNECTIONS", Some("10")),
+                ("TEST_POSTGRES_MAX_CONNECTIONS", Some("20")),
+                ("TEST_POSTGRES_MAX_RETRIES", Some("30")),
             ],
             || {
-                let opts = PostgresOptions::from_env("PGSQL").unwrap();
+                let opts = PostgresOptions::from_env("TEST").unwrap();
                 assert_eq!(
                     PostgresOptions {
                         host: Some("the-host".to_owned()),
@@ -518,10 +518,12 @@ mod tests {
     }
 
     #[test]
-    #[serial(PGSQL)]
+    #[serial(POSTGRES)]
     pub fn test_postgres_options_from_env_missing() {
-        let overrides =
-            [("PGSQL_DATABASE", Some("the-database")), ("PGSQL_USERNAME", Some("the-username"))];
+        let overrides = [
+            ("TEST_POSTGRES_DATABASE", Some("the-database")),
+            ("TEST_POSTGRES_USERNAME", Some("the-username")),
+        ];
         for (var, _) in overrides {
             // Keep all variables except one.
             let mut overrides = overrides;
@@ -532,25 +534,25 @@ mod tests {
             }
 
             temp_env::with_vars(overrides, || {
-                let err = PostgresOptions::from_env("PGSQL").unwrap_err();
+                let err = PostgresOptions::from_env("TEST").unwrap_err();
                 assert!(err.contains(&format!("{} not present", var)));
             });
         }
     }
 
     #[test]
-    #[serial(PGSQL)]
+    #[serial(POSTGRES)]
     pub fn test_postgres_options_bad_port_type() {
         let overrides = [
-            ("PGSQL_HOST", Some("the-host")),
-            ("PGSQL_PORT", Some("not a number")),
-            ("PGSQL_DATABASE", Some("the-database")),
-            ("PGSQL_USERNAME", Some("the-username")),
-            ("PGSQL_PASSWORD", Some("the-password")),
+            ("TEST_POSTGRES_HOST", Some("the-host")),
+            ("TEST_POSTGRES_PORT", Some("not a number")),
+            ("TEST_POSTGRES_DATABASE", Some("the-database")),
+            ("TEST_POSTGRES_USERNAME", Some("the-username")),
+            ("TEST_POSTGRES_PASSWORD", Some("the-password")),
         ];
         temp_env::with_vars(overrides, || {
-            let err = PostgresOptions::from_env("PGSQL").unwrap_err();
-            assert!(err.contains("PGSQL_PORT"));
+            let err = PostgresOptions::from_env("TEST").unwrap_err();
+            assert!(err.contains("TEST_POSTGRES_PORT"));
             assert!(err.contains("Invalid u16"));
         });
     }

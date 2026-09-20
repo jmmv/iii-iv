@@ -93,17 +93,21 @@ impl Default for WorkerOptions {
 }
 
 impl WorkerOptions {
-    /// Creates a new set of options from environment variables.
+    /// Creates a new set of options from environment variables for the service named by `prefix`.
+    ///
+    /// This will use variables such as `<prefix>_WORKER_BATCH_SIZE` and
+    /// `<prefix>_WORKER_CONSUME_ALL`.
     pub fn from_env(prefix: &str) -> Result<Self, String> {
         Ok(Self {
-            batch_size: get_optional_var::<u16>(prefix, "BATCH_SIZE")?
+            batch_size: get_optional_var::<u16>(prefix, "WORKER_BATCH_SIZE")?
                 .unwrap_or(DEFAULT_BATCH_SIZE),
-            consume_all: get_optional_var::<bool>(prefix, "CONSUME_ALL")?
+            consume_all: get_optional_var::<bool>(prefix, "WORKER_CONSUME_ALL")?
                 .unwrap_or(DEFAULT_CONSUME_ALL),
-            max_runs: get_optional_var::<u8>(prefix, "MAX_RUNS")?.unwrap_or(DEFAULT_MAX_RUNS),
-            max_runtime: get_optional_var::<Duration>(prefix, "MAX_RUNTIME")?
+            max_runs: get_optional_var::<u8>(prefix, "WORKER_MAX_RUNS")?
+                .unwrap_or(DEFAULT_MAX_RUNS),
+            max_runtime: get_optional_var::<Duration>(prefix, "WORKER_MAX_RUNTIME")?
                 .unwrap_or(DEFAULT_MAX_RUNTIME),
-            retry_delay: get_optional_var::<Duration>(prefix, "RETRY_ON_ERROR_DELAY")?
+            retry_delay: get_optional_var::<Duration>(prefix, "WORKER_RETRY_ON_ERROR_DELAY")?
                 .unwrap_or(DEFAULT_RETRY_DELAY),
         })
     }
@@ -352,5 +356,55 @@ where
             }
             Err(e) => Err(DriverError::BackendError(format!("Cannot awaken worker task: {}", e))),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serial_test::serial;
+
+    #[test]
+    #[serial(WORKER)]
+    fn test_options_from_env_all_missing() {
+        temp_env::with_vars_unset(
+            [
+                "TEST_WORKER_BATCH_SIZE",
+                "TEST_WORKER_CONSUME_ALL",
+                "TEST_WORKER_MAX_RUNS",
+                "TEST_WORKER_MAX_RUNTIME",
+                "TEST_WORKER_RETRY_ON_ERROR_DELAY",
+            ],
+            || {
+                let opts = WorkerOptions::from_env("TEST").unwrap();
+                assert_eq!(DEFAULT_BATCH_SIZE, opts.batch_size);
+                assert_eq!(DEFAULT_CONSUME_ALL, opts.consume_all);
+                assert_eq!(DEFAULT_MAX_RUNS, opts.max_runs);
+                assert_eq!(DEFAULT_MAX_RUNTIME, opts.max_runtime);
+                assert_eq!(DEFAULT_RETRY_DELAY, opts.retry_delay);
+            },
+        );
+    }
+
+    #[test]
+    #[serial(WORKER)]
+    fn test_options_from_env_all_present() {
+        temp_env::with_vars(
+            [
+                ("TEST_WORKER_BATCH_SIZE", Some("10")),
+                ("TEST_WORKER_CONSUME_ALL", Some("false")),
+                ("TEST_WORKER_MAX_RUNS", Some("20")),
+                ("TEST_WORKER_MAX_RUNTIME", Some("30m")),
+                ("TEST_WORKER_RETRY_ON_ERROR_DELAY", Some("40m")),
+            ],
+            || {
+                let opts = WorkerOptions::from_env("TEST").unwrap();
+                assert_eq!(10, opts.batch_size);
+                assert!(!opts.consume_all);
+                assert_eq!(20, opts.max_runs);
+                assert_eq!(Duration::from_secs(30 * 60), opts.max_runtime);
+                assert_eq!(Duration::from_secs(40 * 60), opts.retry_delay);
+            },
+        );
     }
 }

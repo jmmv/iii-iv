@@ -51,14 +51,16 @@ impl Default for CachingGeoLocatorOptions {
 }
 
 impl CachingGeoLocatorOptions {
-    /// Creates a set of options from environment variables whose name is prefixed with the
-    /// given `prefix`.
+    /// Creates a set of options from environment variables for the service named by `prefix`.
     ///
-    /// This will use variables such as `<prefix>_TTL` and `<prefix>_CAPACITY`.
+    /// This will use variables such as `<prefix>_CACHING_GEO_LOCATOR_TTL` and
+    /// `<prefix>_CACHING_GEO_LOCATOR_CAPACITY`.
     pub fn from_env(prefix: &str) -> Result<Self, String> {
         Ok(Self {
-            ttl: get_optional_var::<Duration>(prefix, "TTL")?.unwrap_or(DEFAULT_TTL),
-            capacity: get_optional_var::<usize>(prefix, "CAPACITY")?.unwrap_or(DEFAULT_CAPACITY),
+            ttl: get_optional_var::<Duration>(prefix, "CACHING_GEO_LOCATOR_TTL")?
+                .unwrap_or(DEFAULT_TTL),
+            capacity: get_optional_var::<usize>(prefix, "CACHING_GEO_LOCATOR_CAPACITY")?
+                .unwrap_or(DEFAULT_CAPACITY),
         })
     }
 }
@@ -116,11 +118,14 @@ mod tests {
     use serial_test::serial;
 
     #[test]
-    #[serial(CACHING)]
+    #[serial(CACHING_GEO_LOCATOR)]
     pub fn test_options_from_env_all_present() {
-        let overrides = [("CACHING_TTL", Some("3d")), ("CACHING_CAPACITY", Some("1024"))];
+        let overrides = [
+            ("TEST_CACHING_GEO_LOCATOR_TTL", Some("3d")),
+            ("TEST_CACHING_GEO_LOCATOR_CAPACITY", Some("1024")),
+        ];
         temp_env::with_vars(overrides, || {
-            let opts = CachingGeoLocatorOptions::from_env("CACHING").unwrap();
+            let opts = CachingGeoLocatorOptions::from_env("TEST").unwrap();
             assert_eq!(
                 CachingGeoLocatorOptions {
                     ttl: Duration::from_secs(3 * 24 * 60 * 60),
@@ -132,11 +137,11 @@ mod tests {
     }
 
     #[test]
-    #[serial(CACHING)]
+    #[serial(CACHING_GEO_LOCATOR)]
     pub fn test_options_from_env_use_defaults() {
-        let overrides = ["CACHING_TTL", "CACHING_CAPACITY"];
+        let overrides = ["TEST_CACHING_GEO_LOCATOR_TTL", "TEST_CACHING_GEO_LOCATOR_CAPACITY"];
         temp_env::with_vars_unset(overrides, || {
-            let opts = CachingGeoLocatorOptions::from_env("CACHING").unwrap();
+            let opts = CachingGeoLocatorOptions::from_env("TEST").unwrap();
             assert_eq!(
                 CachingGeoLocatorOptions { ttl: DEFAULT_TTL, capacity: DEFAULT_CAPACITY },
                 opts
