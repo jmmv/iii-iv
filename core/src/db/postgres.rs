@@ -15,6 +15,7 @@
 
 //! Common utilities to interact with a PostgreSQL database.
 
+use crate::config::Options;
 use crate::db::{Db, DbError, DbResult, Executor, TxExecutor};
 use crate::env::{get_optional_var, get_required_var};
 use async_trait::async_trait;
@@ -78,14 +79,14 @@ pub struct PostgresOptions {
     pub max_retries: u16,
 }
 
-impl PostgresOptions {
+impl Options for PostgresOptions {
     /// Initializes a set of options from environment variables for the service named by `prefix`.
     ///
     /// This will use variables such as `<prefix>_POSTGRES_HOST`, `<prefix>_POSTGRES_PORT`,
     /// `<prefix>_POSTGRES_DATABASE`, `<prefix>_POSTGRES_USERNAME`,
     /// `<prefix>_POSTGRES_PASSWORD`, `<prefix>_POSTGRES_MIN_CONNECTIONS`,
     /// `<prefix>_POSTGRES_MAX_CONNECTIONS` and `<prefix>_POSTGRES_MAX_RETRIES`.
-    pub fn from_env(prefix: &str) -> Result<PostgresOptions, String> {
+    fn from_env(prefix: &str) -> Result<PostgresOptions, String> {
         Ok(PostgresOptions {
             host: get_optional_var::<String>(prefix, "POSTGRES_HOST")?,
             port: get_optional_var::<u16>(prefix, "POSTGRES_PORT")?,

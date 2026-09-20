@@ -23,6 +23,7 @@ use futures::future::join_all;
 use futures::stream::StreamExt;
 use futures::{Future, SinkExt};
 use iii_iv_core::clocks::Clock;
+use iii_iv_core::config::Options;
 use iii_iv_core::db::Db;
 use iii_iv_core::driver::{DriverError, DriverResult};
 use iii_iv_core::env::get_optional_var;
@@ -92,12 +93,12 @@ impl Default for WorkerOptions {
     }
 }
 
-impl WorkerOptions {
+impl Options for WorkerOptions {
     /// Creates a new set of options from environment variables for the service named by `prefix`.
     ///
     /// This will use variables such as `<prefix>_WORKER_BATCH_SIZE` and
     /// `<prefix>_WORKER_CONSUME_ALL`.
-    pub fn from_env(prefix: &str) -> Result<Self, String> {
+    fn from_env(prefix: &str) -> Result<Self, String> {
         Ok(Self {
             batch_size: get_optional_var::<u16>(prefix, "WORKER_BATCH_SIZE")?
                 .unwrap_or(DEFAULT_BATCH_SIZE),

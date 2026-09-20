@@ -21,6 +21,7 @@ use async_trait::async_trait;
 use derivative::Derivative;
 use futures::lock::Mutex;
 use iii_iv_core::clocks::Clock;
+use iii_iv_core::config::Options;
 use iii_iv_core::db::{Db, DbError, TxExecutor};
 use iii_iv_core::driver::{DriverError, DriverResult};
 use iii_iv_core::env::get_optional_var;
@@ -98,12 +99,12 @@ impl Default for AuthnOptions {
     }
 }
 
-impl AuthnOptions {
+impl Options for AuthnOptions {
     /// Creates a new set of options from environment variables for the service named by `prefix`.
     ///
     /// This will use variables such as `<prefix>_AUTHN_EMAIL_RETRY_DELAY` and
     /// `<prefix>_AUTHN_OPEN_SIGNUPS`.
-    pub fn from_env(prefix: &str) -> Result<Self, String> {
+    fn from_env(prefix: &str) -> Result<Self, String> {
         Ok(Self {
             email_retry_delay: get_optional_var::<Duration>(prefix, "AUTHN_EMAIL_RETRY_DELAY")?
                 .unwrap_or(DEFAULT_EMAIL_RETRY_DELAY),

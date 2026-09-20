@@ -19,6 +19,7 @@ use crate::{CountryIsoCode, GeoLocator, GeoResult};
 use async_trait::async_trait;
 use bytes::Buf;
 use derivative::Derivative;
+use iii_iv_core::config::Options;
 use iii_iv_core::env::get_required_var;
 use reqwest::{Client, Response, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -108,11 +109,11 @@ pub struct AzureGeoLocatorOptions {
     pub key: String,
 }
 
-impl AzureGeoLocatorOptions {
+impl Options for AzureGeoLocatorOptions {
     /// Creates a set of options from environment variables for the service named by `prefix`.
     ///
     /// This will use variables such as `<prefix>_AZURE_GEO_LOCATOR_KEY`.
-    pub fn from_env(prefix: &str) -> Result<Self, String> {
+    fn from_env(prefix: &str) -> Result<Self, String> {
         Ok(Self { key: get_required_var::<String>(prefix, "AZURE_GEO_LOCATOR_KEY")? })
     }
 }
