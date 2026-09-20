@@ -20,6 +20,7 @@
 #![warn(unused, unused_extern_crates, unused_import_braces, unused_qualifications)]
 #![warn(unsafe_code)]
 
+use iii_iv_core::config::Config;
 use iii_iv_core::db::Db;
 use iii_iv_core::db::postgres::{PostgresDb, PostgresOptions};
 use iii_iv_example::db::init_schema;
@@ -38,8 +39,8 @@ async fn main() {
     };
     let addr = (Ipv4Addr::LOCALHOST, port);
 
-    let db_opts = PostgresOptions::from_env("EXAMPLE").unwrap();
-    let db = Arc::from(PostgresDb::connect(db_opts).unwrap());
+    let mut config = Config::builder().register::<PostgresOptions>().from_env("EXAMPLE").unwrap();
+    let db = Arc::from(PostgresDb::connect(config.take::<PostgresOptions>()).unwrap());
     init_schema(&mut db.ex().await.unwrap()).await.unwrap();
 
     serve(addr, db).await.unwrap()

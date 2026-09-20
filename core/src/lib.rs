@@ -47,6 +47,7 @@
 //! Heavy dependencies are introduced by depending on sibling crates.
 
 pub mod clocks;
+pub mod config;
 pub mod db;
 pub mod driver;
 pub mod env;

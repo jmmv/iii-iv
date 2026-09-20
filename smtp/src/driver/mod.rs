@@ -19,6 +19,7 @@ use crate::db::{count_email_log, put_email_log, update_email_log};
 use async_trait::async_trait;
 use derivative::Derivative;
 use iii_iv_core::clocks::Clock;
+use iii_iv_core::config::Options;
 use iii_iv_core::db::Db;
 use iii_iv_core::driver::{DriverError, DriverResult};
 use iii_iv_core::env::{get_optional_var, get_required_var};
@@ -49,12 +50,12 @@ pub struct SmtpOptions {
     pub max_daily_emails: Option<usize>,
 }
 
-impl SmtpOptions {
+impl Options for SmtpOptions {
     /// Initializes a set of options from environment variables for the service named by `prefix`.
     ///
     /// This will use variables such as `<prefix>_SMTP_RELAY`, `<prefix>_SMTP_USERNAME`,
     /// `<prefix>_SMTP_PASSWORD` and `<prefix>_SMTP_MAX_DAILY_EMAILS`.
-    pub fn from_env(prefix: &str) -> Result<Self, String> {
+    fn from_env(prefix: &str) -> Result<Self, String> {
         Ok(Self {
             relay: get_required_var::<String>(prefix, "SMTP_RELAY")?,
             username: get_required_var::<String>(prefix, "SMTP_USERNAME")?,

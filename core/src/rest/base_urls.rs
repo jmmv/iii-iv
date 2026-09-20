@@ -15,8 +15,8 @@
 
 //! The `BaseUrls` type.
 
-use crate::env::get_optional_var;
-use crate::env::get_required_var;
+use crate::config::Options;
+use crate::env::{get_optional_var, get_required_var};
 use url::Url;
 
 /// Common error message for URLs built via hardcoded values.
@@ -60,15 +60,6 @@ impl BaseUrls {
         Ok(Self { backend, frontend })
     }
 
-    /// Creates a set of base URLs from environment variables for the service named by `prefix`.
-    ///
-    /// This will use variables such as `<prefix>_BACKEND_BASE_URL`, `<prefix>_FRONTEND_BASE_URL`.
-    pub fn from_env(prefix: &str) -> Result<Self, String> {
-        let backend = get_required_var::<Url>(prefix, "BACKEND_BASE_URL")?;
-        let frontend = get_optional_var::<Url>(prefix, "FRONTEND_BASE_URL")?;
-        Self::new(backend, frontend)
-    }
-
     /// Creates a set of base URLs from fixed strings, which must represent valid URLs.
     #[cfg(any(test, feature = "testutils"))]
     pub fn from_strs(backend: &'static str, frontend: Option<&'static str>) -> Self {
@@ -92,6 +83,17 @@ impl BaseUrls {
             Some(base) => base.join(path).expect(URL_MUST_BE_VALID),
             None => self.backend.join(path).expect(URL_MUST_BE_VALID),
         }
+    }
+}
+
+impl Options for BaseUrls {
+    /// Creates a set of base URLs from environment variables for the service named by `prefix`.
+    ///
+    /// This will use variables such as `<prefix>_BACKEND_BASE_URL`, `<prefix>_FRONTEND_BASE_URL`.
+    fn from_env(prefix: &str) -> Result<Self, String> {
+        let backend = get_required_var::<Url>(prefix, "BACKEND_BASE_URL")?;
+        let frontend = get_optional_var::<Url>(prefix, "FRONTEND_BASE_URL")?;
+        Self::new(backend, frontend)
     }
 }
 

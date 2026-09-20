@@ -19,6 +19,7 @@ use crate::{CountryIsoCode, GeoLocator, GeoResult};
 use async_trait::async_trait;
 use derivative::Derivative;
 use futures::lock::Mutex;
+use iii_iv_core::config::Options;
 use iii_iv_core::env::get_optional_var;
 use log::warn;
 use lru_time_cache::LruCache;
@@ -50,12 +51,12 @@ impl Default for CachingGeoLocatorOptions {
     }
 }
 
-impl CachingGeoLocatorOptions {
+impl Options for CachingGeoLocatorOptions {
     /// Creates a set of options from environment variables for the service named by `prefix`.
     ///
     /// This will use variables such as `<prefix>_CACHING_GEO_LOCATOR_TTL` and
     /// `<prefix>_CACHING_GEO_LOCATOR_CAPACITY`.
-    pub fn from_env(prefix: &str) -> Result<Self, String> {
+    fn from_env(prefix: &str) -> Result<Self, String> {
         Ok(Self {
             ttl: get_optional_var::<Duration>(prefix, "CACHING_GEO_LOCATOR_TTL")?
                 .unwrap_or(DEFAULT_TTL),
