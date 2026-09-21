@@ -15,6 +15,7 @@
 
 //! Utilities to deal with environment variables.
 
+use crate::model::SecretString;
 use std::{env, time::Duration};
 use url::Url;
 
@@ -29,6 +30,14 @@ impl TryFrom<Value> for String {
 
     fn try_from(value: Value) -> std::result::Result<Self, Self::Error> {
         Ok(value.0)
+    }
+}
+
+impl TryFrom<Value> for SecretString {
+    type Error = String;
+
+    fn try_from(value: Value) -> std::result::Result<Self, Self::Error> {
+        Ok(SecretString::new(value.0))
     }
 }
 
@@ -147,6 +156,14 @@ mod tests {
     #[test]
     fn test_value_to_string() {
         assert_eq!("foo bar", &TryInto::<String>::try_into(Value("foo bar".to_owned())).unwrap());
+    }
+
+    #[test]
+    fn test_value_to_secret_string() {
+        let secret = TryInto::<SecretString>::try_into(Value("foo bar".to_owned())).unwrap();
+        assert_eq!("foo bar", secret.as_str());
+        assert_eq!("scrubbed secret", format!("{:?}", secret));
+        assert_eq!("foo bar", secret.into_string());
     }
 
     #[test]

@@ -21,6 +21,7 @@ use bytes::Buf;
 use derivative::Derivative;
 use iii_iv_core::config::Options;
 use iii_iv_core::env::get_required_var;
+use iii_iv_core::model::SecretString;
 use reqwest::{Client, Response, StatusCode};
 use serde::{Deserialize, Serialize};
 use std::io;
@@ -106,7 +107,7 @@ struct LocateResponse {
 pub struct AzureGeoLocatorOptions {
     /// The API key to use to contact Azure Maps.
     #[derivative(Debug = "ignore")]
-    pub key: String,
+    pub key: SecretString,
 }
 
 impl Options for AzureGeoLocatorOptions {
@@ -114,7 +115,7 @@ impl Options for AzureGeoLocatorOptions {
     ///
     /// This will use variables such as `<prefix>_AZURE_GEO_LOCATOR_KEY`.
     fn from_env(prefix: &str) -> Result<Self, String> {
-        Ok(Self { key: get_required_var::<String>(prefix, "AZURE_GEO_LOCATOR_KEY")? })
+        Ok(Self { key: get_required_var::<SecretString>(prefix, "AZURE_GEO_LOCATOR_KEY")? })
     }
 }
 
@@ -131,7 +132,7 @@ pub struct AzureGeoLocator {
 impl AzureGeoLocator {
     /// Creates a new Azure Maps-backed geolocator using `opts` for configuration.
     pub fn new(opts: AzureGeoLocatorOptions) -> Self {
-        Self { key: opts.key, client: Client::default() }
+        Self { key: opts.key.into_string(), client: Client::default() }
     }
 }
 
@@ -201,7 +202,10 @@ mod tests {
         let overrides = [("TEST_AZURE_GEO_LOCATOR_KEY", Some("the-key"))];
         temp_env::with_vars(overrides, || {
             let opts = AzureGeoLocatorOptions::from_env("TEST").unwrap();
-            assert_eq!(AzureGeoLocatorOptions { key: "the-key".to_owned() }, opts);
+            assert_eq!(
+                AzureGeoLocatorOptions { key: SecretString::new("the-key".to_owned()) },
+                opts
+            );
         });
     }
 
@@ -211,7 +215,10 @@ mod tests {
         let overrides = [("TEST_AZURE_GEO_LOCATOR_KEY", Some("the-key"))];
         temp_env::with_vars(overrides, || {
             let opts = AzureGeoLocatorOptions::from_env("TEST").unwrap();
-            assert_eq!(AzureGeoLocatorOptions { key: "the-key".to_owned() }, opts);
+            assert_eq!(
+                AzureGeoLocatorOptions { key: SecretString::new("the-key".to_owned()) },
+                opts
+            );
         });
     }
 
