@@ -22,12 +22,9 @@ use url::Url;
 /// Result type for environment errors.
 pub(crate) type Result<T> = std::result::Result<T, String>;
 
-/// Wrapper around an environment variable's value to support conversions to other types.
-pub struct Value(String);
-
 /// Constructs the name of an environment variable from a service prefix and a suffix.
 pub fn var_name(prefix: &str, suffix: &str) -> String {
-    format!("{}_{}", prefix, suffix)
+    if prefix.is_empty() { suffix.to_owned() } else { format!("{}_{}", prefix, suffix) }
 }
 
 /// Formats a parsed environment value for effective-configuration logging.
@@ -78,60 +75,64 @@ impl<T: Debug> FormatValue for Option<T> {
     }
 }
 
-impl TryFrom<Value> for String {
-    type Error = String;
-
-    fn try_from(value: Value) -> std::result::Result<Self, Self::Error> {
-        Ok(value.0)
+impl<T: Debug> FormatValue for Vec<T> {
+    fn format_value(&self) -> String {
+        format!("{:?}", self)
     }
 }
 
-impl TryFrom<Value> for SecretString {
-    type Error = String;
+/// Parses an environment value into a configuration type.
+pub trait FromEnvValue: Sized {
+    /// Parses `value` into this type.
+    fn from_env_value(value: &str) -> Result<Self>;
+}
 
-    fn try_from(value: Value) -> std::result::Result<Self, Self::Error> {
-        Ok(SecretString::new(value.0))
+impl FromEnvValue for String {
+    fn from_env_value(value: &str) -> Result<Self> {
+        Ok(value.to_owned())
     }
 }
 
-/// Generates a `TryFrom<Value>` for a type that can be parsed by `FromStr`.
-macro_rules! tryfrom_value_for_fromstr [
+impl FromEnvValue for SecretString {
+    fn from_env_value(value: &str) -> Result<Self> {
+        Ok(SecretString::new(value.to_owned()))
+    }
+}
+
+/// Implements [`FromEnvValue`] for types that can be parsed by `FromStr`.
+macro_rules! from_env_value_for_fromstr [
     ( $t:ty ) => {
-        impl TryFrom<Value> for $t {
-            type Error = String;
-
-            fn try_from(value: Value) -> std::result::Result<Self, Self::Error> {
-                value.0.parse::<$t>().map_err(|e| format!("Invalid {}: {}", stringify!($t), e))
+        impl FromEnvValue for $t {
+            fn from_env_value(value: &str) -> Result<Self> {
+                value.parse::<$t>().map_err(|e| format!("Invalid {}: {}", stringify!($t), e))
             }
         }
     }
 ];
 
-tryfrom_value_for_fromstr!(bool);
-tryfrom_value_for_fromstr!(i8);
-tryfrom_value_for_fromstr!(i16);
-tryfrom_value_for_fromstr!(i32);
-tryfrom_value_for_fromstr!(i64);
-tryfrom_value_for_fromstr!(i128);
-tryfrom_value_for_fromstr!(u8);
-tryfrom_value_for_fromstr!(u16);
-tryfrom_value_for_fromstr!(u32);
-tryfrom_value_for_fromstr!(u64);
-tryfrom_value_for_fromstr!(u128);
-tryfrom_value_for_fromstr!(usize);
+from_env_value_for_fromstr!(bool);
+from_env_value_for_fromstr!(i8);
+from_env_value_for_fromstr!(i16);
+from_env_value_for_fromstr!(i32);
+from_env_value_for_fromstr!(i64);
+from_env_value_for_fromstr!(i128);
+from_env_value_for_fromstr!(u8);
+from_env_value_for_fromstr!(u16);
+from_env_value_for_fromstr!(u32);
+from_env_value_for_fromstr!(u64);
+from_env_value_for_fromstr!(u128);
+from_env_value_for_fromstr!(usize);
 
-impl TryFrom<Value> for Duration {
-    type Error = String;
-
-    fn try_from(value: Value) -> std::result::Result<Self, Self::Error> {
+impl FromEnvValue for Duration {
+    fn from_env_value(value: &str) -> Result<Self> {
         let mut split_point = 0;
-        for (i, ch) in value.0.chars().enumerate() {
+        for (i, ch) in value.chars().enumerate() {
             if !ch.is_ascii_digit() {
                 split_point = i;
                 break;
             }
         }
-        let (quantity, unit) = value.0.split_at(split_point);
+        let (quantity, unit) = value.split_at(split_point);
 
         let quantity = quantity
             .parse::<u64>()
@@ -148,26 +149,27 @@ impl TryFrom<Value> for Duration {
     }
 }
 
-impl TryFrom<Value> for Url {
-    type Error = String;
-
-    fn try_from(value: Value) -> std::result::Result<Self, Self::Error> {
-        match Url::parse(&value.0) {
+impl FromEnvValue for Url {
+    fn from_env_value(value: &str) -> Result<Self> {
+        match Url::parse(value) {
             Ok(url) => Ok(url),
-            Err(e) => Err(format!("Invalid URL '{}': '{}'", value.0, e)),
+            Err(e) => Err(format!("Invalid URL '{}': '{}'", value, e)),
         }
+    }
+}
+
+impl<T: FromEnvValue> FromEnvValue for Vec<T> {
+    fn from_env_value(value: &str) -> Result<Self> {
+        value.split(',').map(T::from_env_value).collect()
     }
 }
 
 /// Gets an optional environment variable whose name is `<prefix>_<suffix>` with a conversion to
 /// a target type `T`.
-pub fn get_optional_var<T: TryFrom<Value, Error = String>>(
-    prefix: &str,
-    suffix: &str,
-) -> Result<Option<T>> {
+pub fn get_optional_var<T: FromEnvValue>(prefix: &str, suffix: &str) -> Result<Option<T>> {
     let name = var_name(prefix, suffix);
     match env::var(&name) {
-        Ok(value) => match Value(value).try_into() {
+        Ok(value) => match T::from_env_value(&value) {
             Ok(value) => Ok(Some(value)),
             Err(e) => Err(format!("Invalid type in environment variable {}: {}", name, e)),
         },
@@ -180,13 +182,10 @@ pub fn get_optional_var<T: TryFrom<Value, Error = String>>(
 
 /// Gets a required environment variable whose name is `<prefix>_<suffix>` with a conversion to
 /// a target type `T`.
-pub fn get_required_var<T: TryFrom<Value, Error = String>>(
-    prefix: &str,
-    suffix: &str,
-) -> Result<T> {
+pub fn get_required_var<T: FromEnvValue>(prefix: &str, suffix: &str) -> Result<T> {
     let name = var_name(prefix, suffix);
     match env::var(&name) {
-        Ok(value) => match Value(value).try_into() {
+        Ok(value) => match T::from_env_value(&value) {
             Ok(value) => Ok(value),
             Err(e) => Err(format!("Invalid type in environment variable {}: {}", name, e)),
         },
@@ -206,38 +205,63 @@ mod tests {
     use std::ffi::OsStr;
     use std::os::unix::ffi::OsStrExt;
 
-    #[test]
-    fn test_value_to_string() {
-        assert_eq!("foo bar", &TryInto::<String>::try_into(Value("foo bar".to_owned())).unwrap());
+    /// Value parsed by an application-defined environment parser.
+    struct UppercaseString(String);
+
+    impl FromEnvValue for UppercaseString {
+        fn from_env_value(value: &str) -> Result<Self> {
+            Ok(Self(value.to_ascii_uppercase()))
+        }
     }
 
     #[test]
-    fn test_value_to_secret_string() {
-        let secret = TryInto::<SecretString>::try_into(Value("foo bar".to_owned())).unwrap();
+    fn test_from_env_value_custom() {
+        assert_eq!("VALUE", UppercaseString::from_env_value("value").unwrap().0);
+    }
+
+    #[test]
+    fn test_from_env_value_vec() {
+        assert_eq!(vec![1, 2, 3], Vec::<u16>::from_env_value("1,2,3").unwrap());
+        assert!(Vec::<u16>::from_env_value("1,nope,3").is_err());
+    }
+
+    #[test]
+    fn test_var_name_empty_prefix() {
+        assert_eq!("SETTING", var_name("", "SETTING"));
+    }
+
+    #[test]
+    fn test_from_env_value_string() {
+        assert_eq!("foo bar", String::from_env_value("foo bar").unwrap());
+    }
+
+    #[test]
+    fn test_from_env_value_secret_string() {
+        let secret = SecretString::from_env_value("foo bar").unwrap();
         assert_eq!("foo bar", secret.as_str());
         assert_eq!("scrubbed secret", format!("{:?}", secret));
         assert_eq!("foo bar", secret.into_string());
     }
 
     #[test]
-    fn test_value_to_fromstr_bool() {
-        assert!(!TryInto::<bool>::try_into(Value("false".to_owned())).unwrap());
-        assert!(TryInto::<bool>::try_into(Value("true".to_owned())).unwrap());
+    fn test_from_env_value_fromstr_bool() {
+        assert!(!bool::from_env_value("false").unwrap());
+        assert!(bool::from_env_value("true").unwrap());
 
-        let err = TryInto::<bool>::try_into(Value("-1".to_owned())).unwrap_err();
+        let err = bool::from_env_value("-1").unwrap_err();
         assert!(err.starts_with("Invalid bool:"));
     }
 
     #[test]
-    fn test_value_to_fromstr_integer() {
-        assert_eq!(1234u16, TryInto::<u16>::try_into(Value("1234".to_owned())).unwrap());
+    fn test_from_env_value_fromstr_integer() {
+        assert_eq!(1234u16, u16::from_env_value("1234").unwrap());
 
-        let err = TryInto::<u16>::try_into(Value("-1".to_owned())).unwrap_err();
+        let err = u16::from_env_value("-1").unwrap_err();
         assert!(err.starts_with("Invalid u16:"));
     }
 
     #[test]
-    fn test_value_to_duration() {
+    fn test_from_env_value_duration() {
         for (exp_duration, raw) in [
             (Duration::from_millis(3), "3ms"),
             (Duration::from_millis(123456789), "123456789ms"),
@@ -251,7 +275,7 @@ mod tests {
             (Duration::from_secs(u64::MAX), &format!("{}h", u64::MAX)),
             (Duration::from_secs(u64::MAX), &format!("{}d", u64::MAX)),
         ] {
-            assert_eq!(exp_duration, TryInto::<Duration>::try_into(Value(raw.to_owned())).unwrap());
+            assert_eq!(exp_duration, Duration::from_env_value(raw).unwrap());
         }
 
         for (exp_err, raw) in [
@@ -264,16 +288,16 @@ mod tests {
             ("Invalid time quantity '':", " 1s"),
             ("Invalid time unit 's '", "1s "),
         ] {
-            let err = TryInto::<Duration>::try_into(Value(raw.to_owned())).unwrap_err();
+            let err = Duration::from_env_value(raw).unwrap_err();
             assert!(err.starts_with(exp_err), "Error '{}' does not start with '{}'", err, exp_err);
         }
     }
 
     #[test]
-    fn test_value_to_url() {
+    fn test_from_env_value_url() {
         assert_eq!(
             &Url::parse("https://somewhere.example.com/").unwrap(),
-            &TryInto::<Url>::try_into(Value("https://somewhere.example.com/".to_owned())).unwrap()
+            &Url::from_env_value("https://somewhere.example.com/").unwrap()
         );
     }
 

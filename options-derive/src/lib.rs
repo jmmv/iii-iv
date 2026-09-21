@@ -34,7 +34,7 @@ pub fn derive_options(input: TokenStream) -> TokenStream {
 
 /// Derives the implementation for `input`.
 fn derive_options_impl(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
-    let prefix = parse_prefix(&input.attrs)?;
+    let (prefix, constructor) = parse_options(&input.attrs)?;
     let fields = match input.data {
         Data::Struct(data) => match data.fields {
             Fields::Named(fields) => fields.named,
@@ -52,16 +52,21 @@ fn derive_options_impl(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
 
     let core = core_crate_path()?;
     let ident = input.ident;
-    let mut initializers = Vec::with_capacity(fields.len());
+    let mut field_idents = Vec::with_capacity(fields.len());
+    let mut values = Vec::with_capacity(fields.len());
     let mut formatters = Vec::with_capacity(fields.len());
 
     for field in fields {
         let field_ident = field.ident.expect("Named fields have an identifier");
         let default = parse_default(&field.attrs)?;
-        let suffix = format!("{}_{}", prefix.value(), upper_snake_case(&field_ident));
+        let suffix = if prefix.value().is_empty() {
+            upper_snake_case(&field_ident)
+        } else {
+            format!("{}_{}", prefix.value(), upper_snake_case(&field_ident))
+        };
         let field_type = field.ty;
 
-        let initializer = match (option_inner_type(&field_type), default) {
+        let value = match (option_inner_type(&field_type), default) {
             (Some(_), Some(default)) => {
                 let mut error =
                     Error::new_spanned(field_ident, "Option fields cannot declare a default");
@@ -69,17 +74,18 @@ fn derive_options_impl(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
                 return Err(error);
             }
             (Some(inner), None) => quote! {
-                #field_ident: #core::env::get_optional_var::<#inner>(prefix, #suffix)?
+                #core::env::get_optional_var::<#inner>(prefix, #suffix)?
             },
             (None, Some(default)) => quote! {
-                #field_ident: #core::env::get_optional_var::<#field_type>(prefix, #suffix)?
+                #core::env::get_optional_var::<#field_type>(prefix, #suffix)?
                     .unwrap_or(#default)
             },
             (None, None) => quote! {
-                #field_ident: #core::env::get_required_var::<#field_type>(prefix, #suffix)?
+                #core::env::get_required_var::<#field_type>(prefix, #suffix)?
             },
         };
-        initializers.push(initializer);
+        field_idents.push(field_ident.clone());
+        values.push(value);
         formatters.push(quote! {
             (
                 #core::env::var_name(prefix, #suffix),
@@ -88,10 +94,18 @@ fn derive_options_impl(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
         });
     }
 
+    let construction = match constructor {
+        Some(constructor) => quote! {
+            #(let #field_idents = #values;)*
+            #constructor(#(#field_idents),*)
+        },
+        None => quote! { Ok(Self { #(#field_idents: #values),* }) },
+    };
+
     Ok(quote! {
         impl #core::config::Options for #ident {
             fn from_env(prefix: &str) -> ::std::result::Result<Self, String> {
-                Ok(Self { #(#initializers),* })
+                #construction
             }
 
             fn format_all(&self, prefix: &str) -> ::std::vec::Vec<(String, String)> {
@@ -113,27 +127,37 @@ fn core_crate_path() -> Result<proc_macro2::TokenStream> {
     }
 }
 
-/// Parses the struct-level options prefix.
-fn parse_prefix(attributes: &[Attribute]) -> Result<LitStr> {
+/// Parses the struct-level options.
+fn parse_options(attributes: &[Attribute]) -> Result<(LitStr, Option<Expr>)> {
     let mut prefix = None;
+    let mut constructor = None;
     for attribute in attributes {
         if !attribute.path().is_ident("options") {
             continue;
         }
         attribute.parse_nested_meta(|meta| {
-            if !meta.path.is_ident("prefix") {
+            if meta.path.is_ident("prefix") {
+                if prefix.is_some() {
+                    return Err(meta.error("Options prefix was declared more than once"));
+                }
+                prefix = Some(meta.value()?.parse()?);
+            } else if meta.path.is_ident("constructor") {
+                if constructor.is_some() {
+                    return Err(meta.error("Options constructor was declared more than once"));
+                }
+                constructor = Some(meta.value()?.parse()?);
+            } else {
                 return Err(meta.error("Unsupported options attribute"));
             }
-            if prefix.is_some() {
-                return Err(meta.error("Options prefix was declared more than once"));
-            }
-            prefix = Some(meta.value()?.parse()?);
             Ok(())
         })?;
     }
-    prefix.ok_or_else(|| {
-        Error::new(proc_macro2::Span::call_site(), "Missing #[options(prefix = \"…\")]")
-    })
+    Ok((
+        prefix.ok_or_else(|| {
+            Error::new(proc_macro2::Span::call_site(), "Missing #[options(prefix = \"…\")]")
+        })?,
+        constructor,
+    ))
 }
 
 /// Parses the optional default expression on a field.

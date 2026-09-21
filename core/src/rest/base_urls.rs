@@ -16,7 +16,6 @@
 //! The `BaseUrls` type.
 
 use crate::config::Options;
-use crate::env::{get_optional_var, get_required_var, var_name};
 use url::Url;
 
 /// Common error message for URLs built via hardcoded values.
@@ -41,13 +40,15 @@ fn ensure_valid_base(base: &Url) -> Result<(), String> {
 /// servers though, which is a common workflow during development.  For example, the backend
 /// may be started and left running while the developer iterates on the frontend code using
 /// the dev server of whichever framework is in use.
+#[derive(Options)]
 #[cfg_attr(test, derive(Debug, Eq, PartialEq))]
+#[options(prefix = "", constructor = Self::new)]
 pub struct BaseUrls {
     /// The base URL to the backend service (ourselves).
-    backend: Url,
+    backend_base_url: Url,
 
     /// The base URL to the frontend service.  Should be `None` if the frontend is served by us.
-    frontend: Option<Url>,
+    frontend_base_url: Option<Url>,
 }
 
 impl BaseUrls {
@@ -57,7 +58,7 @@ impl BaseUrls {
         if let Some(frontend) = frontend.as_ref() {
             ensure_valid_base(frontend)?;
         }
-        Ok(Self { backend, frontend })
+        Ok(Self { backend_base_url: backend, frontend_base_url: frontend })
     }
 
     /// Creates a set of base URLs from fixed strings, which must represent valid URLs.
@@ -72,35 +73,17 @@ impl BaseUrls {
     /// empty to obtain a reference to the root.
     pub fn make_backend_url(&self, path: &str) -> Url {
         assert!(!path.starts_with('/'));
-        self.backend.join(path).expect(URL_MUST_BE_VALID)
+        self.backend_base_url.join(path).expect(URL_MUST_BE_VALID)
     }
 
     /// Generates a URL to the frontend given a `path`, which must be relative.  The `path` can be
     /// empty to obtain a reference to the root.
     pub fn make_frontend_url(&self, path: &str) -> Url {
         assert!(!path.starts_with('/'));
-        match self.frontend.as_ref() {
+        match self.frontend_base_url.as_ref() {
             Some(base) => base.join(path).expect(URL_MUST_BE_VALID),
-            None => self.backend.join(path).expect(URL_MUST_BE_VALID),
+            None => self.backend_base_url.join(path).expect(URL_MUST_BE_VALID),
         }
-    }
-}
-
-impl Options for BaseUrls {
-    /// Creates a set of base URLs from environment variables for the service named by `prefix`.
-    ///
-    /// This will use variables such as `<prefix>_BACKEND_BASE_URL`, `<prefix>_FRONTEND_BASE_URL`.
-    fn from_env(prefix: &str) -> Result<Self, String> {
-        let backend = get_required_var::<Url>(prefix, "BACKEND_BASE_URL")?;
-        let frontend = get_optional_var::<Url>(prefix, "FRONTEND_BASE_URL")?;
-        Self::new(backend, frontend)
-    }
-
-    fn format_all(&self, prefix: &str) -> Vec<(String, String)> {
-        vec![
-            (var_name(prefix, "BACKEND_BASE_URL"), self.backend.to_string()),
-            (var_name(prefix, "FRONTEND_BASE_URL"), format!("{:?}", self.frontend)),
-        ]
     }
 }
 
@@ -155,7 +138,10 @@ mod tests {
         temp_env::with_vars(overrides, || {
             let opts = BaseUrls::from_env("TEST").unwrap();
             assert_eq!(
-                BaseUrls { backend: url("https://backend.example.com/api/"), frontend: None },
+                BaseUrls {
+                    backend_base_url: url("https://backend.example.com/api/"),
+                    frontend_base_url: None,
+                },
                 opts
             );
         });
@@ -172,8 +158,8 @@ mod tests {
             let opts = BaseUrls::from_env("TEST").unwrap();
             assert_eq!(
                 BaseUrls {
-                    backend: url("https://backend.example.com/api/"),
-                    frontend: Some(url("https://frontend.example.com/")),
+                    backend_base_url: url("https://backend.example.com/api/"),
+                    frontend_base_url: Some(url("https://frontend.example.com/")),
                 },
                 opts
             );

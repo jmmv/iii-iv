@@ -16,95 +16,48 @@
 //! Utilities to configure CORS for the REST service.
 
 use crate::config::Options;
-use crate::env::{Result, get_optional_var, var_name};
+use crate::env::{FromEnvValue, Result};
 use crate::rest::BaseUrls;
 use http::{HeaderName, HeaderValue, Method, header};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 /// Configuration options for CORS.
+#[derive(Options)]
 #[cfg_attr(test, derive(Debug, Eq, PartialEq))]
+#[options(prefix = "CORS")]
 pub struct CorsOptions {
     /// List of allowed origins.
+    #[option(default = Vec::new())]
     allow_origin: Vec<HeaderValue>,
 
     /// Whether credentials are allowed or not.
+    #[option(default = false)]
     allow_credentials: bool,
 
     /// List of allowed methods.
+    #[option(default = Vec::new())]
     allow_methods: Vec<Method>,
 
     /// List of allowed headers.
+    #[option(default = Vec::new())]
     allow_headers: Vec<HeaderName>,
 }
 
-impl Options for CorsOptions {
-    /// Creates CORS options from environment variables for the service named by `prefix`.
-    ///
-    /// This will use variables such as `<prefix>_CORS_ALLOW_ORIGIN`,
-    /// `<prefix>_CORS_ALLOW_CREDENTIALS`, `<prefix>_CORS_ALLOW_METHODS`, and
-    /// `<prefix>_CORS_ALLOW_HEADERS`.
-    fn from_env(prefix: &str) -> Result<Self> {
-        let mut allow_origin = vec![];
-        if let Some(env_str) = get_optional_var::<String>(prefix, "CORS_ALLOW_ORIGIN")? {
-            for s in env_str.split(',') {
-                let origin = match s.parse() {
-                    Ok(origin) => origin,
-                    Err(e) => {
-                        return Err(format!(
-                            "Invalid value in {}_CORS_ALLOW_ORIGIN: {}",
-                            prefix, e
-                        ));
-                    }
-                };
-                allow_origin.push(origin);
-            }
-        }
-
-        let allow_credentials =
-            get_optional_var::<bool>(prefix, "CORS_ALLOW_CREDENTIALS")?.unwrap_or(false);
-
-        let mut allow_methods = vec![];
-        if let Some(env_str) = get_optional_var::<String>(prefix, "CORS_ALLOW_METHODS")? {
-            for s in env_str.split(',') {
-                let method = match s.parse() {
-                    Ok(method) => method,
-                    Err(e) => {
-                        return Err(format!(
-                            "Invalid value in {}_CORS_ALLOW_METHODS: {}",
-                            prefix, e
-                        ));
-                    }
-                };
-                allow_methods.push(method);
-            }
-        }
-
-        let mut allow_headers = vec![];
-        if let Some(env_str) = get_optional_var::<String>(prefix, "CORS_ALLOW_HEADERS")? {
-            for s in env_str.split(',') {
-                let header = match s.parse() {
-                    Ok(header) => header,
-                    Err(e) => {
-                        return Err(format!(
-                            "Invalid value in {}_CORS_ALLOW_HEADERS: {}",
-                            prefix, e
-                        ));
-                    }
-                };
-                allow_headers.push(header);
-            }
-        }
-
-        Ok(Self { allow_origin, allow_credentials, allow_methods, allow_headers })
+impl FromEnvValue for HeaderName {
+    fn from_env_value(value: &str) -> Result<Self> {
+        value.parse::<Self>().map_err(|error| error.to_string())
     }
+}
 
-    fn format_all(&self, prefix: &str) -> Vec<(String, String)> {
-        vec![
-            (var_name(prefix, "CORS_ALLOW_ORIGIN"), format!("{:?}", self.allow_origin)),
-            (var_name(prefix, "CORS_ALLOW_CREDENTIALS"), self.allow_credentials.to_string()),
-            (var_name(prefix, "CORS_ALLOW_METHODS"), format!("{:?}", self.allow_methods)),
-            (var_name(prefix, "CORS_ALLOW_HEADERS"), format!("{:?}", self.allow_headers)),
-        ]
+impl FromEnvValue for HeaderValue {
+    fn from_env_value(value: &str) -> Result<Self> {
+        value.parse::<Self>().map_err(|error| error.to_string())
+    }
+}
+
+impl FromEnvValue for Method {
+    fn from_env_value(value: &str) -> Result<Self> {
+        value.parse::<Self>().map_err(|error| error.to_string())
     }
 }
 
@@ -307,7 +260,9 @@ mod tests {
         ];
         temp_env::with_vars(overrides, || {
             let error = CorsOptions::from_env("TEST").unwrap_err();
-            assert!(error.starts_with("Invalid value in TEST_CORS_ALLOW_ORIGIN:"));
+            assert!(
+                error.starts_with("Invalid type in environment variable TEST_CORS_ALLOW_ORIGIN:")
+            );
         });
     }
 
