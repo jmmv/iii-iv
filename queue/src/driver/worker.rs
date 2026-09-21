@@ -77,7 +77,7 @@ pub struct WorkerOptions {
 
     /// Default delay to use when retrying tasks that ask to use the default delay, which is often
     /// used for retryable errors.
-    pub retry_delay: Duration,
+    pub retry_on_error_delay: Duration,
 }
 
 #[cfg(any(test, feature = "testutils"))]
@@ -88,7 +88,7 @@ impl Default for WorkerOptions {
             consume_all: DEFAULT_CONSUME_ALL,
             max_runs: DEFAULT_MAX_RUNS,
             max_runtime: DEFAULT_MAX_RUNTIME,
-            retry_delay: DEFAULT_RETRY_DELAY,
+            retry_on_error_delay: DEFAULT_RETRY_DELAY,
         }
     }
 }
@@ -108,8 +108,11 @@ impl Options for WorkerOptions {
                 .unwrap_or(DEFAULT_MAX_RUNS),
             max_runtime: get_optional_var::<Duration>(prefix, "WORKER_MAX_RUNTIME")?
                 .unwrap_or(DEFAULT_MAX_RUNTIME),
-            retry_delay: get_optional_var::<Duration>(prefix, "WORKER_RETRY_ON_ERROR_DELAY")?
-                .unwrap_or(DEFAULT_RETRY_DELAY),
+            retry_on_error_delay: get_optional_var::<Duration>(
+                prefix,
+                "WORKER_RETRY_ON_ERROR_DELAY",
+            )?
+            .unwrap_or(DEFAULT_RETRY_DELAY),
         })
     }
 
@@ -119,7 +122,10 @@ impl Options for WorkerOptions {
             (var_name(prefix, "WORKER_CONSUME_ALL"), self.consume_all.to_string()),
             (var_name(prefix, "WORKER_MAX_RUNS"), self.max_runs.to_string()),
             (var_name(prefix, "WORKER_MAX_RUNTIME"), format!("{:?}", self.max_runtime)),
-            (var_name(prefix, "WORKER_RETRY_ON_ERROR_DELAY"), format!("{:?}", self.retry_delay)),
+            (
+                var_name(prefix, "WORKER_RETRY_ON_ERROR_DELAY"),
+                format!("{:?}", self.retry_on_error_delay),
+            ),
         ]
     }
 }
@@ -248,7 +254,7 @@ where
                 exec.clone(),
                 opts.max_runs,
                 opts.max_runtime,
-                opts.retry_delay,
+                opts.retry_on_error_delay,
                 db.clone(),
                 clock.clone(),
             ));
@@ -392,7 +398,7 @@ mod tests {
                 assert_eq!(DEFAULT_CONSUME_ALL, opts.consume_all);
                 assert_eq!(DEFAULT_MAX_RUNS, opts.max_runs);
                 assert_eq!(DEFAULT_MAX_RUNTIME, opts.max_runtime);
-                assert_eq!(DEFAULT_RETRY_DELAY, opts.retry_delay);
+                assert_eq!(DEFAULT_RETRY_DELAY, opts.retry_on_error_delay);
             },
         );
     }
@@ -414,7 +420,7 @@ mod tests {
                 assert!(!opts.consume_all);
                 assert_eq!(20, opts.max_runs);
                 assert_eq!(Duration::from_secs(30 * 60), opts.max_runtime);
-                assert_eq!(Duration::from_secs(40 * 60), opts.retry_delay);
+                assert_eq!(Duration::from_secs(40 * 60), opts.retry_on_error_delay);
             },
         );
     }

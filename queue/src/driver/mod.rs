@@ -531,14 +531,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_task_retry_result_zero_delay() {
-        let opts = WorkerOptions { retry_delay: Duration::from_secs(300), ..Default::default() };
+        let opts =
+            WorkerOptions { retry_on_error_delay: Duration::from_secs(300), ..Default::default() };
         let mut context = TestContext::setup_one_connected(opts.clone()).await;
 
         let task = MockTask { id: 123, defer: Some((1, Duration::ZERO)), ..Default::default() };
         let id = context.client.enqueue(&mut context.ex().await, &task).await.unwrap();
 
         // Make sure the task does not run if not enough time has passed.
-        context.clock.advance(opts.retry_delay - Duration::from_secs(1));
+        context.clock.advance(opts.retry_on_error_delay - Duration::from_secs(1));
         for _ in 0..10 {
             {
                 let state = context.state.lock().await;
