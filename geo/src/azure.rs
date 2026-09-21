@@ -20,7 +20,7 @@ use async_trait::async_trait;
 use bytes::Buf;
 use derivative::Derivative;
 use iii_iv_core::config::Options;
-use iii_iv_core::env::get_required_var;
+use iii_iv_core::env::{get_required_var, var_name};
 use iii_iv_core::model::SecretString;
 use reqwest::{Client, Response, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -116,6 +116,10 @@ impl Options for AzureGeoLocatorOptions {
     /// This will use variables such as `<prefix>_AZURE_GEO_LOCATOR_KEY`.
     fn from_env(prefix: &str) -> Result<Self, String> {
         Ok(Self { key: get_required_var::<SecretString>(prefix, "AZURE_GEO_LOCATOR_KEY")? })
+    }
+
+    fn format_all(&self, prefix: &str) -> Vec<(String, String)> {
+        vec![(var_name(prefix, "AZURE_GEO_LOCATOR_KEY"), format!("{:?}", self.key))]
     }
 }
 

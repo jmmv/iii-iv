@@ -26,7 +26,7 @@ use iii_iv_core::clocks::Clock;
 use iii_iv_core::config::Options;
 use iii_iv_core::db::Db;
 use iii_iv_core::driver::{DriverError, DriverResult};
-use iii_iv_core::env::get_optional_var;
+use iii_iv_core::env::{get_optional_var, var_name};
 use log::{info, warn};
 use serde::de::DeserializeOwned;
 use std::marker::PhantomData;
@@ -111,6 +111,16 @@ impl Options for WorkerOptions {
             retry_delay: get_optional_var::<Duration>(prefix, "WORKER_RETRY_ON_ERROR_DELAY")?
                 .unwrap_or(DEFAULT_RETRY_DELAY),
         })
+    }
+
+    fn format_all(&self, prefix: &str) -> Vec<(String, String)> {
+        vec![
+            (var_name(prefix, "WORKER_BATCH_SIZE"), self.batch_size.to_string()),
+            (var_name(prefix, "WORKER_CONSUME_ALL"), self.consume_all.to_string()),
+            (var_name(prefix, "WORKER_MAX_RUNS"), self.max_runs.to_string()),
+            (var_name(prefix, "WORKER_MAX_RUNTIME"), format!("{:?}", self.max_runtime)),
+            (var_name(prefix, "WORKER_RETRY_ON_ERROR_DELAY"), format!("{:?}", self.retry_delay)),
+        ]
     }
 }
 

@@ -13,7 +13,6 @@ workspace = true
 default = []
 postgres = [
     "dep:futures",
-    "dep:log",
     "dep:rand",
     "dep:regex",
     "sqlx/postgres",
@@ -21,7 +20,6 @@ postgres = [
 ]
 sqlite = [
     "dep:futures",
-    "dep:log",
     "sqlx/sqlite",
     "sqlx/runtime-tokio-rustls",
 ]
@@ -52,7 +50,7 @@ http-body = { workspace = true, optional = true }
 http = { workspace = true }
 hyper = { workspace = true, optional = true }
 json_value_merge = { workspace = true, optional = true }
-log = { workspace = true, optional = true }
+log = { workspace = true }
 mime = { workspace = true, optional = true }
 paste = { workspace = true, optional = true }
 rand = { workspace = true, optional = true }
