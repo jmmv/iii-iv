@@ -17,7 +17,7 @@
 
 use crate::config::Options;
 use crate::db::{Db, DbError, DbResult, Executor, TxExecutor};
-use crate::env::{get_optional_var, get_required_var};
+use crate::env::{get_optional_var, get_required_var, var_name};
 use crate::model::SecretString;
 use async_trait::async_trait;
 use derivative::Derivative;
@@ -99,6 +99,19 @@ impl Options for PostgresOptions {
             max_retries: get_optional_var::<u16>(prefix, "POSTGRES_MAX_RETRIES")?
                 .unwrap_or(DEFAULT_MAX_RETRIES),
         })
+    }
+
+    fn format_all(&self, prefix: &str) -> Vec<(String, String)> {
+        vec![
+            (var_name(prefix, "POSTGRES_HOST"), format!("{:?}", self.host)),
+            (var_name(prefix, "POSTGRES_PORT"), format!("{:?}", self.port)),
+            (var_name(prefix, "POSTGRES_DATABASE"), self.database.clone()),
+            (var_name(prefix, "POSTGRES_USERNAME"), self.username.clone()),
+            (var_name(prefix, "POSTGRES_PASSWORD"), format!("{:?}", self.password)),
+            (var_name(prefix, "POSTGRES_MIN_CONNECTIONS"), format!("{:?}", self.min_connections)),
+            (var_name(prefix, "POSTGRES_MAX_CONNECTIONS"), format!("{:?}", self.max_connections)),
+            (var_name(prefix, "POSTGRES_MAX_RETRIES"), self.max_retries.to_string()),
+        ]
     }
 }
 

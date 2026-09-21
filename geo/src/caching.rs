@@ -20,7 +20,7 @@ use async_trait::async_trait;
 use derivative::Derivative;
 use futures::lock::Mutex;
 use iii_iv_core::config::Options;
-use iii_iv_core::env::get_optional_var;
+use iii_iv_core::env::{get_optional_var, var_name};
 use log::warn;
 use lru_time_cache::LruCache;
 use std::net::IpAddr;
@@ -63,6 +63,13 @@ impl Options for CachingGeoLocatorOptions {
             capacity: get_optional_var::<usize>(prefix, "CACHING_GEO_LOCATOR_CAPACITY")?
                 .unwrap_or(DEFAULT_CAPACITY),
         })
+    }
+
+    fn format_all(&self, prefix: &str) -> Vec<(String, String)> {
+        vec![
+            (var_name(prefix, "CACHING_GEO_LOCATOR_TTL"), format!("{:?}", self.ttl)),
+            (var_name(prefix, "CACHING_GEO_LOCATOR_CAPACITY"), self.capacity.to_string()),
+        ]
     }
 }
 

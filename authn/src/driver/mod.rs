@@ -24,7 +24,7 @@ use iii_iv_core::clocks::Clock;
 use iii_iv_core::config::Options;
 use iii_iv_core::db::{Db, DbError, TxExecutor};
 use iii_iv_core::driver::{DriverError, DriverResult};
-use iii_iv_core::env::get_optional_var;
+use iii_iv_core::env::{get_optional_var, var_name};
 use iii_iv_queue::driver::Client;
 use log::warn;
 use lru_time_cache::LruCache;
@@ -121,6 +121,23 @@ impl Options for AuthnOptions {
             session_max_skew: get_optional_var::<Duration>(prefix, "AUTHN_SESSION_MAX_SKEW")?
                 .unwrap_or(DEFAULT_SESSION_MAX_SKEW),
         })
+    }
+
+    fn format_all(&self, prefix: &str) -> Vec<(String, String)> {
+        vec![
+            (var_name(prefix, "AUTHN_EMAIL_RETRY_DELAY"), format!("{:?}", self.email_retry_delay)),
+            (var_name(prefix, "AUTHN_OPEN_SIGNUPS"), self.open_signups.to_string()),
+            (
+                var_name(prefix, "AUTHN_SESSIONS_CACHE_CAPACITY"),
+                self.sessions_cache_capacity.to_string(),
+            ),
+            (
+                var_name(prefix, "AUTHN_SESSIONS_CACHE_TTL"),
+                format!("{:?}", self.sessions_cache_ttl),
+            ),
+            (var_name(prefix, "AUTHN_SESSION_MAX_AGE"), format!("{:?}", self.session_max_age)),
+            (var_name(prefix, "AUTHN_SESSION_MAX_SKEW"), format!("{:?}", self.session_max_skew)),
+        ]
     }
 }
 

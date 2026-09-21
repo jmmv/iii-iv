@@ -25,6 +25,10 @@ pub(crate) type Result<T> = std::result::Result<T, String>;
 /// Wrapper around an environment variable's value to support conversions to other types.
 pub struct Value(String);
 
+/// Constructs the name of an environment variable from a service prefix and a suffix.
+pub fn var_name(prefix: &str, suffix: &str) -> String {
+    format!("{}_{}", prefix, suffix)
+}
 impl TryFrom<Value> for String {
     type Error = String;
 
@@ -112,7 +116,7 @@ pub fn get_optional_var<T: TryFrom<Value, Error = String>>(
     prefix: &str,
     suffix: &str,
 ) -> Result<Option<T>> {
-    let name = format!("{}_{}", prefix, suffix);
+    let name = var_name(prefix, suffix);
     match env::var(&name) {
         Ok(value) => match Value(value).try_into() {
             Ok(value) => Ok(Some(value)),
@@ -131,7 +135,7 @@ pub fn get_required_var<T: TryFrom<Value, Error = String>>(
     prefix: &str,
     suffix: &str,
 ) -> Result<T> {
-    let name = format!("{}_{}", prefix, suffix);
+    let name = var_name(prefix, suffix);
     match env::var(&name) {
         Ok(value) => match Value(value).try_into() {
             Ok(value) => Ok(value),

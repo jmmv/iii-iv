@@ -22,7 +22,7 @@ use iii_iv_core::clocks::Clock;
 use iii_iv_core::config::Options;
 use iii_iv_core::db::Db;
 use iii_iv_core::driver::{DriverError, DriverResult};
-use iii_iv_core::env::{get_optional_var, get_required_var};
+use iii_iv_core::env::{get_optional_var, get_required_var, var_name};
 use iii_iv_core::model::SecretString;
 use lettre::message::Message;
 use lettre::transport::smtp::authentication::Credentials;
@@ -63,6 +63,15 @@ impl Options for SmtpOptions {
             password: get_required_var::<SecretString>(prefix, "SMTP_PASSWORD")?,
             max_daily_emails: get_optional_var::<usize>(prefix, "SMTP_MAX_DAILY_EMAILS")?,
         })
+    }
+
+    fn format_all(&self, prefix: &str) -> Vec<(String, String)> {
+        vec![
+            (var_name(prefix, "SMTP_RELAY"), self.relay.clone()),
+            (var_name(prefix, "SMTP_USERNAME"), self.username.clone()),
+            (var_name(prefix, "SMTP_PASSWORD"), format!("{:?}", self.password)),
+            (var_name(prefix, "SMTP_MAX_DAILY_EMAILS"), format!("{:?}", self.max_daily_emails)),
+        ]
     }
 }
 

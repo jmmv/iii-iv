@@ -28,6 +28,10 @@
 //!     fn from_env(_prefix: &str) -> Result<Self, String> {
 //!         Ok(Self)
 //!     }
+//!
+//!     fn format_all(&self, prefix: &str) -> Vec<(String, String)> {
+//!         vec![(format!("{}_SERVICE_OPTION", prefix), "value".to_owned())]
+//!     }
 //! }
 //!
 //! let mut config = Config::builder()
@@ -41,6 +45,7 @@
 //! [`Config::take`] to extract the options.  Configuration should be dumped before components
 //! take ownership of their options.
 
+use log::info;
 use std::any::{Any, TypeId, type_name};
 
 /// Interface implemented by all component configuration objects.
@@ -49,18 +54,45 @@ pub trait Options: Any + Send + Sync {
     fn from_env(prefix: &str) -> Result<Self, String>
     where
         Self: Sized;
+
+    /// Formats all environment settings that configure this object.
+    ///
+    /// The returned names must include `prefix` and the values must reflect the effective parsed
+    /// configuration, including defaults.
+    fn format_all(&self, prefix: &str) -> Vec<(String, String)>;
 }
 
 /// A collection of configuration objects loaded for a service.
 pub struct Config {
     /// The loaded configuration objects.
     options: Vec<Box<dyn Options>>,
+
+    /// Prefix used to load the configuration objects.
+    prefix: String,
 }
 
 impl Config {
     /// Creates a builder for a service configuration.
     pub fn builder() -> ConfigBuilder {
         ConfigBuilder { registrations: vec![] }
+    }
+
+    /// Dumps all available configuration settings to the log.
+    pub fn log(&self) {
+        for (name, value) in self.formatted_entries() {
+            info!("{}={}", name, value);
+        }
+    }
+
+    /// Formats all available configuration settings in lexicographical name order.
+    fn formatted_entries(&self) -> Vec<(String, String)> {
+        let mut entries = self
+            .options
+            .iter()
+            .flat_map(|options| options.format_all(&self.prefix))
+            .collect::<Vec<_>>();
+        entries.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+        entries
     }
 
     /// Returns the configuration object of type `T`.
@@ -157,7 +189,9 @@ impl ConfigBuilder {
             })?;
             options.push(value);
         }
-        Ok(Config { options })
+        let config = Config { options, prefix: prefix.to_owned() };
+        config.log();
+        Ok(config)
     }
 }
 
@@ -170,6 +204,9 @@ mod tests {
     /// Records whether options after a failing registration were loaded.
     static LOADED_AFTER_ERROR: AtomicBool = AtomicBool::new(false);
 
+    /// Records whether a successfully loaded configuration was formatted.
+    static FORMATTED: AtomicBool = AtomicBool::new(false);
+
     /// Records the order in which dummy options are loaded.
     static TRACE: Mutex<Vec<usize>> = Mutex::new(vec![]);
 
@@ -181,6 +218,11 @@ mod tests {
         fn from_env(prefix: &str) -> Result<Self, String> {
             Ok(Self(format!("{}-first", prefix)))
         }
+
+        fn format_all(&self, prefix: &str) -> Vec<(String, String)> {
+            FORMATTED.store(true, Ordering::SeqCst);
+            vec![(format!("{}_FIRST", prefix), self.0.clone())]
+        }
     }
 
     /// Dummy options type that fails to load.
@@ -189,6 +231,10 @@ mod tests {
     impl Options for InvalidOptions {
         fn from_env(prefix: &str) -> Result<Self, String> {
             Err(format!("Invalid {} settings", prefix))
+        }
+
+        fn format_all(&self, _prefix: &str) -> Vec<(String, String)> {
+            vec![]
         }
     }
 
@@ -200,6 +246,10 @@ mod tests {
             LOADED_AFTER_ERROR.store(true, Ordering::SeqCst);
             Ok(Self)
         }
+
+        fn format_all(&self, _prefix: &str) -> Vec<(String, String)> {
+            vec![]
+        }
     }
 
     /// Dummy options type used to verify loading order.
@@ -210,6 +260,10 @@ mod tests {
             TRACE.lock().unwrap().push(N);
             Ok(Self)
         }
+
+        fn format_all(&self, _prefix: &str) -> Vec<(String, String)> {
+            vec![]
+        }
     }
 
     /// Second dummy options type.
@@ -219,6 +273,10 @@ mod tests {
     impl Options for SecondOptions {
         fn from_env(prefix: &str) -> Result<Self, String> {
             Ok(Self(format!("{}-second", prefix)))
+        }
+
+        fn format_all(&self, prefix: &str) -> Vec<(String, String)> {
+            vec![(format!("{}_SECOND", prefix), self.0.clone())]
         }
     }
 
@@ -232,6 +290,32 @@ mod tests {
 
         assert_eq!(&FirstOptions("TEST-first".to_owned()), config.get::<FirstOptions>());
         assert_eq!(&SecondOptions("TEST-second".to_owned()), config.get::<SecondOptions>());
+    }
+
+    #[test]
+    fn test_log_sorts_entries() {
+        let config = Config::builder()
+            .register::<SecondOptions>()
+            .register::<FirstOptions>()
+            .from_env("TEST")
+            .unwrap();
+
+        assert_eq!(
+            vec![
+                ("TEST_FIRST".to_owned(), "TEST-first".to_owned()),
+                ("TEST_SECOND".to_owned(), "TEST-second".to_owned()),
+            ],
+            config.formatted_entries()
+        );
+    }
+
+    #[test]
+    fn test_from_env_logs() {
+        FORMATTED.store(false, Ordering::SeqCst);
+
+        let _ = Config::builder().register::<FirstOptions>().from_env("TEST").unwrap();
+
+        assert!(FORMATTED.load(Ordering::SeqCst));
     }
 
     #[test]

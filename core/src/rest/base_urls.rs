@@ -16,7 +16,7 @@
 //! The `BaseUrls` type.
 
 use crate::config::Options;
-use crate::env::{get_optional_var, get_required_var};
+use crate::env::{get_optional_var, get_required_var, var_name};
 use url::Url;
 
 /// Common error message for URLs built via hardcoded values.
@@ -94,6 +94,13 @@ impl Options for BaseUrls {
         let backend = get_required_var::<Url>(prefix, "BACKEND_BASE_URL")?;
         let frontend = get_optional_var::<Url>(prefix, "FRONTEND_BASE_URL")?;
         Self::new(backend, frontend)
+    }
+
+    fn format_all(&self, prefix: &str) -> Vec<(String, String)> {
+        vec![
+            (var_name(prefix, "BACKEND_BASE_URL"), self.backend.to_string()),
+            (var_name(prefix, "FRONTEND_BASE_URL"), format!("{:?}", self.frontend)),
+        ]
     }
 }
 

@@ -16,7 +16,7 @@
 //! Utilities to configure CORS for the REST service.
 
 use crate::config::Options;
-use crate::env::{Result, get_optional_var};
+use crate::env::{Result, get_optional_var, var_name};
 use crate::rest::BaseUrls;
 use http::{HeaderName, HeaderValue, Method, header};
 use tower_http::cors::{AllowOrigin, CorsLayer};
@@ -96,6 +96,15 @@ impl Options for CorsOptions {
         }
 
         Ok(Self { allow_origin, allow_credentials, allow_methods, allow_headers })
+    }
+
+    fn format_all(&self, prefix: &str) -> Vec<(String, String)> {
+        vec![
+            (var_name(prefix, "CORS_ALLOW_ORIGIN"), format!("{:?}", self.allow_origin)),
+            (var_name(prefix, "CORS_ALLOW_CREDENTIALS"), self.allow_credentials.to_string()),
+            (var_name(prefix, "CORS_ALLOW_METHODS"), format!("{:?}", self.allow_methods)),
+            (var_name(prefix, "CORS_ALLOW_HEADERS"), format!("{:?}", self.allow_headers)),
+        ]
     }
 }
 
