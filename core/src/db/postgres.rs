@@ -18,6 +18,7 @@
 use crate::config::Options;
 use crate::db::{Db, DbError, DbResult, Executor, TxExecutor};
 use crate::env::{get_optional_var, get_required_var};
+use crate::model::SecretString;
 use async_trait::async_trait;
 use derivative::Derivative;
 use futures::Future;
@@ -66,7 +67,7 @@ pub struct PostgresOptions {
 
     /// Password to establish the connection with.
     #[derivative(Debug = "ignore")]
-    pub password: Option<String>,
+    pub password: Option<SecretString>,
 
     /// Minimum number of connections to keep open against the database.
     pub min_connections: Option<u32>,
@@ -92,7 +93,7 @@ impl Options for PostgresOptions {
             port: get_optional_var::<u16>(prefix, "POSTGRES_PORT")?,
             database: get_required_var::<String>(prefix, "POSTGRES_DATABASE")?,
             username: get_required_var::<String>(prefix, "POSTGRES_USERNAME")?,
-            password: get_optional_var::<String>(prefix, "POSTGRES_PASSWORD")?,
+            password: get_optional_var::<SecretString>(prefix, "POSTGRES_PASSWORD")?,
             min_connections: get_optional_var::<u32>(prefix, "POSTGRES_MIN_CONNECTIONS")?,
             max_connections: get_optional_var::<u32>(prefix, "POSTGRES_MAX_CONNECTIONS")?,
             max_retries: get_optional_var::<u16>(prefix, "POSTGRES_MAX_RETRIES")?
@@ -355,7 +356,7 @@ impl PostgresDb {
             options = options.port(port);
         }
         if let Some(password) = &opts.password {
-            options = options.password(password);
+            options = options.password(password.as_str());
         }
 
         let pool = pool_options.connect_lazy_with(options);
@@ -507,7 +508,7 @@ mod tests {
                         port: Some(1234),
                         database: "the-database".to_owned(),
                         username: "the-username".to_owned(),
-                        password: Some("the-password".to_owned()),
+                        password: Some(SecretString::new("the-password".to_owned())),
                         min_connections: Some(10),
                         max_connections: Some(20),
                         max_retries: 30,

@@ -23,6 +23,7 @@ use iii_iv_core::config::Options;
 use iii_iv_core::db::Db;
 use iii_iv_core::driver::{DriverError, DriverResult};
 use iii_iv_core::env::{get_optional_var, get_required_var};
+use iii_iv_core::model::SecretString;
 use lettre::message::Message;
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Tokio1Executor};
@@ -44,7 +45,7 @@ pub struct SmtpOptions {
 
     /// Password for logging into the SMTP server.
     #[derivative(Debug = "ignore")]
-    pub password: String,
+    pub password: SecretString,
 
     /// Maximum number of messages to send per day, if any.
     pub max_daily_emails: Option<usize>,
@@ -59,7 +60,7 @@ impl Options for SmtpOptions {
         Ok(Self {
             relay: get_required_var::<String>(prefix, "SMTP_RELAY")?,
             username: get_required_var::<String>(prefix, "SMTP_USERNAME")?,
-            password: get_required_var::<String>(prefix, "SMTP_PASSWORD")?,
+            password: get_required_var::<SecretString>(prefix, "SMTP_PASSWORD")?,
             max_daily_emails: get_optional_var::<usize>(prefix, "SMTP_MAX_DAILY_EMAILS")?,
         })
     }
@@ -183,7 +184,8 @@ pub fn new_prod_driver(
     db: Arc<dyn Db + Send + Sync>,
     clock: Arc<dyn Clock + Send + Sync>,
 ) -> Result<SmtpDriver<LettreSmtpMailer>, String> {
-    let transport = LettreSmtpMailer::connect(&opts.relay, opts.username, opts.password)?;
+    let transport =
+        LettreSmtpMailer::connect(&opts.relay, opts.username, opts.password.into_string())?;
     Ok(SmtpDriver::new(transport, db, clock, opts.max_daily_emails))
 }
 
@@ -210,7 +212,7 @@ mod tests {
                 SmtpOptions {
                     relay: "the-relay".to_owned(),
                     username: "the-username".to_owned(),
-                    password: "the-password".to_owned(),
+                    password: SecretString::new("the-password".to_owned()),
                     max_daily_emails: None,
                 },
                 opts
@@ -233,7 +235,7 @@ mod tests {
                 SmtpOptions {
                     relay: "the-relay".to_owned(),
                     username: "the-username".to_owned(),
-                    password: "the-password".to_owned(),
+                    password: SecretString::new("the-password".to_owned()),
                     max_daily_emails: Some(123),
                 },
                 opts

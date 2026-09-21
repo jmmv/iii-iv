@@ -15,6 +15,8 @@
 
 //! Generic data types often useful in REST services.
 
+use std::fmt;
+
 mod emailaddress;
 pub use emailaddress::EmailAddress;
 #[cfg(any(test, feature = "testutils"))]
@@ -23,6 +25,33 @@ mod username;
 pub use username::Username;
 #[cfg(any(test, feature = "testutils"))]
 pub use username::username;
+
+/// An opaque string that contains sensitive data.
+#[derive(Clone, Eq, PartialEq)]
+pub struct SecretString(String);
+
+impl SecretString {
+    /// Creates a new secret string.
+    pub fn new(value: String) -> Self {
+        Self(value)
+    }
+
+    /// Returns a string view of the secret.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Returns the secret string.
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl fmt::Debug for SecretString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("scrubbed secret")
+    }
+}
 
 /// Data model errors.
 #[derive(Debug, PartialEq, thiserror::Error)]
