@@ -41,6 +41,25 @@ struct DerivedOptions {
     secret: SecretString,
 }
 
+/// Options that require construction-time validation.
+#[derive(Debug, iii_iv_options_derive::Options)]
+#[options(prefix = "", constructor = Self::new)]
+struct ConstructorOptions {
+    /// Value checked by the constructor.
+    constructor_value: u8,
+}
+
+impl ConstructorOptions {
+    /// Constructs validated options.
+    fn new(constructor_value: u8) -> Result<Self, String> {
+        if constructor_value == 0 {
+            Err("Constructor value cannot be zero".to_owned())
+        } else {
+            Ok(Self { constructor_value })
+        }
+    }
+}
+
 #[test]
 #[serial]
 fn test_options() {
@@ -70,4 +89,15 @@ fn test_options() {
             );
         },
     );
+}
+
+#[test]
+#[serial]
+fn test_options_constructor() {
+    temp_env::with_var("TEST_CONSTRUCTOR_VALUE", Some("2"), || {
+        assert_eq!(2, ConstructorOptions::from_env("TEST").unwrap().constructor_value);
+    });
+    temp_env::with_var("TEST_CONSTRUCTOR_VALUE", Some("0"), || {
+        assert!(ConstructorOptions::from_env("TEST").unwrap_err().contains("cannot be zero"));
+    });
 }
