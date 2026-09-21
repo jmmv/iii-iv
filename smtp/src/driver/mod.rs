@@ -22,7 +22,6 @@ use iii_iv_core::clocks::Clock;
 use iii_iv_core::config::Options;
 use iii_iv_core::db::Db;
 use iii_iv_core::driver::{DriverError, DriverResult};
-use iii_iv_core::env::{get_optional_var, get_required_var, var_name};
 use iii_iv_core::model::SecretString;
 use lettre::message::Message;
 use lettre::transport::smtp::authentication::Credentials;
@@ -33,9 +32,10 @@ use std::sync::Arc;
 pub mod testutils;
 
 /// Options to establish an SMTP connection.
-#[derive(Derivative)]
+#[derive(Derivative, Options)]
 #[derivative(Debug)]
 #[cfg_attr(test, derivative(PartialEq))]
+#[options(prefix = "SMTP")]
 pub struct SmtpOptions {
     /// SMTP server to use.
     pub relay: String,
@@ -49,30 +49,6 @@ pub struct SmtpOptions {
 
     /// Maximum number of messages to send per day, if any.
     pub max_daily_emails: Option<usize>,
-}
-
-impl Options for SmtpOptions {
-    /// Initializes a set of options from environment variables for the service named by `prefix`.
-    ///
-    /// This will use variables such as `<prefix>_SMTP_RELAY`, `<prefix>_SMTP_USERNAME`,
-    /// `<prefix>_SMTP_PASSWORD` and `<prefix>_SMTP_MAX_DAILY_EMAILS`.
-    fn from_env(prefix: &str) -> Result<Self, String> {
-        Ok(Self {
-            relay: get_required_var::<String>(prefix, "SMTP_RELAY")?,
-            username: get_required_var::<String>(prefix, "SMTP_USERNAME")?,
-            password: get_required_var::<SecretString>(prefix, "SMTP_PASSWORD")?,
-            max_daily_emails: get_optional_var::<usize>(prefix, "SMTP_MAX_DAILY_EMAILS")?,
-        })
-    }
-
-    fn format_all(&self, prefix: &str) -> Vec<(String, String)> {
-        vec![
-            (var_name(prefix, "SMTP_RELAY"), self.relay.clone()),
-            (var_name(prefix, "SMTP_USERNAME"), self.username.clone()),
-            (var_name(prefix, "SMTP_PASSWORD"), format!("{:?}", self.password)),
-            (var_name(prefix, "SMTP_MAX_DAILY_EMAILS"), format!("{:?}", self.max_daily_emails)),
-        ]
-    }
 }
 
 /// Trait to abstract the integration with the mailer.

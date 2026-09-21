@@ -24,7 +24,6 @@ use iii_iv_core::clocks::Clock;
 use iii_iv_core::config::Options;
 use iii_iv_core::db::{Db, DbError, TxExecutor};
 use iii_iv_core::driver::{DriverError, DriverResult};
-use iii_iv_core::env::{get_optional_var, var_name};
 use iii_iv_queue::driver::Client;
 use log::warn;
 use lru_time_cache::LruCache;
@@ -62,27 +61,34 @@ const DEFAULT_SESSION_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 const DEFAULT_SESSION_MAX_SKEW: Duration = Duration::from_secs(60 * 60);
 
 /// Configuration options for the authentication driver.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Options)]
 #[cfg_attr(test, derive(PartialEq))]
+#[options(prefix = "AUTHN")]
 pub struct AuthnOptions {
     /// Delay before retrying email deliveries.
+    #[option(default = DEFAULT_EMAIL_RETRY_DELAY)]
     pub email_retry_delay: Duration,
 
     /// Whether users can sign up without an invitation.
+    #[option(default = true)]
     pub open_signups: bool,
 
     /// The number of sessions to keep cached in memory.
+    #[option(default = DEFAULT_SESSIONS_CACHE_CAPACITY)]
     pub sessions_cache_capacity: usize,
 
     /// The mount of time to keep cached sessions in memory.
+    #[option(default = DEFAULT_SESSIONS_CACHE_TTL)]
     pub sessions_cache_ttl: Duration,
 
     /// The amount of time we consider sessions valid for.
+    #[option(default = DEFAULT_SESSION_MAX_AGE)]
     pub session_max_age: Duration,
 
     /// The amount of time we tolerate in clock skew when validating sessions.  We should never see
     /// this, except if we end up serving requests from different machines and their clocks aren't
     /// properly synchronized.
+    #[option(default = DEFAULT_SESSION_MAX_SKEW)]
     pub session_max_skew: Duration,
 }
 
@@ -96,48 +102,6 @@ impl Default for AuthnOptions {
             session_max_age: DEFAULT_SESSION_MAX_AGE,
             session_max_skew: DEFAULT_SESSION_MAX_SKEW,
         }
-    }
-}
-
-impl Options for AuthnOptions {
-    /// Creates a new set of options from environment variables for the service named by `prefix`.
-    ///
-    /// This will use variables such as `<prefix>_AUTHN_EMAIL_RETRY_DELAY` and
-    /// `<prefix>_AUTHN_OPEN_SIGNUPS`.
-    fn from_env(prefix: &str) -> Result<Self, String> {
-        Ok(Self {
-            email_retry_delay: get_optional_var::<Duration>(prefix, "AUTHN_EMAIL_RETRY_DELAY")?
-                .unwrap_or(DEFAULT_EMAIL_RETRY_DELAY),
-            open_signups: get_optional_var::<bool>(prefix, "AUTHN_OPEN_SIGNUPS")?.unwrap_or(true),
-            sessions_cache_capacity: get_optional_var::<usize>(
-                prefix,
-                "AUTHN_SESSIONS_CACHE_CAPACITY",
-            )?
-            .unwrap_or(DEFAULT_SESSIONS_CACHE_CAPACITY),
-            sessions_cache_ttl: get_optional_var::<Duration>(prefix, "AUTHN_SESSIONS_CACHE_TTL")?
-                .unwrap_or(DEFAULT_SESSIONS_CACHE_TTL),
-            session_max_age: get_optional_var::<Duration>(prefix, "AUTHN_SESSION_MAX_AGE")?
-                .unwrap_or(DEFAULT_SESSION_MAX_AGE),
-            session_max_skew: get_optional_var::<Duration>(prefix, "AUTHN_SESSION_MAX_SKEW")?
-                .unwrap_or(DEFAULT_SESSION_MAX_SKEW),
-        })
-    }
-
-    fn format_all(&self, prefix: &str) -> Vec<(String, String)> {
-        vec![
-            (var_name(prefix, "AUTHN_EMAIL_RETRY_DELAY"), format!("{:?}", self.email_retry_delay)),
-            (var_name(prefix, "AUTHN_OPEN_SIGNUPS"), self.open_signups.to_string()),
-            (
-                var_name(prefix, "AUTHN_SESSIONS_CACHE_CAPACITY"),
-                self.sessions_cache_capacity.to_string(),
-            ),
-            (
-                var_name(prefix, "AUTHN_SESSIONS_CACHE_TTL"),
-                format!("{:?}", self.sessions_cache_ttl),
-            ),
-            (var_name(prefix, "AUTHN_SESSION_MAX_AGE"), format!("{:?}", self.session_max_age)),
-            (var_name(prefix, "AUTHN_SESSION_MAX_SKEW"), format!("{:?}", self.session_max_skew)),
-        ]
     }
 }
 

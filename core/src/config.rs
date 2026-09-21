@@ -48,6 +48,8 @@
 use log::info;
 use std::any::{Any, TypeId, type_name};
 
+pub use iii_iv_options_derive::Options;
+
 /// Interface implemented by all component configuration objects.
 pub trait Options: Any + Send + Sync {
     /// Creates a new set of options from environment variables for the service named by `prefix`.

@@ -16,7 +16,7 @@
 //! Utilities to deal with environment variables.
 
 use crate::model::SecretString;
-use std::{env, time::Duration};
+use std::{env, fmt::Debug, time::Duration};
 use url::Url;
 
 /// Result type for environment errors.
@@ -29,6 +29,55 @@ pub struct Value(String);
 pub fn var_name(prefix: &str, suffix: &str) -> String {
     format!("{}_{}", prefix, suffix)
 }
+
+/// Formats a parsed environment value for effective-configuration logging.
+pub fn format_value<T: FormatValue>(value: &T) -> String {
+    value.format_value()
+}
+
+/// Formats a parsed environment value for effective-configuration logging.
+pub trait FormatValue {
+    /// Formats this value without exposing secrets.
+    fn format_value(&self) -> String;
+}
+
+/// Implements [`FormatValue`] for types that use their debug representation.
+macro_rules! format_value_for_debug {
+    ( $( $t:ty ),+ $(,)? ) => {
+        $(
+            impl FormatValue for $t {
+                fn format_value(&self) -> String {
+                    format!("{:?}", self)
+                }
+            }
+        )+
+    };
+}
+
+/// Implements [`FormatValue`] for types that use their display representation.
+macro_rules! format_value_for_display {
+    ( $( $t:ty ),+ $(,)? ) => {
+        $(
+            impl FormatValue for $t {
+                fn format_value(&self) -> String {
+                    self.to_string()
+                }
+            }
+        )+
+    };
+}
+
+format_value_for_debug!(Duration, SecretString);
+format_value_for_display!(
+    bool, i8, i16, i32, i64, i128, u8, u16, u32, u64, u128, usize, String, Url,
+);
+
+impl<T: Debug> FormatValue for Option<T> {
+    fn format_value(&self) -> String {
+        format!("{:?}", self)
+    }
+}
+
 impl TryFrom<Value> for String {
     type Error = String;
 
