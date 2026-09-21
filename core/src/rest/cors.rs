@@ -15,18 +15,15 @@
 
 //! Utilities to configure CORS for the REST service.
 
+use crate::config::Options;
 use crate::env::{Result, get_optional_var};
 use crate::rest::BaseUrls;
 use http::{HeaderName, HeaderValue, Method, header};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
-/// Builder for a `CorsLayer` to merge settings form various sources.
-//
-// The various `Vec`s in here would be better represented as `HashSet`s.  Unfortunately, that
-// makes testing difficult because we can't place restrictions on ordering and some of the values
-// we store do not derive `Ord`.  Using `Vec`s keeps order stable, albeit at the expense of an
-// inconsequential inefficiency during construction.
-struct CorsLayerBuilder {
+/// Configuration options for CORS.
+#[cfg_attr(test, derive(Debug, Eq, PartialEq))]
+pub struct CorsOptions {
     /// List of allowed origins.
     allow_origin: Vec<HeaderValue>,
 
@@ -40,12 +37,12 @@ struct CorsLayerBuilder {
     allow_headers: Vec<HeaderName>,
 }
 
-impl CorsLayerBuilder {
-    /// Instantiates a CORS layer builder from environment variables.
+impl Options for CorsOptions {
+    /// Creates CORS options from environment variables for the service named by `prefix`.
     ///
-    /// The user configuration will be read from the environment via variables such as
-    /// `<prefix>_CORS_ALLOW_ORIGIN`, `<prefix>_CORS_ALLOW_CREDENTIALS`,
-    /// `<prefix>_CORS_ALLOW_METHODS`, and `<prefix>_CORS_ALLOW_HEADERS`.
+    /// This will use variables such as `<prefix>_CORS_ALLOW_ORIGIN`,
+    /// `<prefix>_CORS_ALLOW_CREDENTIALS`, `<prefix>_CORS_ALLOW_METHODS`, and
+    /// `<prefix>_CORS_ALLOW_HEADERS`.
     fn from_env(prefix: &str) -> Result<Self> {
         let mut allow_origin = vec![];
         if let Some(env_str) = get_optional_var::<String>(prefix, "CORS_ALLOW_ORIGIN")? {
@@ -99,6 +96,38 @@ impl CorsLayerBuilder {
         }
 
         Ok(Self { allow_origin, allow_credentials, allow_methods, allow_headers })
+    }
+}
+
+/// Builder for a `CorsLayer` to merge settings form various sources.
+//
+// The various `Vec`s in here would be better represented as `HashSet`s.  Unfortunately, that
+// makes testing difficult because we can't place restrictions on ordering and some of the values
+// we store do not derive `Ord`.  Using `Vec`s keeps order stable, albeit at the expense of an
+// inconsequential inefficiency during construction.
+struct CorsLayerBuilder {
+    /// List of allowed origins.
+    allow_origin: Vec<HeaderValue>,
+
+    /// Whether credentials are allowed or not.
+    allow_credentials: bool,
+
+    /// List of allowed methods.
+    allow_methods: Vec<Method>,
+
+    /// List of allowed headers.
+    allow_headers: Vec<HeaderName>,
+}
+
+impl CorsLayerBuilder {
+    /// Instantiates a CORS layer builder from `options`.
+    fn from_options(options: &CorsOptions) -> Self {
+        Self {
+            allow_origin: options.allow_origin.clone(),
+            allow_credentials: options.allow_credentials,
+            allow_methods: options.allow_methods.clone(),
+            allow_headers: options.allow_headers.clone(),
+        }
     }
 
     /// Modifies the CORS layer builder to allow connections from the `base_urls` frontend, if
@@ -157,18 +186,22 @@ impl CorsLayerBuilder {
     }
 }
 
-/// Instantiates a CORS layer to support connections from the frontend at `BaseUrls` and any
-/// user-specified settings provided in the environment via variables such as
-/// `<prefix>_CORS_ALLOW_ORIGIN`, `<prefix>_CORS_ALLOW_CREDENTIALS`,
-/// `<prefix>_CORS_ALLOW_METHODS`, and `<prefix>_CORS_ALLOW_HEADERS`.
-pub fn new_cors_layer(prefix: &str, base_urls: &BaseUrls) -> Result<CorsLayer> {
-    Ok(CorsLayerBuilder::from_env(prefix)?.allow_base_urls(base_urls)?.build())
+/// Instantiates a CORS layer from `options` to support connections from the frontend at
+/// `base_urls`.
+pub fn new_cors_layer(options: &CorsOptions, base_urls: &BaseUrls) -> Result<CorsLayer> {
+    Ok(CorsLayerBuilder::from_options(options).allow_base_urls(base_urls)?.build())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Config;
     use serial_test::serial;
+
+    /// Loads CORS options using the test service prefix.
+    fn cors_options() -> CorsOptions {
+        CorsOptions::from_env("TEST").unwrap()
+    }
 
     /// Introspects `layer` to verify that it contains the `expected` origins.
     fn assert_origin(expected: &[&str], layer: &CorsLayer) {
@@ -208,6 +241,69 @@ mod tests {
 
     #[test]
     #[serial(CORS)]
+    fn test_cors_options_from_env() {
+        let overrides = [
+            ("TEST_CORS_ALLOW_ORIGIN", Some("https://a.example.com,http://b.example.com")),
+            ("TEST_CORS_ALLOW_CREDENTIALS", Some("true")),
+            ("TEST_CORS_ALLOW_METHODS", Some("PUT,PATCH")),
+            ("TEST_CORS_ALLOW_HEADERS", Some("X-Custom")),
+        ];
+        temp_env::with_vars(overrides, || {
+            let config = Config::builder().register::<CorsOptions>().from_env("TEST").unwrap();
+            let options = config.get::<CorsOptions>();
+
+            assert_eq!(
+                &[
+                    HeaderValue::from_static("https://a.example.com"),
+                    HeaderValue::from_static("http://b.example.com")
+                ],
+                options.allow_origin.as_slice()
+            );
+            assert!(options.allow_credentials);
+            assert_eq!(&[Method::PUT, Method::PATCH], options.allow_methods.as_slice());
+            assert_eq!(&[HeaderName::from_static("x-custom")], options.allow_headers.as_slice());
+        });
+    }
+
+    #[test]
+    #[serial(CORS)]
+    fn test_cors_options_from_env_defaults() {
+        let overrides: [(&str, Option<&str>); 4] = [
+            ("TEST_CORS_ALLOW_ORIGIN", None),
+            ("TEST_CORS_ALLOW_CREDENTIALS", None),
+            ("TEST_CORS_ALLOW_METHODS", None),
+            ("TEST_CORS_ALLOW_HEADERS", None),
+        ];
+        temp_env::with_vars(overrides, || {
+            assert_eq!(
+                CorsOptions {
+                    allow_origin: vec![],
+                    allow_credentials: false,
+                    allow_methods: vec![],
+                    allow_headers: vec![],
+                },
+                cors_options()
+            );
+        });
+    }
+
+    #[test]
+    #[serial(CORS)]
+    fn test_cors_options_from_env_invalid() {
+        let overrides = [
+            ("TEST_CORS_ALLOW_ORIGIN", Some("\n")),
+            ("TEST_CORS_ALLOW_CREDENTIALS", Some("false")),
+            ("TEST_CORS_ALLOW_METHODS", Some("GET")),
+            ("TEST_CORS_ALLOW_HEADERS", Some("Content-Type")),
+        ];
+        temp_env::with_vars(overrides, || {
+            let error = CorsOptions::from_env("TEST").unwrap_err();
+            assert!(error.starts_with("Invalid value in TEST_CORS_ALLOW_ORIGIN:"));
+        });
+    }
+
+    #[test]
+    #[serial(CORS)]
     fn test_new_cors_layer_nothing() {
         let overrides: [(&str, Option<&str>); 4] = [
             ("TEST_CORS_ALLOW_ORIGIN", None),
@@ -217,7 +313,8 @@ mod tests {
         ];
         temp_env::with_vars(overrides, || {
             let base_urls = BaseUrls::from_strs("https://backend.example.com", None);
-            let layer = new_cors_layer("TEST", &base_urls).unwrap();
+            let options = cors_options();
+            let layer = new_cors_layer(&options, &base_urls).unwrap();
             assert_origin(&[], &layer);
             assert_credentials(false, &layer);
             assert_methods(None, &layer);
@@ -236,7 +333,8 @@ mod tests {
         ];
         temp_env::with_vars(overrides, || {
             let base_urls = BaseUrls::from_strs("https://backend.example.com", None);
-            let layer = new_cors_layer("TEST", &base_urls).unwrap();
+            let options = cors_options();
+            let layer = new_cors_layer(&options, &base_urls).unwrap();
             assert_origin(&["https://a.example.com", "http://b.example.com"], &layer);
             assert_credentials(true, &layer);
             assert_methods(Some("PUT,PATCH"), &layer);
@@ -258,7 +356,8 @@ mod tests {
                 "https://backend.example.com",
                 Some("https://frontend.example.com:1234/foo/"),
             );
-            let layer = new_cors_layer("TEST", &base_urls).unwrap();
+            let options = cors_options();
+            let layer = new_cors_layer(&options, &base_urls).unwrap();
             assert_origin(&["https://frontend.example.com:1234/foo"], &layer);
             assert_credentials(true, &layer);
             assert_methods(Some("DELETE,GET,PATCH,POST"), &layer);
@@ -280,7 +379,8 @@ mod tests {
                 "https://backend.example.com",
                 Some("https://frontend.example.com:1234/foo/"),
             );
-            let layer = new_cors_layer("TEST", &base_urls).unwrap();
+            let options = cors_options();
+            let layer = new_cors_layer(&options, &base_urls).unwrap();
             assert_origin(
                 &["https://var.example.com", "https://frontend.example.com:1234/foo"],
                 &layer,
@@ -302,7 +402,8 @@ mod tests {
         ];
         temp_env::with_vars(overrides, || {
             let base_urls = BaseUrls::from_strs("https://backend.example.com", None);
-            let layer = new_cors_layer("TEST", &base_urls).unwrap();
+            let options = cors_options();
+            let layer = new_cors_layer(&options, &base_urls).unwrap();
             assert_origin(&["*"], &layer);
             assert_credentials(false, &layer);
             assert_methods(None, &layer);
