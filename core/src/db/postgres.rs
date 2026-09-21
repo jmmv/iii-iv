@@ -17,7 +17,6 @@
 
 use crate::config::Options;
 use crate::db::{Db, DbError, DbResult, Executor, TxExecutor};
-use crate::env::{get_optional_var, get_required_var, var_name};
 use crate::model::SecretString;
 use async_trait::async_trait;
 use derivative::Derivative;
@@ -49,9 +48,10 @@ pub fn map_sqlx_error(e: sqlx::Error) -> DbError {
 }
 
 /// Options to establish a connection to a PostgreSQL database.
-#[derive(Derivative)]
+#[derive(Derivative, Options)]
 #[derivative(Debug, Default)]
 #[cfg_attr(test, derivative(PartialEq))]
+#[options(prefix = "POSTGRES")]
 pub struct PostgresOptions {
     /// Host to connect to.
     pub host: Option<String>,
@@ -77,42 +77,8 @@ pub struct PostgresOptions {
 
     /// Maximum number of attempts to retry a connection operation when the database does not seem
     /// to be available.
+    #[option(default = DEFAULT_MAX_RETRIES)]
     pub max_retries: u16,
-}
-
-impl Options for PostgresOptions {
-    /// Initializes a set of options from environment variables for the service named by `prefix`.
-    ///
-    /// This will use variables such as `<prefix>_POSTGRES_HOST`, `<prefix>_POSTGRES_PORT`,
-    /// `<prefix>_POSTGRES_DATABASE`, `<prefix>_POSTGRES_USERNAME`,
-    /// `<prefix>_POSTGRES_PASSWORD`, `<prefix>_POSTGRES_MIN_CONNECTIONS`,
-    /// `<prefix>_POSTGRES_MAX_CONNECTIONS` and `<prefix>_POSTGRES_MAX_RETRIES`.
-    fn from_env(prefix: &str) -> Result<PostgresOptions, String> {
-        Ok(PostgresOptions {
-            host: get_optional_var::<String>(prefix, "POSTGRES_HOST")?,
-            port: get_optional_var::<u16>(prefix, "POSTGRES_PORT")?,
-            database: get_required_var::<String>(prefix, "POSTGRES_DATABASE")?,
-            username: get_required_var::<String>(prefix, "POSTGRES_USERNAME")?,
-            password: get_optional_var::<SecretString>(prefix, "POSTGRES_PASSWORD")?,
-            min_connections: get_optional_var::<u32>(prefix, "POSTGRES_MIN_CONNECTIONS")?,
-            max_connections: get_optional_var::<u32>(prefix, "POSTGRES_MAX_CONNECTIONS")?,
-            max_retries: get_optional_var::<u16>(prefix, "POSTGRES_MAX_RETRIES")?
-                .unwrap_or(DEFAULT_MAX_RETRIES),
-        })
-    }
-
-    fn format_all(&self, prefix: &str) -> Vec<(String, String)> {
-        vec![
-            (var_name(prefix, "POSTGRES_HOST"), format!("{:?}", self.host)),
-            (var_name(prefix, "POSTGRES_PORT"), format!("{:?}", self.port)),
-            (var_name(prefix, "POSTGRES_DATABASE"), self.database.clone()),
-            (var_name(prefix, "POSTGRES_USERNAME"), self.username.clone()),
-            (var_name(prefix, "POSTGRES_PASSWORD"), format!("{:?}", self.password)),
-            (var_name(prefix, "POSTGRES_MIN_CONNECTIONS"), format!("{:?}", self.min_connections)),
-            (var_name(prefix, "POSTGRES_MAX_CONNECTIONS"), format!("{:?}", self.max_connections)),
-            (var_name(prefix, "POSTGRES_MAX_RETRIES"), self.max_retries.to_string()),
-        ]
-    }
 }
 
 /// A generic database executor implementation for PostgreSQL.

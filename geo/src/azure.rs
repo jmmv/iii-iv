@@ -20,7 +20,6 @@ use async_trait::async_trait;
 use bytes::Buf;
 use derivative::Derivative;
 use iii_iv_core::config::Options;
-use iii_iv_core::env::{get_required_var, var_name};
 use iii_iv_core::model::SecretString;
 use reqwest::{Client, Response, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -101,26 +100,14 @@ struct LocateResponse {
 }
 
 /// Options to configure an `AzureGeoLocator`.
-#[derive(Derivative)]
+#[derive(Derivative, Options)]
 #[derivative(Debug)]
 #[cfg_attr(test, derivative(PartialEq))]
+#[options(prefix = "AZURE_GEO_LOCATOR")]
 pub struct AzureGeoLocatorOptions {
     /// The API key to use to contact Azure Maps.
     #[derivative(Debug = "ignore")]
     pub key: SecretString,
-}
-
-impl Options for AzureGeoLocatorOptions {
-    /// Creates a set of options from environment variables for the service named by `prefix`.
-    ///
-    /// This will use variables such as `<prefix>_AZURE_GEO_LOCATOR_KEY`.
-    fn from_env(prefix: &str) -> Result<Self, String> {
-        Ok(Self { key: get_required_var::<SecretString>(prefix, "AZURE_GEO_LOCATOR_KEY")? })
-    }
-
-    fn format_all(&self, prefix: &str) -> Vec<(String, String)> {
-        vec![(var_name(prefix, "AZURE_GEO_LOCATOR_KEY"), format!("{:?}", self.key))]
-    }
 }
 
 /// Geolocator that uses an Azure Maps account.

@@ -20,7 +20,6 @@ use async_trait::async_trait;
 use derivative::Derivative;
 use futures::lock::Mutex;
 use iii_iv_core::config::Options;
-use iii_iv_core::env::{get_optional_var, var_name};
 use log::warn;
 use lru_time_cache::LruCache;
 use std::net::IpAddr;
@@ -34,42 +33,23 @@ const DEFAULT_TTL: Duration = Duration::from_secs(60 * 60);
 const DEFAULT_CAPACITY: usize = 10 * 1024;
 
 /// Options to configure an `CachingGeoLocator`.
-#[derive(Derivative)]
+#[derive(Derivative, Options)]
 #[derivative(Debug)]
 #[cfg_attr(test, derivative(PartialEq))]
+#[options(prefix = "CACHING_GEO_LOCATOR")]
 pub struct CachingGeoLocatorOptions {
     /// The TTL for the entries in the cache.
+    #[option(default = DEFAULT_TTL)]
     pub ttl: Duration,
 
     /// The cache capacity in number of entries.
+    #[option(default = DEFAULT_CAPACITY)]
     pub capacity: usize,
 }
 
 impl Default for CachingGeoLocatorOptions {
     fn default() -> Self {
         Self { ttl: DEFAULT_TTL, capacity: DEFAULT_CAPACITY }
-    }
-}
-
-impl Options for CachingGeoLocatorOptions {
-    /// Creates a set of options from environment variables for the service named by `prefix`.
-    ///
-    /// This will use variables such as `<prefix>_CACHING_GEO_LOCATOR_TTL` and
-    /// `<prefix>_CACHING_GEO_LOCATOR_CAPACITY`.
-    fn from_env(prefix: &str) -> Result<Self, String> {
-        Ok(Self {
-            ttl: get_optional_var::<Duration>(prefix, "CACHING_GEO_LOCATOR_TTL")?
-                .unwrap_or(DEFAULT_TTL),
-            capacity: get_optional_var::<usize>(prefix, "CACHING_GEO_LOCATOR_CAPACITY")?
-                .unwrap_or(DEFAULT_CAPACITY),
-        })
-    }
-
-    fn format_all(&self, prefix: &str) -> Vec<(String, String)> {
-        vec![
-            (var_name(prefix, "CACHING_GEO_LOCATOR_TTL"), format!("{:?}", self.ttl)),
-            (var_name(prefix, "CACHING_GEO_LOCATOR_CAPACITY"), self.capacity.to_string()),
-        ]
     }
 }
 

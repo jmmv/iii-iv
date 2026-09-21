@@ -49,6 +49,7 @@ futures = { workspace = true, optional = true }
 http-body = { workspace = true, optional = true }
 http = { workspace = true }
 hyper = { workspace = true, optional = true }
+iii-iv-options-derive = { path = "../options-derive" }
 json_value_merge = { workspace = true, optional = true }
 log = { workspace = true }
 mime = { workspace = true, optional = true }

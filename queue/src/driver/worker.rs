@@ -26,7 +26,6 @@ use iii_iv_core::clocks::Clock;
 use iii_iv_core::config::Options;
 use iii_iv_core::db::Db;
 use iii_iv_core::driver::{DriverError, DriverResult};
-use iii_iv_core::env::{get_optional_var, var_name};
 use log::{info, warn};
 use serde::de::DeserializeOwned;
 use std::marker::PhantomData;
@@ -51,13 +50,16 @@ const DEFAULT_MAX_RUNTIME: Duration = Duration::from_secs(5 * 60);
 const DEFAULT_RETRY_DELAY: Duration = Duration::from_secs(5 * 60);
 
 /// Configuration options for the queue worker.
-#[derive(Clone)]
+#[derive(Clone, Options)]
+#[options(prefix = "WORKER")]
 pub struct WorkerOptions {
     /// Number of tasks to try to process during each processing cycle.
+    #[option(default = DEFAULT_BATCH_SIZE)]
     pub batch_size: u16,
 
     /// If tasks exist after processing a batch, continue processing the next batch immediately
     /// without waiting for the next notification.  Typically useful for testing only.
+    #[option(default = DEFAULT_CONSUME_ALL)]
     pub consume_all: bool,
 
     /// Number of times a task is allowed to run before being abandoned.
@@ -65,6 +67,7 @@ pub struct WorkerOptions {
     // TODO(jmmv): This is being used to limit execution for both lost tasks and deferred tasks,
     // which might not be the right thing to do.  But in order to have two knobs, we would need
     // separate tracking in the database for their respective counters.
+    #[option(default = DEFAULT_MAX_RUNS)]
     pub max_runs: u8,
 
     /// Maximum amount of time a task is expected to run.
@@ -73,10 +76,12 @@ pub struct WorkerOptions {
     /// a previously-running task.  This time should be longer than a task is ever allowed to run,
     /// which currently relies on the Azure Functions runtime (or some other serverless runtime)
     /// to cancel execution.
+    #[option(default = DEFAULT_MAX_RUNTIME)]
     pub max_runtime: Duration,
 
     /// Default delay to use when retrying tasks that ask to use the default delay, which is often
     /// used for retryable errors.
+    #[option(default = DEFAULT_RETRY_DELAY)]
     pub retry_on_error_delay: Duration,
 }
 
@@ -90,43 +95,6 @@ impl Default for WorkerOptions {
             max_runtime: DEFAULT_MAX_RUNTIME,
             retry_on_error_delay: DEFAULT_RETRY_DELAY,
         }
-    }
-}
-
-impl Options for WorkerOptions {
-    /// Creates a new set of options from environment variables for the service named by `prefix`.
-    ///
-    /// This will use variables such as `<prefix>_WORKER_BATCH_SIZE` and
-    /// `<prefix>_WORKER_CONSUME_ALL`.
-    fn from_env(prefix: &str) -> Result<Self, String> {
-        Ok(Self {
-            batch_size: get_optional_var::<u16>(prefix, "WORKER_BATCH_SIZE")?
-                .unwrap_or(DEFAULT_BATCH_SIZE),
-            consume_all: get_optional_var::<bool>(prefix, "WORKER_CONSUME_ALL")?
-                .unwrap_or(DEFAULT_CONSUME_ALL),
-            max_runs: get_optional_var::<u8>(prefix, "WORKER_MAX_RUNS")?
-                .unwrap_or(DEFAULT_MAX_RUNS),
-            max_runtime: get_optional_var::<Duration>(prefix, "WORKER_MAX_RUNTIME")?
-                .unwrap_or(DEFAULT_MAX_RUNTIME),
-            retry_on_error_delay: get_optional_var::<Duration>(
-                prefix,
-                "WORKER_RETRY_ON_ERROR_DELAY",
-            )?
-            .unwrap_or(DEFAULT_RETRY_DELAY),
-        })
-    }
-
-    fn format_all(&self, prefix: &str) -> Vec<(String, String)> {
-        vec![
-            (var_name(prefix, "WORKER_BATCH_SIZE"), self.batch_size.to_string()),
-            (var_name(prefix, "WORKER_CONSUME_ALL"), self.consume_all.to_string()),
-            (var_name(prefix, "WORKER_MAX_RUNS"), self.max_runs.to_string()),
-            (var_name(prefix, "WORKER_MAX_RUNTIME"), format!("{:?}", self.max_runtime)),
-            (
-                var_name(prefix, "WORKER_RETRY_ON_ERROR_DELAY"),
-                format!("{:?}", self.retry_on_error_delay),
-            ),
-        ]
     }
 }
 
