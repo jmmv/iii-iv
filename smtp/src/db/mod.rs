@@ -25,7 +25,7 @@ use iii_iv_core::db::sqlite::build_timestamp;
 use iii_iv_core::db::sqlite::{self, unpack_timestamp};
 use iii_iv_core::db::{DbResult, Executor, count_as_usize, ensure_one_upsert};
 use lettre::Message;
-use sqlx::Row;
+use sqlx::{AssertSqlSafe, Row};
 use time::{Date, OffsetDateTime};
 
 #[cfg(test)]
@@ -54,7 +54,7 @@ pub(crate) async fn count_email_log(ex: &mut Executor, day: Date) -> DbResult<us
 
             let query_str =
                 "SELECT COUNT(*) AS total FROM email_log WHERE sent >= $1 AND sent < $2";
-            let row = sqlx::query(query_str)
+            let row = sqlx::query(AssertSqlSafe(query_str))
                 .bind(from)
                 .bind(to)
                 .fetch_one(ex)
@@ -78,7 +78,7 @@ pub(crate) async fn count_email_log(ex: &mut Executor, day: Date) -> DbResult<us
                     (sent_sec >= ? OR (sent_sec = ? AND sent_nsec >= ?))
                     AND (sent_sec < ? OR (sent_sec = ? AND sent_nsec < ?))
             ";
-            let row = sqlx::query(query_str)
+            let row = sqlx::query(AssertSqlSafe(query_str))
                 .bind(from_sec)
                 .bind(from_sec)
                 .bind(from_nsec)
@@ -108,7 +108,7 @@ pub(crate) async fn get_email_log(ex: &mut Executor) -> DbResult<Vec<EmailLogEnt
     match ex {
         Executor::Postgres(ex) => {
             let query_str = "SELECT sent, message, result FROM email_log";
-            let mut rows = sqlx::query(query_str).fetch(ex);
+            let mut rows = sqlx::query(AssertSqlSafe(query_str)).fetch(ex);
             while let Some(row) = rows.try_next().await.map_err(postgres::map_sqlx_error)? {
                 let sent: OffsetDateTime = row.try_get("sent").map_err(postgres::map_sqlx_error)?;
                 let message: Vec<u8> = row.try_get("message").map_err(postgres::map_sqlx_error)?;
@@ -122,7 +122,7 @@ pub(crate) async fn get_email_log(ex: &mut Executor) -> DbResult<Vec<EmailLogEnt
         #[cfg(any(test, feature = "sqlite"))]
         Executor::Sqlite(ex) => {
             let query_str = "SELECT sent_sec, sent_nsec, message, result FROM email_log";
-            let mut rows = sqlx::query(query_str).fetch(ex);
+            let mut rows = sqlx::query(AssertSqlSafe(query_str)).fetch(ex);
             while let Some(row) = rows.try_next().await.map_err(sqlite::map_sqlx_error)? {
                 let sent_sec: i64 = row.try_get("sent_sec").map_err(sqlite::map_sqlx_error)?;
                 let sent_nsec: i64 = row.try_get("sent_nsec").map_err(sqlite::map_sqlx_error)?;
@@ -151,7 +151,7 @@ pub(crate) async fn put_email_log(
     match ex {
         Executor::Postgres(ex) => {
             let query_str = "INSERT INTO email_log (sent, message) VALUES ($1, $2) RETURNING id";
-            let row = sqlx::query(query_str)
+            let row = sqlx::query(AssertSqlSafe(query_str))
                 .bind(now)
                 .bind(message.formatted())
                 .fetch_one(ex)
@@ -166,7 +166,7 @@ pub(crate) async fn put_email_log(
             let (now_sec, now_nsec) = unpack_timestamp(now);
 
             let query_str = "INSERT INTO email_log (sent_sec, sent_nsec, message) VALUES (?, ?, ?)";
-            let done = sqlx::query(query_str)
+            let done = sqlx::query(AssertSqlSafe(query_str))
                 .bind(now_sec)
                 .bind(now_nsec)
                 .bind(message.formatted())
@@ -186,7 +186,7 @@ pub(crate) async fn update_email_log(ex: &mut Executor, id: i64, result: &str) -
     match ex {
         Executor::Postgres(ex) => {
             let query_str = "UPDATE email_log SET result = $1 WHERE id = $2";
-            let done = sqlx::query(query_str)
+            let done = sqlx::query(AssertSqlSafe(query_str))
                 .bind(result)
                 .bind(id)
                 .execute(ex)
@@ -199,7 +199,7 @@ pub(crate) async fn update_email_log(ex: &mut Executor, id: i64, result: &str) -
         #[cfg(any(test, feature = "sqlite"))]
         Executor::Sqlite(ex) => {
             let query_str = "UPDATE email_log SET result = ? WHERE id = ?";
-            let done = sqlx::query(query_str)
+            let done = sqlx::query(AssertSqlSafe(query_str))
                 .bind(result)
                 .bind(id)
                 .execute(ex)

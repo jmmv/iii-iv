@@ -21,7 +21,7 @@ use iii_iv_core::db::postgres::{self};
 #[cfg(test)]
 use iii_iv_core::db::sqlite;
 use iii_iv_core::db::{DbError, DbResult, Executor};
-use sqlx::Row;
+use sqlx::{AssertSqlSafe, Row};
 use std::collections::BTreeSet;
 #[cfg(test)]
 pub(crate) mod tests;
@@ -44,7 +44,7 @@ pub(crate) async fn get_keys(e: &mut Executor) -> DbResult<BTreeSet<Key>> {
     match e {
         Executor::Postgres(e) => {
             let query_str = "SELECT key FROM store ORDER BY key";
-            let mut rows = sqlx::query(query_str).fetch(e);
+            let mut rows = sqlx::query(AssertSqlSafe(query_str)).fetch(e);
 
             let mut keys = BTreeSet::default();
             while let Some(row) = rows.try_next().await.map_err(postgres::map_sqlx_error)? {
@@ -57,7 +57,7 @@ pub(crate) async fn get_keys(e: &mut Executor) -> DbResult<BTreeSet<Key>> {
         #[cfg(test)]
         Executor::Sqlite(e) => {
             let query_str = "SELECT key FROM store ORDER BY key";
-            let mut rows = sqlx::query(query_str).fetch(e);
+            let mut rows = sqlx::query(AssertSqlSafe(query_str)).fetch(e);
 
             let mut keys = BTreeSet::default();
             while let Some(row) = rows.try_next().await.map_err(sqlite::map_sqlx_error)? {
@@ -79,7 +79,7 @@ pub(crate) async fn get_key(e: &mut Executor, key: &Key) -> DbResult<Entry> {
     match e {
         Executor::Postgres(e) => {
             let query_str = "SELECT value, version FROM store WHERE key = $1";
-            let row = sqlx::query(query_str)
+            let row = sqlx::query(AssertSqlSafe(query_str))
                 .bind(key.as_ref())
                 .fetch_one(e)
                 .await
@@ -91,7 +91,7 @@ pub(crate) async fn get_key(e: &mut Executor, key: &Key) -> DbResult<Entry> {
         #[cfg(test)]
         Executor::Sqlite(e) => {
             let query_str = "SELECT value, version FROM store WHERE key = ?";
-            let row = sqlx::query(query_str)
+            let row = sqlx::query(AssertSqlSafe(query_str))
                 .bind(key.as_ref())
                 .fetch_one(e)
                 .await
@@ -111,7 +111,7 @@ pub(crate) async fn get_key_version(e: &mut Executor, key: &Key) -> DbResult<Opt
     match e {
         Executor::Postgres(e) => {
             let query_str = "SELECT version FROM store WHERE key = $1";
-            let maybe_row = sqlx::query(query_str)
+            let maybe_row = sqlx::query(AssertSqlSafe(query_str))
                 .bind(key.as_ref())
                 .fetch_optional(e)
                 .await
@@ -128,7 +128,7 @@ pub(crate) async fn get_key_version(e: &mut Executor, key: &Key) -> DbResult<Opt
         #[cfg(test)]
         Executor::Sqlite(e) => {
             let query_str = "SELECT version FROM store WHERE key = ?";
-            let maybe_row = sqlx::query(query_str)
+            let maybe_row = sqlx::query(AssertSqlSafe(query_str))
                 .bind(key.as_ref())
                 .fetch_optional(e)
                 .await
@@ -156,7 +156,7 @@ pub(crate) async fn set_key(e: &mut Executor, key: &Key, entry: &Entry) -> DbRes
             VALUES ($1, $2, $3)
             ON CONFLICT(key) DO UPDATE SET value = $2, version = $3
         ";
-            let done = sqlx::query(query_str)
+            let done = sqlx::query(AssertSqlSafe(query_str))
                 .bind(key.as_ref())
                 .bind(&entry.value)
                 .bind(entry.version.as_i32())
@@ -173,7 +173,7 @@ pub(crate) async fn set_key(e: &mut Executor, key: &Key, entry: &Entry) -> DbRes
             VALUES (?, ?, ?)
             ON CONFLICT(key) DO UPDATE SET value = ?, version = ? WHERE key = ?
         ";
-            let done = sqlx::query(query_str)
+            let done = sqlx::query(AssertSqlSafe(query_str))
                 .bind(key.as_ref())
                 .bind(&entry.value)
                 .bind(entry.version.as_u32())
@@ -200,7 +200,7 @@ pub(crate) async fn delete_key(e: &mut Executor, key: &Key) -> DbResult<()> {
     let affected = match e {
         Executor::Postgres(e) => {
             let query_str = "DELETE FROM store WHERE key = $1";
-            let done = sqlx::query(query_str)
+            let done = sqlx::query(AssertSqlSafe(query_str))
                 .bind(key.as_ref())
                 .execute(e)
                 .await
@@ -211,7 +211,7 @@ pub(crate) async fn delete_key(e: &mut Executor, key: &Key) -> DbResult<()> {
         #[cfg(test)]
         Executor::Sqlite(e) => {
             let query_str = "DELETE FROM store WHERE key = ?";
-            let done = sqlx::query(query_str)
+            let done = sqlx::query(AssertSqlSafe(query_str))
                 .bind(key.as_ref())
                 .execute(e)
                 .await

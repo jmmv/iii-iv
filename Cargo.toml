@@ -57,7 +57,7 @@ serde_test = "1"
 serde_urlencoded = "0.7"
 serial_test = "3.0"
 serde = { version = "1", features = ["derive"] }
-sqlx = "0.8"
+sqlx = "0.9"
 temp-env = "0.3.6"
 thiserror = "2.0"
 syn = { version = "2", features = ["full"] }

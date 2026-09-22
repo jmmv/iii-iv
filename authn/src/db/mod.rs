@@ -22,11 +22,11 @@ use iii_iv_core::db::postgres;
 use iii_iv_core::db::sqlite::{self, build_timestamp, unpack_timestamp};
 use iii_iv_core::db::{DbError, DbResult, Executor};
 use iii_iv_core::model::{EmailAddress, Username};
-use sqlx::Row;
 #[cfg(feature = "postgres")]
 use sqlx::postgres::PgRow;
 #[cfg(any(feature = "sqlite", test))]
 use sqlx::sqlite::SqliteRow;
+use sqlx::{AssertSqlSafe, Row};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -113,7 +113,7 @@ pub async fn create_coupon(ex: &mut Executor, coupon: &Coupon) -> DbResult<()> {
                 INSERT INTO coupons
                     (name, valid_from, valid_until, max_usages, usages)
                 VALUES ($1, $2, $3, $4, $5)";
-            sqlx::query(query_str)
+            sqlx::query(AssertSqlSafe(query_str))
                 .bind(coupon.name.as_str())
                 .bind(coupon.valid_from)
                 .bind(coupon.valid_until)
@@ -134,7 +134,7 @@ pub async fn create_coupon(ex: &mut Executor, coupon: &Coupon) -> DbResult<()> {
                     (name, valid_from_secs, valid_from_nsecs,
                      valid_until_secs, valid_until_nsecs, max_usages, usages)
                 VALUES (?, ?, ?, ?, ?, ?, ?)";
-            sqlx::query(query_str)
+            sqlx::query(AssertSqlSafe(query_str))
                 .bind(coupon.name.as_str())
                 .bind(valid_from_secs)
                 .bind(valid_from_nsecs)
@@ -195,7 +195,7 @@ pub(crate) async fn redeem_coupon(ex: &mut Executor, name: &CouponName) -> DbRes
             let query_str = "
                 UPDATE coupons SET usages = usages + 1
                 WHERE name = $1 AND usages < max_usages";
-            sqlx::query(query_str)
+            sqlx::query(AssertSqlSafe(query_str))
                 .bind(name.as_str())
                 .execute(ex)
                 .await
@@ -208,7 +208,7 @@ pub(crate) async fn redeem_coupon(ex: &mut Executor, name: &CouponName) -> DbRes
             let query_str = "
                 UPDATE coupons SET usages = usages + 1
                 WHERE name = ? AND usages < max_usages";
-            sqlx::query(query_str)
+            sqlx::query(AssertSqlSafe(query_str))
                 .bind(name.as_str())
                 .execute(ex)
                 .await
@@ -348,7 +348,7 @@ pub async fn create_user(
             let query_str = "
                 INSERT INTO users (id, username, password, email, coupon)
                 VALUES ($1, $2, $3, $4, $5)";
-            let done = sqlx::query(query_str)
+            let done = sqlx::query(AssertSqlSafe(query_str))
                 .bind(id)
                 .bind(username.as_ref().map(Username::as_str))
                 .bind(password.as_ref().map(|x| Some(x.as_str())))
@@ -365,7 +365,7 @@ pub async fn create_user(
             let query_str = "
                 INSERT INTO users (id, username, password, email, coupon)
                 VALUES (?, ?, ?, ?, ?)";
-            let done = sqlx::query(query_str)
+            let done = sqlx::query(AssertSqlSafe(query_str))
                 .bind(id)
                 .bind(username.as_ref().map(Username::as_str))
                 .bind(password.as_ref().map(|x| Some(x.as_str())))
@@ -456,7 +456,7 @@ pub async fn get_user_by_username(ex: &mut Executor, username: Username) -> DbRe
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
             let query_str = "SELECT * FROM users WHERE username = $1";
-            let raw_user = sqlx::query(query_str)
+            let raw_user = sqlx::query(AssertSqlSafe(query_str))
                 .bind(username.as_str())
                 .fetch_one(ex)
                 .await
@@ -467,7 +467,7 @@ pub async fn get_user_by_username(ex: &mut Executor, username: Username) -> DbRe
         #[cfg(any(feature = "sqlite", test))]
         Executor::Sqlite(ex) => {
             let query_str = "SELECT * FROM users WHERE username = ?";
-            let raw_user = sqlx::query(query_str)
+            let raw_user = sqlx::query(AssertSqlSafe(query_str))
                 .bind(username.as_str())
                 .fetch_one(ex)
                 .await
@@ -516,7 +516,7 @@ pub async fn update_user(ex: &mut Executor, id: Uuid, last_login: OffsetDateTime
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
             let query_str = "UPDATE users SET last_login = $1 WHERE id = $2";
-            let done = sqlx::query(query_str)
+            let done = sqlx::query(AssertSqlSafe(query_str))
                 .bind(last_login)
                 .bind(id)
                 .execute(ex)
@@ -532,7 +532,7 @@ pub async fn update_user(ex: &mut Executor, id: Uuid, last_login: OffsetDateTime
             let query_str = "
                 UPDATE users SET last_login_secs = ?, last_login_nsecs = ?
                 WHERE id = ?";
-            let done = sqlx::query(query_str)
+            let done = sqlx::query(AssertSqlSafe(query_str))
                 .bind(last_login_secs)
                 .bind(last_login_nsecs)
                 .bind(id)
@@ -566,7 +566,7 @@ pub async fn set_user_activation_code(
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
             let query_str = "UPDATE users SET activation_code = $1 WHERE id = $2";
-            let done = sqlx::query(query_str)
+            let done = sqlx::query(AssertSqlSafe(query_str))
                 .bind(i64_code)
                 .bind(user.id)
                 .execute(ex)
@@ -578,7 +578,7 @@ pub async fn set_user_activation_code(
         #[cfg(any(feature = "sqlite", test))]
         Executor::Sqlite(ex) => {
             let query_str = "UPDATE users SET activation_code = ? WHERE id = ?";
-            let done = sqlx::query(query_str)
+            let done = sqlx::query(AssertSqlSafe(query_str))
                 .bind(i64_code)
                 .bind(user.id)
                 .execute(ex)
@@ -612,7 +612,7 @@ pub(crate) async fn update_user_password(
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
             let query_str = "UPDATE users SET password = $1 WHERE id = $2 AND password = $3";
-            let done = sqlx::query(query_str)
+            let done = sqlx::query(AssertSqlSafe(query_str))
                 .bind(new_password.as_str())
                 .bind(user_id)
                 .bind(expected_old_password.as_str())
@@ -625,7 +625,7 @@ pub(crate) async fn update_user_password(
         #[cfg(any(feature = "sqlite", test))]
         Executor::Sqlite(ex) => {
             let query_str = "UPDATE users SET password = ? WHERE id = ? AND password = ?";
-            let done = sqlx::query(query_str)
+            let done = sqlx::query(AssertSqlSafe(query_str))
                 .bind(new_password.as_str())
                 .bind(user_id)
                 .bind(expected_old_password.as_str())
@@ -656,7 +656,7 @@ pub async fn get_session(ex: &mut Executor, access_token: &AccessToken) -> DbRes
                 SELECT access_token, user_id, login_time
                 FROM sessions
                 WHERE access_token = $1 AND logout_time IS NULL";
-            let raw_session = sqlx::query(query_str)
+            let raw_session = sqlx::query(AssertSqlSafe(query_str))
                 .bind(access_token.as_str())
                 .fetch_one(ex)
                 .await
@@ -673,7 +673,7 @@ pub async fn get_session(ex: &mut Executor, access_token: &AccessToken) -> DbRes
                     access_token = ? AND
                     logout_time_secs IS NULL AND
                     logout_time_nsecs IS NULL";
-            let raw_session = sqlx::query(query_str)
+            let raw_session = sqlx::query(AssertSqlSafe(query_str))
                 .bind(access_token.as_str())
                 .fetch_one(ex)
                 .await
@@ -694,7 +694,7 @@ pub(crate) async fn put_session(ex: &mut Executor, session: &Session) -> DbResul
             let query_str =
                 "INSERT INTO sessions (access_token, user_id, login_time) VALUES ($1, $2, $3)";
 
-            let done = sqlx::query(query_str)
+            let done = sqlx::query(AssertSqlSafe(query_str))
                 .bind(session.access_token.as_str())
                 .bind(session.user_id)
                 .bind(session.login_time)
@@ -711,7 +711,7 @@ pub(crate) async fn put_session(ex: &mut Executor, session: &Session) -> DbResul
             let query_str = "
                 INSERT INTO sessions (access_token, user_id, login_time_secs, login_time_nsecs)
                 VALUES (?, ?, ?, ?)";
-            let done = sqlx::query(query_str)
+            let done = sqlx::query(AssertSqlSafe(query_str))
                 .bind(session.access_token.as_str())
                 .bind(session.user_id)
                 .bind(login_time_secs)
@@ -742,7 +742,7 @@ pub(crate) async fn delete_session(
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
             let query_str = "UPDATE sessions SET logout_time = $1 WHERE access_token = $2";
-            let done = sqlx::query(query_str)
+            let done = sqlx::query(AssertSqlSafe(query_str))
                 .bind(now)
                 .bind(session.access_token.as_str())
                 .execute(ex)
@@ -759,7 +759,7 @@ pub(crate) async fn delete_session(
                 UPDATE sessions
                 SET logout_time_secs = ?, logout_time_nsecs = ?
                 WHERE access_token = ?";
-            let done = sqlx::query(query_str)
+            let done = sqlx::query(AssertSqlSafe(query_str))
                 .bind(now_secs)
                 .bind(now_nsecs)
                 .bind(session.access_token.as_str())
@@ -790,7 +790,7 @@ pub(crate) async fn delete_sessions_for_user(
         Executor::Postgres(ex) => {
             let query_str =
                 "UPDATE sessions SET logout_time = $1 WHERE user_id = $2 AND logout_time IS NULL";
-            sqlx::query(query_str)
+            sqlx::query(AssertSqlSafe(query_str))
                 .bind(now)
                 .bind(user_id)
                 .execute(ex)
@@ -807,7 +807,7 @@ pub(crate) async fn delete_sessions_for_user(
                 UPDATE sessions
                 SET logout_time_secs = ?, logout_time_nsecs = ?
                 WHERE user_id = ? AND logout_time_secs IS NULL AND logout_time_nsecs IS NULL";
-            sqlx::query(query_str)
+            sqlx::query(AssertSqlSafe(query_str))
                 .bind(now_secs)
                 .bind(now_nsecs)
                 .bind(user_id)
