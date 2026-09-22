@@ -39,7 +39,7 @@ use axum::response::IntoResponse;
 use std::fmt;
 
 mod base_urls;
-pub use base_urls::BaseUrls;
+pub use base_urls::BaseUrlsOptions;
 mod cors;
 pub use cors::{CorsOptions, new_cors_layer};
 

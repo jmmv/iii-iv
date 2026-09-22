@@ -17,7 +17,7 @@
 
 use crate::driver::DriverResult;
 use crate::model::User;
-use iii_iv_core::rest::BaseUrls;
+use iii_iv_core::rest::BaseUrlsOptions;
 use iii_iv_smtp::model::{EmailTemplate, Message};
 
 /// Builds a message with the activation code `code` for `user`.
@@ -26,7 +26,7 @@ use iii_iv_smtp::model::{EmailTemplate, Message};
 /// address to the account activation endpoint.
 pub(super) fn make_activation_code_message(
     template: &EmailTemplate,
-    base_urls: &BaseUrls,
+    base_urls: &BaseUrlsOptions,
     user: &User,
     code: u64,
 ) -> DriverResult<Message> {
@@ -125,7 +125,7 @@ mod tests {
         let user = User::new(user_id, Some(username!("user-123")), to.clone());
         let message = make_activation_code_message(
             &make_test_activation_template(),
-            &BaseUrls::from_strs(
+            &BaseUrlsOptions::from_strs(
                 "https://test.example.com:1234/",
                 Some("https://no-frontend.example.com"),
             ),

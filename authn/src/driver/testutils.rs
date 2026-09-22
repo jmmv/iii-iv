@@ -30,7 +30,7 @@ use iii_iv_core::db::Db;
 use iii_iv_core::driver::{DriverError, DriverResult};
 use iii_iv_core::model::EmailAddress;
 use iii_iv_core::model::Username;
-use iii_iv_core::rest::BaseUrls;
+use iii_iv_core::rest::BaseUrlsOptions;
 use iii_iv_queue::driver::Client;
 use iii_iv_smtp::driver::testutils::RecorderSmtpMailer;
 use std::sync::Arc;
@@ -100,7 +100,7 @@ impl<H: AuthnHooks> TestContext<H> {
         db::init_schema(&mut db.ex().await.unwrap()).await.unwrap();
         iii_iv_queue::db::init_schema(&mut db.ex().await.unwrap()).await.unwrap();
         let mailer = Arc::from(RecorderSmtpMailer::default());
-        let base_urls = Arc::from(BaseUrls::from_strs(
+        let base_urls = Arc::from(BaseUrlsOptions::from_strs(
             "http://localhost:1234/",
             Some("http://no-frontend.example.com"),
         ));

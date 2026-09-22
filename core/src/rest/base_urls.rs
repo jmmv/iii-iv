@@ -13,7 +13,7 @@
 // License for the specific language governing permissions and limitations
 // under the License.
 
-//! The `BaseUrls` type.
+//! The `BaseUrlsOptions` type.
 
 use crate::config::Options;
 use url::Url;
@@ -42,23 +42,23 @@ fn ensure_valid_base(base: &Url) -> Result<(), String> {
 /// the dev server of whichever framework is in use.
 #[derive(Options)]
 #[cfg_attr(test, derive(Debug, Eq, PartialEq))]
-#[options(prefix = "", constructor = Self::new)]
-pub struct BaseUrls {
+#[options(prefix = "BASE_URLS", constructor = Self::new)]
+pub struct BaseUrlsOptions {
     /// The base URL to the backend service (ourselves).
-    backend_base_url: Url,
+    backend: Url,
 
     /// The base URL to the frontend service.  Should be `None` if the frontend is served by us.
-    frontend_base_url: Option<Url>,
+    frontend: Option<Url>,
 }
 
-impl BaseUrls {
+impl BaseUrlsOptions {
     /// Creates a set of base URLs from already-parsed URLs.
     pub fn new(backend: Url, frontend: Option<Url>) -> Result<Self, String> {
         ensure_valid_base(&backend)?;
         if let Some(frontend) = frontend.as_ref() {
             ensure_valid_base(frontend)?;
         }
-        Ok(Self { backend_base_url: backend, frontend_base_url: frontend })
+        Ok(Self { backend, frontend })
     }
 
     /// Creates a set of base URLs from fixed strings, which must represent valid URLs.
@@ -73,16 +73,16 @@ impl BaseUrls {
     /// empty to obtain a reference to the root.
     pub fn make_backend_url(&self, path: &str) -> Url {
         assert!(!path.starts_with('/'));
-        self.backend_base_url.join(path).expect(URL_MUST_BE_VALID)
+        self.backend.join(path).expect(URL_MUST_BE_VALID)
     }
 
     /// Generates a URL to the frontend given a `path`, which must be relative.  The `path` can be
     /// empty to obtain a reference to the root.
     pub fn make_frontend_url(&self, path: &str) -> Url {
         assert!(!path.starts_with('/'));
-        match self.frontend_base_url.as_ref() {
+        match self.frontend.as_ref() {
             Some(base) => base.join(path).expect(URL_MUST_BE_VALID),
-            None => self.backend_base_url.join(path).expect(URL_MUST_BE_VALID),
+            None => self.backend.join(path).expect(URL_MUST_BE_VALID),
         }
     }
 }
@@ -113,7 +113,7 @@ mod tests {
     #[test]
     pub fn test_new_validates_backend() {
         assert!(
-            BaseUrls::new(url("http://example.com/bad"), None)
+            BaseUrlsOptions::new(url("http://example.com/bad"), None)
                 .unwrap_err()
                 .contains("/bad' cannot be a base")
         );
@@ -122,9 +122,12 @@ mod tests {
     #[test]
     pub fn test_new_validates_frontend() {
         assert!(
-            BaseUrls::new(url("http://example.com/ok/"), Some(url("http://example.com/bad")))
-                .unwrap_err()
-                .contains("/bad' cannot be a base")
+            BaseUrlsOptions::new(
+                url("http://example.com/ok/"),
+                Some(url("http://example.com/bad"))
+            )
+            .unwrap_err()
+            .contains("/bad' cannot be a base")
         );
     }
 
@@ -132,15 +135,15 @@ mod tests {
     #[serial(BASE_URLS)]
     pub fn test_from_env_required_present() {
         let overrides = [
-            ("TEST_BACKEND_BASE_URL", Some("https://backend.example.com/api/")),
-            ("TEST_FRONTEND_BASE_URL", None::<&str>),
+            ("TEST_BASE_URLS_BACKEND", Some("https://backend.example.com/api/")),
+            ("TEST_BASE_URLS_FRONTEND", None::<&str>),
         ];
         temp_env::with_vars(overrides, || {
-            let opts = BaseUrls::from_env("TEST").unwrap();
+            let opts = BaseUrlsOptions::from_env("TEST").unwrap();
             assert_eq!(
-                BaseUrls {
-                    backend_base_url: url("https://backend.example.com/api/"),
-                    frontend_base_url: None,
+                BaseUrlsOptions {
+                    backend: url("https://backend.example.com/api/"),
+                    frontend: None,
                 },
                 opts
             );
@@ -151,15 +154,15 @@ mod tests {
     #[serial(BASE_URLS)]
     pub fn test_from_env_all_present() {
         let overrides = [
-            ("TEST_BACKEND_BASE_URL", Some("https://backend.example.com/api/")),
-            ("TEST_FRONTEND_BASE_URL", Some("https://frontend.example.com/")),
+            ("TEST_BASE_URLS_BACKEND", Some("https://backend.example.com/api/")),
+            ("TEST_BASE_URLS_FRONTEND", Some("https://frontend.example.com/")),
         ];
         temp_env::with_vars(overrides, || {
-            let opts = BaseUrls::from_env("TEST").unwrap();
+            let opts = BaseUrlsOptions::from_env("TEST").unwrap();
             assert_eq!(
-                BaseUrls {
-                    backend_base_url: url("https://backend.example.com/api/"),
-                    frontend_base_url: Some(url("https://frontend.example.com/")),
+                BaseUrlsOptions {
+                    backend: url("https://backend.example.com/api/"),
+                    frontend: Some(url("https://frontend.example.com/")),
                 },
                 opts
             );
@@ -169,24 +172,26 @@ mod tests {
     #[test]
     #[serial(BASE_URLS)]
     pub fn test_from_env_missing() {
-        temp_env::with_var_unset("TEST_BACKEND_BASE_URL", || {
-            let err = BaseUrls::from_env("TEST").unwrap_err();
-            assert!(err.contains("TEST_BACKEND_BASE_URL not present"));
+        temp_env::with_var_unset("TEST_BASE_URLS_BACKEND", || {
+            let err = BaseUrlsOptions::from_env("TEST").unwrap_err();
+            assert!(err.contains("TEST_BASE_URLS_BACKEND not present"));
         });
     }
 
     #[test]
     #[serial(BASE_URLS)]
     pub fn test_from_env_calls_new_for_validation() {
-        let overrides = [("TEST_BACKEND_BASE_URL", Some("https://example.com/api"))];
+        let overrides = [("TEST_BASE_URLS_BACKEND", Some("https://example.com/api"))];
         temp_env::with_vars(overrides, || {
-            assert!(BaseUrls::from_env("TEST").unwrap_err().contains("missing trailing slash"));
+            assert!(
+                BaseUrlsOptions::from_env("TEST").unwrap_err().contains("missing trailing slash")
+            );
         });
     }
 
     #[test]
     pub fn test_make_backend_url() {
-        let base_urls = BaseUrls::from_strs("http://backend.example.com/api/", None);
+        let base_urls = BaseUrlsOptions::from_strs("http://backend.example.com/api/", None);
 
         assert_eq!(url("http://backend.example.com/api/"), base_urls.make_backend_url(""));
         assert_eq!(url("http://backend.example.com/api/foo"), base_urls.make_backend_url("foo"));
@@ -194,7 +199,7 @@ mod tests {
 
     #[test]
     pub fn test_make_frontend_url_same_as_backend() {
-        let base_urls = BaseUrls::from_strs("http://backend.example.com/api/", None);
+        let base_urls = BaseUrlsOptions::from_strs("http://backend.example.com/api/", None);
 
         assert_eq!(url("http://backend.example.com/api/"), base_urls.make_frontend_url(""));
         assert_eq!(url("http://backend.example.com/api/foo"), base_urls.make_frontend_url("foo"));
@@ -202,7 +207,7 @@ mod tests {
 
     #[test]
     pub fn test_make_frontend_url_different_from_backend() {
-        let base_urls = BaseUrls::from_strs(
+        let base_urls = BaseUrlsOptions::from_strs(
             "http://backend.example.com/api/",
             Some("http://frontend.example.com"),
         );
