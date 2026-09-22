@@ -16,12 +16,14 @@ postgres = [
     "dep:rand",
     "dep:regex",
     "sqlx/postgres",
-    "sqlx/runtime-tokio-rustls",
+    "sqlx/runtime-tokio",
+    "sqlx/tls-rustls",
 ]
 sqlite = [
     "dep:futures",
     "sqlx/sqlite",
-    "sqlx/runtime-tokio-rustls",
+    "sqlx/runtime-tokio",
+    "sqlx/tls-rustls",
 ]
 testutils = [
     "dep:base64",

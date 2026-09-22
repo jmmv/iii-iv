@@ -203,7 +203,7 @@ pub mod testutils {
 #[cfg(all(test, any(feature = "postgres", feature = "sqlite")))]
 mod tests {
     use super::*;
-    use sqlx::Row;
+    use sqlx::{AssertSqlSafe, Row};
     use std::sync::Arc;
 
     /// Runs a `query` on `ex` and does not care about its results.  The `query` must be valid for
@@ -212,12 +212,12 @@ mod tests {
         match ex {
             #[cfg(feature = "postgres")]
             Executor::Postgres(ex) => {
-                let _result = sqlx::query(query).execute(ex).await.unwrap();
+                let _result = sqlx::query(AssertSqlSafe(query)).execute(ex).await.unwrap();
             }
 
             #[cfg(feature = "sqlite")]
             Executor::Sqlite(ex) => {
-                let _result = sqlx::query(query).execute(ex).await.unwrap();
+                let _result = sqlx::query(AssertSqlSafe(query)).execute(ex).await.unwrap();
             }
         }
         Ok(())
@@ -229,13 +229,13 @@ mod tests {
         match ex {
             #[cfg(feature = "postgres")]
             Executor::Postgres(ex) => {
-                let row = sqlx::query(query).fetch_one(ex).await.unwrap();
+                let row = sqlx::query(AssertSqlSafe(query)).fetch_one(ex).await.unwrap();
                 row.try_get(column).unwrap()
             }
 
             #[cfg(feature = "sqlite")]
             Executor::Sqlite(ex) => {
-                let row = sqlx::query(query).fetch_one(ex).await.unwrap();
+                let row = sqlx::query(AssertSqlSafe(query)).fetch_one(ex).await.unwrap();
                 row.try_get(column).unwrap()
             }
         }

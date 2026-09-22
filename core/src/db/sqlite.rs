@@ -19,9 +19,9 @@ use crate::db::{Db, DbError, DbResult, Executor, TxExecutor};
 use async_trait::async_trait;
 use futures::future::BoxFuture;
 use log::warn;
-use sqlx::Transaction;
 use sqlx::pool::PoolConnection;
 use sqlx::sqlite::{Sqlite, SqlitePool};
+use sqlx::{AssertSqlSafe, SqlStr, Transaction};
 use std::time::Duration;
 use time::OffsetDateTime;
 
@@ -68,9 +68,9 @@ impl SqliteExecutor {
 impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
     type Database = Sqlite;
 
-    fn describe<'e, 'q: 'e>(
+    fn describe<'e>(
         self,
-        sql: &'q str,
+        sql: SqlStr,
     ) -> BoxFuture<'e, Result<sqlx::Describe<Self::Database>, sqlx::Error>>
     where
         'c: 'e,
@@ -191,10 +191,10 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
         }
     }
 
-    fn prepare<'e, 'q: 'e>(
+    fn prepare<'e>(
         self,
-        query: &'q str,
-    ) -> BoxFuture<'e, Result<<Self::Database as sqlx::Database>::Statement<'q>, sqlx::Error>>
+        query: SqlStr,
+    ) -> BoxFuture<'e, Result<<Self::Database as sqlx::Database>::Statement, sqlx::Error>>
     where
         'c: 'e,
     {
@@ -204,11 +204,11 @@ impl<'c> sqlx::Executor<'c> for &'c mut SqliteExecutor {
         }
     }
 
-    fn prepare_with<'e, 'q: 'e>(
+    fn prepare_with<'e>(
         self,
-        sql: &'q str,
+        sql: SqlStr,
         parameters: &'e [<Self::Database as sqlx::Database>::TypeInfo],
-    ) -> BoxFuture<'e, Result<<Self::Database as sqlx::Database>::Statement<'q>, sqlx::Error>>
+    ) -> BoxFuture<'e, Result<<Self::Database as sqlx::Database>::Statement, sqlx::Error>>
     where
         'c: 'e,
     {
@@ -261,7 +261,7 @@ impl Db for SqliteDb {
 
 /// Helper function to initialize the database with a schema.
 pub async fn run_schema(e: &mut SqliteExecutor, schema: &str) -> DbResult<()> {
-    sqlx::raw_sql(schema).execute(e).await.map_err(map_sqlx_error)?;
+    sqlx::raw_sql(AssertSqlSafe(schema)).execute(e).await.map_err(map_sqlx_error)?;
     Ok(())
 }
 

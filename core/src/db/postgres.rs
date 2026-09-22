@@ -23,9 +23,9 @@ use derivative::Derivative;
 use futures::Future;
 use futures::future::BoxFuture;
 use log::warn;
-use sqlx::Transaction;
 use sqlx::pool::PoolConnection;
 use sqlx::postgres::{PgConnectOptions, PgDatabaseError, PgPool, PgPoolOptions, Postgres};
+use sqlx::{AssertSqlSafe, SqlStr, Transaction};
 use std::time::Duration;
 
 /// Default value for the `max_retries` configuration property.
@@ -106,9 +106,9 @@ impl PostgresExecutor {
 impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
     type Database = Postgres;
 
-    fn describe<'e, 'q: 'e>(
+    fn describe<'e>(
         self,
-        sql: &'q str,
+        sql: SqlStr,
     ) -> BoxFuture<'e, Result<sqlx::Describe<Self::Database>, sqlx::Error>>
     where
         'c: 'e,
@@ -229,10 +229,10 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
         }
     }
 
-    fn prepare<'e, 'q: 'e>(
+    fn prepare<'e>(
         self,
-        query: &'q str,
-    ) -> BoxFuture<'e, Result<<Self::Database as sqlx::Database>::Statement<'q>, sqlx::Error>>
+        query: SqlStr,
+    ) -> BoxFuture<'e, Result<<Self::Database as sqlx::Database>::Statement, sqlx::Error>>
     where
         'c: 'e,
     {
@@ -242,11 +242,11 @@ impl<'c> sqlx::Executor<'c> for &'c mut PostgresExecutor {
         }
     }
 
-    fn prepare_with<'e, 'q: 'e>(
+    fn prepare_with<'e>(
         self,
-        sql: &'q str,
+        sql: SqlStr,
         parameters: &'e [<Self::Database as sqlx::Database>::TypeInfo],
-    ) -> BoxFuture<'e, Result<<Self::Database as sqlx::Database>::Statement<'q>, sqlx::Error>>
+    ) -> BoxFuture<'e, Result<<Self::Database as sqlx::Database>::Statement, sqlx::Error>>
     where
         'c: 'e,
     {
@@ -374,7 +374,11 @@ pub async fn run_schema(e: &mut PostgresExecutor, schema: &str) -> DbResult<()> 
         regex::RegexBuilder::new("--.*$").multi_line(true).build().unwrap().replace_all(schema, "");
 
     for query_str in schema.split(';') {
-        sqlx::query(query_str).execute(&mut *e).await.map_err(map_sqlx_error).unwrap();
+        sqlx::query(AssertSqlSafe(query_str))
+            .execute(&mut *e)
+            .await
+            .map_err(map_sqlx_error)
+            .unwrap();
     }
     Ok(())
 }

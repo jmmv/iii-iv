@@ -25,7 +25,7 @@ use iii_iv_core::db::sqlite;
 use iii_iv_core::db::{DbError, DbResult, Executor};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use sqlx::Row;
+use sqlx::{AssertSqlSafe, Row};
 use std::time::Duration;
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -104,7 +104,7 @@ where
                 VALUES
                     ($1, $2,   $3,          NULL,          0,    $4,      $4,      $5)
             ";
-            sqlx::query(query_str)
+            sqlx::query(AssertSqlSafe(query_str))
                 .bind(id)
                 .bind(&json_task)
                 .bind(TaskStatus::Runnable as i16)
@@ -128,7 +128,7 @@ where
                     only_after_sec, only_after_nsec)
                 VALUES (?, ?, ?, NULL, 0, ?, ?, ?, ?, ?, ?)
             ";
-            sqlx::query(query_str)
+            sqlx::query(AssertSqlSafe(query_str))
                 .bind(id)
                 .bind(&json_task)
                 .bind(TaskStatus::Runnable as i8)
@@ -169,7 +169,7 @@ pub(crate) async fn get_result(ex: &mut Executor, id: Uuid) -> DbResult<Option<T
                     )
                 )
             ";
-            match sqlx::query(query_str)
+            match sqlx::query(AssertSqlSafe(query_str))
                 .bind(id)
                 .bind(TaskStatus::Runnable as i16)
                 .fetch_optional(ex)
@@ -215,7 +215,7 @@ pub(crate) async fn get_result(ex: &mut Executor, id: Uuid) -> DbResult<Option<T
                     )
                 )
             ";
-            match sqlx::query(query_str)
+            match sqlx::query(AssertSqlSafe(query_str))
                 .bind(id)
                 .bind(TaskStatus::Runnable as i8)
                 .bind(TaskStatus::Runnable as i8)
@@ -277,8 +277,10 @@ pub(crate) async fn get_results_since(
                 ) AND updated >= $2
                 ORDER BY updated ASC
             ";
-            let mut rows =
-                sqlx::query(query_str).bind(TaskStatus::Runnable as i16).bind(since).fetch(ex);
+            let mut rows = sqlx::query(AssertSqlSafe(query_str))
+                .bind(TaskStatus::Runnable as i16)
+                .bind(since)
+                .fetch(ex);
 
             while let Some(row) = rows.try_next().await.map_err(postgres::map_sqlx_error)? {
                 let id: Uuid = row.try_get("id").map_err(postgres::map_sqlx_error)?;
@@ -318,7 +320,7 @@ pub(crate) async fn get_results_since(
                 ) AND (updated_sec >= ? OR (updated_sec = ? AND updated_nsec >= ?))
                 ORDER BY updated_sec ASC, updated_nsec ASC
             ";
-            let mut rows = sqlx::query(query_str)
+            let mut rows = sqlx::query(AssertSqlSafe(query_str))
                 .bind(TaskStatus::Runnable as i8)
                 .bind(TaskStatus::Runnable as i8)
                 .bind(since_sec)
@@ -408,7 +410,7 @@ where
                 ORDER BY updated ASC
                 LIMIT $4
             ";
-            let mut rows = sqlx::query(query_str)
+            let mut rows = sqlx::query(AssertSqlSafe(query_str))
                 .bind(TaskStatus::Runnable as i16)
                 .bind(max_runtime)
                 .bind(now)
@@ -448,7 +450,7 @@ where
                 ORDER BY updated_sec ASC, updated_nsec ASC
                 LIMIT ?
             ";
-            let mut rows = sqlx::query(query_str)
+            let mut rows = sqlx::query(AssertSqlSafe(query_str))
                 .bind(TaskStatus::Runnable as i8)
                 .bind(max_runtime_msec)
                 .bind(now_msec)
@@ -501,7 +503,7 @@ where
                     AND status_code = $1
                     AND (runs = 0 OR updated + $5 < $2)
             ";
-            sqlx::query(query_str)
+            sqlx::query(AssertSqlSafe(query_str))
                 .bind(TaskStatus::Runnable as i16)
                 .bind(updated)
                 .bind(i16::from(task.runs))
@@ -534,7 +536,7 @@ where
                         OR (updated_sec * 1000 + updated_nsec / 1000000) + ? < ?
                     )
             ";
-            sqlx::query(query_str)
+            sqlx::query(AssertSqlSafe(query_str))
                 .bind(TaskStatus::Runnable as i8)
                 .bind(updated_sec)
                 .bind(updated_nsec)
@@ -577,7 +579,7 @@ pub(crate) async fn set_task_result(
                 SET status_code = $1, status_reason = $2, updated = $3, only_after = $4
                 WHERE id = $5
             ";
-            sqlx::query(query_str)
+            sqlx::query(AssertSqlSafe(query_str))
                 .bind(status as i16)
                 .bind(reason)
                 .bind(updated)
@@ -601,7 +603,7 @@ pub(crate) async fn set_task_result(
                     only_after_sec = ?, only_after_nsec = ?
                 WHERE id = ?
             ";
-            sqlx::query(query_str)
+            sqlx::query(AssertSqlSafe(query_str))
                 .bind(status as i8)
                 .bind(reason)
                 .bind(updated_sec)

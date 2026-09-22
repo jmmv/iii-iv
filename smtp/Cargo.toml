@@ -33,9 +33,9 @@ workspace = true
 features = ["builder", "hostname", "pool", "rustls-tls", "smtp-transport", "tokio1-rustls-tls"]
 
 [dependencies.sqlx]
-version = "0.8"
+version = "0.9"
 optional = true
-features = ["runtime-tokio-rustls", "time"]
+features = ["runtime-tokio", "tls-rustls", "time"]
 
 [dev-dependencies]
 env_logger = { workspace = true }
@@ -49,4 +49,4 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [dev-dependencies.sqlx]
 workspace = true
-features = ["runtime-tokio-rustls", "sqlite", "time"]
+features = ["runtime-tokio", "tls-rustls", "sqlite", "time"]
