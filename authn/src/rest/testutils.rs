@@ -51,7 +51,7 @@ use {
     iii_iv_core::clocks::testutils::SettableClock,
     iii_iv_core::db::{Db, DbError},
     iii_iv_core::driver::DriverError,
-    iii_iv_core::rest::BaseUrls,
+    iii_iv_core::rest::BaseUrlsOptions,
     iii_iv_queue::driver::Client,
     iii_iv_smtp::driver::testutils::RecorderSmtpMailer,
     std::sync::Arc,
@@ -293,7 +293,7 @@ impl TestContextBuilder {
         let clock = Arc::from(SettableClock::new(datetime!(2023-12-01 05:50:00 UTC)));
         let mailer = Arc::from(RecorderSmtpMailer::default());
 
-        let base_urls = Arc::from(BaseUrls::from_strs("http://localhost:1234/", None));
+        let base_urls = Arc::from(BaseUrlsOptions::from_strs("http://localhost:1234/", None));
         let task_runner = AuthnTaskRunner::new(
             db.clone(),
             mailer.clone(),

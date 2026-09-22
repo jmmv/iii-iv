@@ -20,7 +20,7 @@ use crate::driver::AuthnOptions;
 use crate::driver::email::make_activation_code_message;
 use crate::model::AuthnTask;
 use iii_iv_core::db::{Db, DbError};
-use iii_iv_core::rest::BaseUrls;
+use iii_iv_core::rest::BaseUrlsOptions;
 use iii_iv_queue::model::{ExecError, ExecResult};
 use iii_iv_smtp::driver::SmtpMailer;
 use iii_iv_smtp::model::EmailTemplate;
@@ -34,7 +34,7 @@ pub struct AuthnTaskRunner {
     activation_template: Arc<EmailTemplate>,
 
     /// Base URLs of the running service.
-    base_urls: Arc<BaseUrls>,
+    base_urls: Arc<BaseUrlsOptions>,
 
     /// Database that stores authentication state.
     db: Arc<dyn Db + Send + Sync>,
@@ -56,7 +56,7 @@ impl AuthnTaskRunner {
         db: Arc<dyn Db + Send + Sync>,
         mailer: Arc<dyn SmtpMailer + Send + Sync>,
         activation_template: EmailTemplate,
-        base_urls: Arc<BaseUrls>,
+        base_urls: Arc<BaseUrlsOptions>,
         opts: &AuthnOptions,
     ) -> Self {
         Self {

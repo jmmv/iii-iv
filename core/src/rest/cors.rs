@@ -17,7 +17,7 @@
 
 use crate::config::Options;
 use crate::env::{FromEnvValue, Result};
-use crate::rest::BaseUrls;
+use crate::rest::BaseUrlsOptions;
 use http::{HeaderName, HeaderValue, Method, header};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
@@ -94,7 +94,7 @@ impl CorsLayerBuilder {
 
     /// Modifies the CORS layer builder to allow connections from the `base_urls` frontend, if
     /// necessary because it lives in a separate URL than the backend.
-    fn allow_base_urls(mut self, base_urls: &BaseUrls) -> Result<Self> {
+    fn allow_base_urls(mut self, base_urls: &BaseUrlsOptions) -> Result<Self> {
         let backend_root = base_urls.make_backend_url("");
         let frontend_root = base_urls.make_frontend_url("");
         if backend_root == frontend_root {
@@ -150,7 +150,7 @@ impl CorsLayerBuilder {
 
 /// Instantiates a CORS layer from `options` to support connections from the frontend at
 /// `base_urls`.
-pub fn new_cors_layer(options: &CorsOptions, base_urls: &BaseUrls) -> Result<CorsLayer> {
+pub fn new_cors_layer(options: &CorsOptions, base_urls: &BaseUrlsOptions) -> Result<CorsLayer> {
     Ok(CorsLayerBuilder::from_options(options).allow_base_urls(base_urls)?.build())
 }
 
@@ -276,7 +276,7 @@ mod tests {
             ("TEST_CORS_ALLOW_HEADERS", None),
         ];
         temp_env::with_vars(overrides, || {
-            let base_urls = BaseUrls::from_strs("https://backend.example.com", None);
+            let base_urls = BaseUrlsOptions::from_strs("https://backend.example.com", None);
             let options = cors_options();
             let layer = new_cors_layer(&options, &base_urls).unwrap();
             assert_origin(&[], &layer);
@@ -296,7 +296,7 @@ mod tests {
             ("TEST_CORS_ALLOW_HEADERS", Some("X-Custom")),
         ];
         temp_env::with_vars(overrides, || {
-            let base_urls = BaseUrls::from_strs("https://backend.example.com", None);
+            let base_urls = BaseUrlsOptions::from_strs("https://backend.example.com", None);
             let options = cors_options();
             let layer = new_cors_layer(&options, &base_urls).unwrap();
             assert_origin(&["https://a.example.com", "http://b.example.com"], &layer);
@@ -316,7 +316,7 @@ mod tests {
             ("TEST_CORS_ALLOW_HEADERS", None),
         ];
         temp_env::with_vars(overrides, || {
-            let base_urls = BaseUrls::from_strs(
+            let base_urls = BaseUrlsOptions::from_strs(
                 "https://backend.example.com",
                 Some("https://frontend.example.com:1234/foo/"),
             );
@@ -339,7 +339,7 @@ mod tests {
             ("TEST_CORS_ALLOW_HEADERS", Some("X-Custom")),
         ];
         temp_env::with_vars(overrides, || {
-            let base_urls = BaseUrls::from_strs(
+            let base_urls = BaseUrlsOptions::from_strs(
                 "https://backend.example.com",
                 Some("https://frontend.example.com:1234/foo/"),
             );
@@ -365,7 +365,7 @@ mod tests {
             ("TEST_CORS_ALLOW_HEADERS", None),
         ];
         temp_env::with_vars(overrides, || {
-            let base_urls = BaseUrls::from_strs("https://backend.example.com", None);
+            let base_urls = BaseUrlsOptions::from_strs("https://backend.example.com", None);
             let options = cors_options();
             let layer = new_cors_layer(&options, &base_urls).unwrap();
             assert_origin(&["*"], &layer);
