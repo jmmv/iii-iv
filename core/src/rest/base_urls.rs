@@ -190,6 +190,28 @@ mod tests {
     }
 
     #[test]
+    pub fn test_format_all() {
+        let options = BaseUrlsOptions::from_strs(
+            "https://backend.example.com/api/",
+            Some("https://frontend.example.com/"),
+        );
+
+        assert_eq!(
+            vec![
+                (
+                    "TEST_BASE_URLS_BACKEND".to_owned(),
+                    Some("https://backend.example.com/api/".to_owned()),
+                ),
+                (
+                    "TEST_BASE_URLS_FRONTEND".to_owned(),
+                    Some("https://frontend.example.com/".to_owned()),
+                ),
+            ],
+            options.format_all("TEST")
+        );
+    }
+
+    #[test]
     pub fn test_make_backend_url() {
         let base_urls = BaseUrlsOptions::from_strs("http://backend.example.com/api/", None);
 

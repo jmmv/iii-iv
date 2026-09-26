@@ -29,8 +29,8 @@
 //!         Ok(Self)
 //!     }
 //!
-//!     fn format_all(&self, prefix: &str) -> Vec<(String, String)> {
-//!         vec![(format!("{}_SERVICE_OPTION", prefix), "value".to_owned())]
+//!     fn format_all(&self, prefix: &str) -> Vec<(String, Option<String>)> {
+//!         vec![(format!("{}_SERVICE_OPTION", prefix), Some("value".to_owned()))]
 //!     }
 //! }
 //!
@@ -60,8 +60,9 @@ pub trait Options: Any + Send + Sync {
     /// Formats all environment settings that configure this object.
     ///
     /// The returned names must include `prefix` and the values must reflect the effective parsed
-    /// configuration, including defaults.
-    fn format_all(&self, prefix: &str) -> Vec<(String, String)>;
+    /// configuration, including defaults.  `None` represents an unset optional configuration
+    /// setting.
+    fn format_all(&self, prefix: &str) -> Vec<(String, Option<String>)>;
 }
 
 /// A collection of configuration objects loaded for a service.
@@ -73,6 +74,14 @@ pub struct Config {
     prefix: String,
 }
 
+/// Formats a configuration entry for logging.
+fn format_log_entry(name: &str, value: Option<&str>) -> String {
+    match value {
+        Some(value) => format!("{} = {}", name, value),
+        None => format!("{} is unset", name),
+    }
+}
+
 impl Config {
     /// Creates a builder for a service configuration.
     pub fn builder() -> ConfigBuilder {
@@ -82,12 +91,12 @@ impl Config {
     /// Dumps all available configuration settings to the log.
     pub fn log(&self) {
         for (name, value) in self.formatted_entries() {
-            info!("{}={}", name, value);
+            info!("{}", format_log_entry(&name, value.as_deref()));
         }
     }
 
     /// Formats all available configuration settings in lexicographical name order.
-    fn formatted_entries(&self) -> Vec<(String, String)> {
+    fn formatted_entries(&self) -> Vec<(String, Option<String>)> {
         let mut entries = self
             .options
             .iter()
@@ -221,9 +230,9 @@ mod tests {
             Ok(Self(format!("{}-first", prefix)))
         }
 
-        fn format_all(&self, prefix: &str) -> Vec<(String, String)> {
+        fn format_all(&self, prefix: &str) -> Vec<(String, Option<String>)> {
             FORMATTED.store(true, Ordering::SeqCst);
-            vec![(format!("{}_FIRST", prefix), self.0.clone())]
+            vec![(format!("{}_FIRST", prefix), Some(self.0.clone()))]
         }
     }
 
@@ -235,7 +244,7 @@ mod tests {
             Err(format!("Invalid {} settings", prefix))
         }
 
-        fn format_all(&self, _prefix: &str) -> Vec<(String, String)> {
+        fn format_all(&self, _prefix: &str) -> Vec<(String, Option<String>)> {
             vec![]
         }
     }
@@ -249,7 +258,7 @@ mod tests {
             Ok(Self)
         }
 
-        fn format_all(&self, _prefix: &str) -> Vec<(String, String)> {
+        fn format_all(&self, _prefix: &str) -> Vec<(String, Option<String>)> {
             vec![]
         }
     }
@@ -263,7 +272,7 @@ mod tests {
             Ok(Self)
         }
 
-        fn format_all(&self, _prefix: &str) -> Vec<(String, String)> {
+        fn format_all(&self, _prefix: &str) -> Vec<(String, Option<String>)> {
             vec![]
         }
     }
@@ -277,8 +286,8 @@ mod tests {
             Ok(Self(format!("{}-second", prefix)))
         }
 
-        fn format_all(&self, prefix: &str) -> Vec<(String, String)> {
-            vec![(format!("{}_SECOND", prefix), self.0.clone())]
+        fn format_all(&self, prefix: &str) -> Vec<(String, Option<String>)> {
+            vec![(format!("{}_SECOND", prefix), Some(self.0.clone()))]
         }
     }
 
@@ -304,11 +313,17 @@ mod tests {
 
         assert_eq!(
             vec![
-                ("TEST_FIRST".to_owned(), "TEST-first".to_owned()),
-                ("TEST_SECOND".to_owned(), "TEST-second".to_owned()),
+                ("TEST_FIRST".to_owned(), Some("TEST-first".to_owned())),
+                ("TEST_SECOND".to_owned(), Some("TEST-second".to_owned())),
             ],
             config.formatted_entries()
         );
+    }
+
+    #[test]
+    fn test_format_log_entry() {
+        assert_eq!("TEST_SETTING = value", format_log_entry("TEST_SETTING", Some("value")));
+        assert_eq!("TEST_SETTING is unset", format_log_entry("TEST_SETTING", None));
     }
 
     #[test]

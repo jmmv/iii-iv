@@ -79,11 +79,36 @@ fn test_options() {
             assert_eq!("secret", options.secret.as_str());
             assert_eq!(
                 vec![
-                    ("TEST_DERIVED_REQUIRED".to_owned(), "value".to_owned()),
-                    ("TEST_DERIVED_OPTIONAL".to_owned(), "Some(123)".to_owned()),
-                    ("TEST_DERIVED_DEFAULTED".to_owned(), "42".to_owned()),
-                    ("TEST_DERIVED_TIMEOUT".to_owned(), "120s".to_owned()),
-                    ("TEST_DERIVED_SECRET".to_owned(), "scrubbed secret".to_owned()),
+                    ("TEST_DERIVED_REQUIRED".to_owned(), Some("value".to_owned())),
+                    ("TEST_DERIVED_OPTIONAL".to_owned(), Some("123".to_owned())),
+                    ("TEST_DERIVED_DEFAULTED".to_owned(), Some("42".to_owned())),
+                    ("TEST_DERIVED_TIMEOUT".to_owned(), Some("120s".to_owned())),
+                    ("TEST_DERIVED_SECRET".to_owned(), Some("scrubbed secret".to_owned())),
+                ],
+                options.format_all("TEST")
+            );
+        },
+    );
+}
+
+#[test]
+#[serial]
+fn test_options_optional_unset() {
+    temp_env::with_vars(
+        [
+            ("TEST_DERIVED_REQUIRED", Some("value")),
+            ("TEST_DERIVED_OPTIONAL", None),
+            ("TEST_DERIVED_SECRET", Some("secret")),
+        ],
+        || {
+            let options = DerivedOptions::from_env("TEST").unwrap();
+            assert_eq!(
+                vec![
+                    ("TEST_DERIVED_REQUIRED".to_owned(), Some("value".to_owned())),
+                    ("TEST_DERIVED_OPTIONAL".to_owned(), None),
+                    ("TEST_DERIVED_DEFAULTED".to_owned(), Some("42".to_owned())),
+                    ("TEST_DERIVED_TIMEOUT".to_owned(), Some("60s".to_owned())),
+                    ("TEST_DERIVED_SECRET".to_owned(), Some("scrubbed secret".to_owned())),
                 ],
                 options.format_all("TEST")
             );

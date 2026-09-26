@@ -32,6 +32,11 @@ pub fn format_value<T: FormatValue>(value: &T) -> String {
     value.format_value()
 }
 
+/// Formats an optional parsed environment value for effective-configuration logging.
+pub fn format_optional_value<T: FormatValue>(value: &Option<T>) -> Option<String> {
+    value.as_ref().map(FormatValue::format_value)
+}
+
 /// Formats a parsed environment value for effective-configuration logging.
 pub trait FormatValue {
     /// Formats this value without exposing secrets.
@@ -68,12 +73,6 @@ format_value_for_debug!(Duration, SecretString);
 format_value_for_display!(
     bool, i8, i16, i32, i64, i128, u8, u16, u32, u64, u128, usize, String, Url,
 );
-
-impl<T: Debug> FormatValue for Option<T> {
-    fn format_value(&self) -> String {
-        format!("{:?}", self)
-    }
-}
 
 impl<T: Debug> FormatValue for Vec<T> {
     fn format_value(&self) -> String {
