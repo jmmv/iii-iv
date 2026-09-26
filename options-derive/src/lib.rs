@@ -86,11 +86,13 @@ fn derive_options_impl(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
         };
         field_idents.push(field_ident.clone());
         values.push(value);
+        let formatter = if option_inner_type(&field_type).is_some() {
+            quote! { #core::env::format_optional_value(&self.#field_ident) }
+        } else {
+            quote! { Some(#core::env::format_value(&self.#field_ident)) }
+        };
         formatters.push(quote! {
-            (
-                #core::env::var_name(prefix, #suffix),
-                #core::env::format_value(&self.#field_ident),
-            )
+            (#core::env::var_name(prefix, #suffix), #formatter)
         });
     }
 
@@ -108,7 +110,7 @@ fn derive_options_impl(input: DeriveInput) -> Result<proc_macro2::TokenStream> {
                 #construction
             }
 
-            fn format_all(&self, prefix: &str) -> ::std::vec::Vec<(String, String)> {
+            fn format_all(&self, prefix: &str) -> ::std::vec::Vec<(String, Option<String>)> {
                 vec![#(#formatters),*]
             }
         }
