@@ -16,6 +16,7 @@
 //! Database abstraction to manipulate users and authentication.
 
 use crate::model::{AccessToken, Coupon, CouponName, HashedPassword, Session, User};
+use iii_iv_core::db::build_duration;
 #[cfg(feature = "postgres")]
 use iii_iv_core::db::postgres;
 #[cfg(any(feature = "sqlite", test))]
@@ -236,9 +237,12 @@ impl TryFrom<PgRow> for Session {
         let user_id: Uuid = row.try_get("user_id").map_err(postgres::map_sqlx_error)?;
         let login_time: OffsetDateTime =
             row.try_get("login_time").map_err(postgres::map_sqlx_error)?;
+        let max_age_secs: i64 = row.try_get("max_age_secs").map_err(postgres::map_sqlx_error)?;
+        let max_age_nsecs: i32 = row.try_get("max_age_nsecs").map_err(postgres::map_sqlx_error)?;
 
         let access_token = AccessToken::new(access_token)?;
-        Ok(Session::new(access_token, user_id, login_time))
+        let max_age = build_duration(max_age_secs, i64::from(max_age_nsecs))?;
+        Ok(Session::new(access_token, user_id, login_time, max_age))
     }
 }
 
@@ -284,11 +288,15 @@ impl TryFrom<SqliteRow> for Session {
             row.try_get("login_time_secs").map_err(sqlite::map_sqlx_error)?;
         let login_time_nsecs: i64 =
             row.try_get("login_time_nsecs").map_err(sqlite::map_sqlx_error)?;
+        let max_age_secs: i64 = row.try_get("max_age_secs").map_err(sqlite::map_sqlx_error)?;
+        let max_age_nsecs: i32 = row.try_get("max_age_nsecs").map_err(sqlite::map_sqlx_error)?;
 
         let access_token = AccessToken::new(access_token)?;
         let login_time = build_timestamp(login_time_secs, login_time_nsecs)?;
 
-        Ok(Session::new(access_token, user_id, login_time))
+        let max_age = build_duration(max_age_secs, i64::from(max_age_nsecs))?;
+
+        Ok(Session::new(access_token, user_id, login_time, max_age))
     }
 }
 
@@ -653,7 +661,7 @@ pub async fn get_session(ex: &mut Executor, access_token: &AccessToken) -> DbRes
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
             let query_str = "
-                SELECT access_token, user_id, login_time
+                SELECT access_token, user_id, login_time, max_age_secs, max_age_nsecs
                 FROM sessions
                 WHERE access_token = $1 AND logout_time IS NULL";
             let raw_session = sqlx::query(AssertSqlSafe(query_str))
@@ -667,7 +675,8 @@ pub async fn get_session(ex: &mut Executor, access_token: &AccessToken) -> DbRes
         #[cfg(any(feature = "sqlite", test))]
         Executor::Sqlite(ex) => {
             let query_str = "
-                SELECT access_token, user_id, login_time_secs, login_time_nsecs
+                SELECT access_token, user_id, login_time_secs, login_time_nsecs, max_age_secs,
+                       max_age_nsecs
                 FROM sessions
                 WHERE
                     access_token = ? AND
@@ -691,13 +700,20 @@ pub(crate) async fn put_session(ex: &mut Executor, session: &Session) -> DbResul
     let rows_affected = match ex {
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
-            let query_str =
-                "INSERT INTO sessions (access_token, user_id, login_time) VALUES ($1, $2, $3)";
+            let query_str = "
+                INSERT INTO sessions (
+                    access_token, user_id, login_time, max_age_secs, max_age_nsecs
+                )
+                VALUES ($1, $2, $3, $4, $5)";
 
             let done = sqlx::query(AssertSqlSafe(query_str))
                 .bind(session.access_token.as_str())
                 .bind(session.user_id)
                 .bind(session.login_time)
+                .bind(i64::try_from(session.max_age.as_secs()).map_err(|_| {
+                    DbError::DataIntegrityError("Session maximum age is too large".to_owned())
+                })?)
+                .bind(session.max_age.subsec_nanos() as i32)
                 .execute(ex)
                 .await
                 .map_err(postgres::map_sqlx_error)?;
@@ -709,13 +725,20 @@ pub(crate) async fn put_session(ex: &mut Executor, session: &Session) -> DbResul
             let (login_time_secs, login_time_nsecs) = unpack_timestamp(session.login_time);
 
             let query_str = "
-                INSERT INTO sessions (access_token, user_id, login_time_secs, login_time_nsecs)
-                VALUES (?, ?, ?, ?)";
+                INSERT INTO sessions (
+                    access_token, user_id, login_time_secs, login_time_nsecs, max_age_secs,
+                    max_age_nsecs
+                )
+                VALUES (?, ?, ?, ?, ?, ?)";
             let done = sqlx::query(AssertSqlSafe(query_str))
                 .bind(session.access_token.as_str())
                 .bind(session.user_id)
                 .bind(login_time_secs)
                 .bind(login_time_nsecs)
+                .bind(i64::try_from(session.max_age.as_secs()).map_err(|_| {
+                    DbError::DataIntegrityError("Session maximum age is too large".to_owned())
+                })?)
+                .bind(session.max_age.subsec_nanos() as i32)
                 .execute(ex)
                 .await
                 .map_err(sqlite::map_sqlx_error)?;

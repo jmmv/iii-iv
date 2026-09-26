@@ -98,6 +98,7 @@ mod tests {
     use crate::driver::testutils::*;
     use crate::model::{Session, password};
     use iii_iv_core::model::{EmailAddress, username};
+    use std::time::Duration;
 
     #[tokio::test]
     async fn test_change_password_ok() {
@@ -115,7 +116,11 @@ mod tests {
             .await
             .unwrap();
 
-        context.driver().login(username.as_str().to_owned(), new_password).await.unwrap();
+        context
+            .driver()
+            .login(username.as_str().to_owned(), new_password, Some(Duration::from_secs(100)))
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -152,7 +157,12 @@ mod tests {
             let mut tx = context.db().begin().await.unwrap();
             let user = db::get_user_by_username(tx.ex(), username.clone()).await.unwrap();
             let access_token = AccessToken::generate();
-            let session = Session::new(access_token.clone(), user.id, context.driver().now_utc());
+            let session = Session::new(
+                access_token.clone(),
+                user.id,
+                context.driver().now_utc(),
+                Duration::from_secs(3600),
+            );
             db::put_session(tx.ex(), &session).await.unwrap();
             db::update_user(tx.ex(), user.id, context.driver().now_utc()).await.unwrap();
             tx.commit().await.unwrap();

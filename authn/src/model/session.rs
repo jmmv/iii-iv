@@ -16,6 +16,7 @@
 //! The `Session` data type.
 
 use crate::model::AccessToken;
+use std::time::Duration;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -30,6 +31,9 @@ pub struct Session {
 
     /// Timestamp to represent when the session was initiated.
     pub login_time: OffsetDateTime,
+
+    /// Maximum amount of time the session is valid for.
+    pub max_age: Duration,
 }
 
 impl Session {
@@ -38,8 +42,9 @@ impl Session {
         access_token: AccessToken,
         user_id: Uuid,
         login_time: OffsetDateTime,
+        max_age: Duration,
     ) -> Self {
-        Self { access_token, user_id, login_time }
+        Self { access_token, user_id, login_time, max_age }
     }
 }
 
@@ -53,10 +58,12 @@ mod tests {
         let token = AccessToken::generate();
         let user_id = Uuid::new_v4();
         let login_time = datetime!(2022-05-17 06:46:53 UTC);
-        let session = Session::new(token.clone(), user_id, login_time);
+        let max_age = Duration::from_secs(1234);
+        let session = Session::new(token.clone(), user_id, login_time, max_age);
         assert_eq!(&token, &session.access_token);
         assert_eq!(user_id, session.user_id);
         assert_eq!(login_time, session.login_time);
+        assert_eq!(max_age, session.max_age);
         assert_eq!(token, session.access_token);
     }
 }

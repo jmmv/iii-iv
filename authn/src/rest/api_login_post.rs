@@ -19,6 +19,7 @@ use crate::driver::{AuthnDriver, AuthnHooks};
 use crate::model::AccessToken;
 use crate::rest::get_basic_auth;
 use crate::rest::httputils::JsonMultipart;
+use axum::extract::Query;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::IntoResponse;
@@ -37,22 +38,24 @@ pub struct LoginResponse {
     pub session_max_age: Duration,
 }
 
+/// Parameters to customize a login request.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct LoginRequest {
+    /// Maximum lifetime of the session in seconds.  The server caps this at its configured maximum.
+    pub max_age: Option<u64>,
+}
+
 /// POST handler for this API.
 pub(crate) async fn handler<H: AuthnHooks>(
     State(driver): State<AuthnDriver<H>>,
     headers: HeaderMap,
+    Query(request): Query<LoginRequest>,
     _: EmptyBody,
 ) -> Result<impl IntoResponse, RestError> {
     let (username, password) = get_basic_auth(&headers, driver.realm())?;
 
-    // The maximum session age is a property of the server, not the session.  This might lead to a
-    // situation where this value changes in the server's configuration and the clients have session
-    // cookies with expiration times that don't match.  That's OK because the clients need to be
-    // prepared to handle authentication problems and session revocation for any reason.  But this
-    // is just a choice.  We could as well store this value along each session in the database.
-    let session_max_age = driver.opts().session_max_age;
-
-    let (session, output) = driver.login(username, password).await?;
+    let (session, session_max_age, output) =
+        driver.login(username, password, request.max_age.map(Duration::from_secs)).await?;
     let response = LoginResponse { access_token: session.access_token, session_max_age };
 
     Ok(JsonMultipart(response, output))
@@ -88,6 +91,44 @@ mod tests {
 
         assert!(context.session_exists(&response.access_token).await);
         assert!(context.user_exists(&context.whoami()).await);
+        assert_eq!(4182, response.session_max_age.as_secs());
+    }
+
+    #[tokio::test]
+    async fn test_ok_with_requested_max_age() {
+        let opts =
+            AuthnOptions { session_max_age: Duration::from_secs(4182), ..Default::default() };
+        let mut context = TestContextBuilder::new().with_opts(opts).build().await;
+
+        context.create_whoami_user().await;
+
+        let response = OneShotBuilder::new(context.app(), route())
+            .with_query(LoginRequest { max_age: Some(42) })
+            .with_basic_auth(context.whoami().as_str(), context.whoami_password().as_str())
+            .send_empty()
+            .await
+            .expect_json::<LoginResponse>()
+            .await;
+
+        assert_eq!(42, response.session_max_age.as_secs());
+    }
+
+    #[tokio::test]
+    async fn test_ok_with_requested_max_age_capped() {
+        let opts =
+            AuthnOptions { session_max_age: Duration::from_secs(4182), ..Default::default() };
+        let mut context = TestContextBuilder::new().with_opts(opts).build().await;
+
+        context.create_whoami_user().await;
+
+        let response = OneShotBuilder::new(context.app(), route())
+            .with_query(LoginRequest { max_age: Some(4183) })
+            .with_basic_auth(context.whoami().as_str(), context.whoami_password().as_str())
+            .send_empty()
+            .await
+            .expect_json::<LoginResponse>()
+            .await;
+
         assert_eq!(4182, response.session_max_age.as_secs());
     }
 

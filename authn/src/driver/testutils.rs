@@ -36,6 +36,9 @@ use iii_iv_smtp::driver::testutils::RecorderSmtpMailer;
 use std::sync::Arc;
 use std::time::Duration;
 
+/// Session lifetime used by test logins.
+const TEST_SESSION_MAX_AGE: Option<Duration> = Some(Duration::from_secs(48 * 60 * 60));
+
 #[cfg(test)]
 use {
     iii_iv_core::clocks::testutils::SettableClock, iii_iv_core::db::Executor, time::OffsetDateTime,
@@ -154,8 +157,12 @@ impl<H: AuthnHooks> TestContext<H> {
         let password = password!("test0password");
         self.create_active_user(&username).await;
 
-        let (response, _output) =
-            self.driver.clone().login(username.as_str().to_owned(), password).await.unwrap();
+        let (response, _, _output) = self
+            .driver
+            .clone()
+            .login(username.as_str().to_owned(), password, TEST_SESSION_MAX_AGE)
+            .await
+            .unwrap();
         response.access_token
     }
 

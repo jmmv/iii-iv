@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     user_id UUID NOT NULL REFERENCES users (id),
     login_time_secs INTEGER NOT NULL,
     login_time_nsecs INTEGER NOT NULL,
+    max_age_secs INTEGER NOT NULL,
+    max_age_nsecs INTEGER NOT NULL,
     logout_time_secs INTEGER,
     logout_time_nsecs INTEGER
 );
