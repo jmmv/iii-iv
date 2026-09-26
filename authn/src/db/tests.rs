@@ -19,6 +19,7 @@ use crate::db::*;
 use crate::model::{AccessToken, Coupon, Session, User, coupon_name, hashed_password};
 use iii_iv_core::db::{DbError, Executor};
 use iii_iv_core::model::{EmailAddress, Username, email_address, username};
+use std::time::Duration;
 use time::macros::datetime;
 use uuid::Uuid;
 
@@ -309,12 +310,20 @@ async fn test_update_user_password_wrong_old_password(ex: &mut Executor) {
 
 async fn test_delete_sessions_for_user_ok(ex: &mut Executor) {
     let user = create_simple_user(ex, "testuser1").await;
-    let session1 =
-        Session::new(AccessToken::generate(), user.id, datetime!(2022-05-17 06:29:28 UTC));
+    let session1 = Session::new(
+        AccessToken::generate(),
+        user.id,
+        datetime!(2022-05-17 06:29:28 UTC),
+        Duration::from_secs(3600),
+    );
     put_session(ex, &session1).await.unwrap();
 
-    let session2 =
-        Session::new(AccessToken::generate(), user.id, datetime!(2022-05-17 06:29:28 UTC));
+    let session2 = Session::new(
+        AccessToken::generate(),
+        user.id,
+        datetime!(2022-05-17 06:29:28 UTC),
+        Duration::from_secs(3600),
+    );
     put_session(ex, &session2).await.unwrap();
 
     assert_eq!(session1, get_session(ex, &session1.access_token).await.unwrap());
@@ -334,13 +343,21 @@ async fn test_delete_sessions_for_user_ok(ex: &mut Executor) {
 
 async fn test_sessions_ok(ex: &mut Executor) {
     let user1 = create_simple_user(ex, "testuser1").await;
-    let session1 =
-        Session::new(AccessToken::generate(), user1.id, datetime!(2022-05-17 06:29:28 UTC));
+    let session1 = Session::new(
+        AccessToken::generate(),
+        user1.id,
+        datetime!(2022-05-17 06:29:28 UTC),
+        Duration::from_secs(3600),
+    );
     put_session(ex, &session1).await.unwrap();
 
     create_simple_user(ex, "testuser2").await;
-    let session2 =
-        Session::new(AccessToken::generate(), user1.id, datetime!(2022-05-17 06:29:28 UTC));
+    let session2 = Session::new(
+        AccessToken::generate(),
+        user1.id,
+        datetime!(2022-05-17 06:29:28 UTC),
+        Duration::from_secs(3600),
+    );
     put_session(ex, &session2).await.unwrap();
 
     assert_eq!(session1, get_session(ex, &session1.access_token).await.unwrap());
@@ -360,8 +377,12 @@ async fn test_sessions_ok(ex: &mut Executor) {
 
 async fn test_sessions_missing(ex: &mut Executor) {
     let user = create_simple_user(ex, "testuser1").await;
-    let session =
-        Session::new(AccessToken::generate(), user.id, datetime!(2022-05-17 06:29:28 UTC));
+    let session = Session::new(
+        AccessToken::generate(),
+        user.id,
+        datetime!(2022-05-17 06:29:28 UTC),
+        Duration::from_secs(3600),
+    );
     put_session(ex, &session).await.unwrap();
 
     match get_session(ex, &AccessToken::generate()).await {

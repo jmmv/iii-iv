@@ -217,11 +217,6 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         Self { db, clock, task_enqueuer, realm, usernames, opts, sessions_cache, hooks }
     }
 
-    /// Returns a reference to the authentication options provided at creation time.
-    pub(crate) fn opts(&self) -> &AuthnOptions {
-        &self.opts
-    }
-
     /// Obtains the current time from the driver.
     #[cfg(test)]
     pub(crate) fn now_utc(&self) -> OffsetDateTime {
@@ -253,7 +248,8 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         let whoami = db::get_user_by_id(tx.ex(), session.user_id).await?;
 
         let login_time = session.login_time;
-        let expired = login_time < (now - self.opts.session_max_age);
+        let max_age = session.max_age.min(self.opts.session_max_age);
+        let expired = login_time < (now - max_age);
         let skew = login_time > (now + self.opts.session_max_skew);
         if expired || skew {
             return Err(DriverError::Unauthorized(
@@ -304,6 +300,7 @@ mod tests {
 
     use super::testutils::*;
     use super::*;
+    use crate::model::password;
     use iii_iv_core::driver::DriverError;
     use iii_iv_core::model::username;
     use serial_test::serial;
@@ -397,6 +394,40 @@ mod tests {
                 Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("expired")),
                 e => panic!("{:?}", e),
             }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_session_login_requested_max_age_expired() {
+        let context = TestContext::setup(opts_no_session_caching()).await;
+        let username = username!("username");
+        context.create_active_user(&username).await;
+
+        let (session, _, NO_EXTENSIONS) = context
+            .driver()
+            .login(
+                username.as_str().to_owned(),
+                password!("test0password"),
+                Some(Duration::from_secs(10)),
+            )
+            .await
+            .unwrap();
+        let mut tx = context.db().begin().await.unwrap();
+
+        assert!(
+            context
+                .driver()
+                .get_session(&mut tx, context.now_delta(10), session.access_token.clone())
+                .await
+                .is_ok()
+        );
+        match context
+            .driver()
+            .get_session(&mut tx, context.now_delta(11), session.access_token)
+            .await
+        {
+            Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("expired")),
+            e => panic!("{:?}", e),
         }
     }
 

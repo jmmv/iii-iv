@@ -22,16 +22,20 @@ use iii_iv_core::db::DbError;
 use iii_iv_core::driver::{DriverError, DriverResult};
 use iii_iv_core::model::{EmailAddress, Username};
 use std::sync::Arc;
+use std::time::Duration;
 
 impl<H: AuthnHooks> AuthnDriver<H> {
-    /// Logs a user with their configured login identifier and `password`.
+    /// Logs a user with their configured login identifier, `password`, and an optional session age.
     pub(crate) async fn login(
         self,
         login: String,
         password: Password,
-    ) -> DriverResult<(Session, H::LoginOutput)> {
+        requested_max_age: Option<Duration>,
+    ) -> DriverResult<(Session, Duration, H::LoginOutput)> {
         let mut tx = self.db.begin().await?;
         let now = self.clock.now_utc();
+        let max_age =
+            requested_max_age.unwrap_or(self.opts.session_max_age).min(self.opts.session_max_age);
 
         let user_result = if self.usernames {
             match Username::new(login) {
@@ -66,7 +70,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         }
 
         let access_token = AccessToken::generate();
-        let session = Session::new(access_token.clone(), user.id, now);
+        let session = Session::new(access_token.clone(), user.id, now, max_age);
         db::put_session(tx.ex(), &session).await?;
 
         db::update_user(tx.ex(), user.id, now).await?;
@@ -79,7 +83,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         let previous = cache.insert(access_token, Ok(Arc::from(user)));
         assert!(previous.is_none(), "The session has not yet been returned to the client");
 
-        Ok((session, output))
+        Ok((session, max_age, output))
     }
 }
 
@@ -95,6 +99,8 @@ mod tests {
     use std::sync::Arc;
     use time::OffsetDateTime;
     use time::macros::datetime;
+
+    const TEST_SESSION_MAX_AGE: Option<Duration> = Some(Duration::from_secs(100));
 
     #[tokio::test]
     async fn test_login_ok_first_time() {
@@ -114,8 +120,11 @@ mod tests {
         .unwrap();
 
         let before = context.driver().now_utc();
-        let (response, NO_EXTENSIONS) =
-            context.driver().login(username.as_str().to_owned(), password).await.unwrap();
+        let (response, _, NO_EXTENSIONS) = context
+            .driver()
+            .login(username.as_str().to_owned(), password, TEST_SESSION_MAX_AGE)
+            .await
+            .unwrap();
         let after = context.driver().now_utc();
 
         let session =
@@ -142,8 +151,11 @@ mod tests {
         .await
         .unwrap();
 
-        let (session, NO_EXTENSIONS) =
-            context.driver().login(email.as_str().to_owned(), password).await.unwrap();
+        let (session, _, NO_EXTENSIONS) = context
+            .driver()
+            .login(email.as_str().to_owned(), password, TEST_SESSION_MAX_AGE)
+            .await
+            .unwrap();
 
         assert_eq!(user.id, session.user_id);
     }
@@ -151,8 +163,10 @@ mod tests {
     #[tokio::test]
     async fn test_login_by_email_rejected_with_usernames() {
         let context = TestContext::setup(AuthnOptions::default()).await;
-        let result =
-            context.driver().login("some@example.com".to_owned(), password!("password")).await;
+        let result = context
+            .driver()
+            .login("some@example.com".to_owned(), password!("password"), TEST_SESSION_MAX_AGE)
+            .await;
         assert!(matches!(result, Err(DriverError::InvalidInput(_))));
     }
 
@@ -181,8 +195,11 @@ mod tests {
         .unwrap();
 
         let before = context.driver().now_utc();
-        let (response, NO_EXTENSIONS) =
-            context.driver().login(username.as_str().to_owned(), password).await.unwrap();
+        let (response, _, NO_EXTENSIONS) = context
+            .driver()
+            .login(username.as_str().to_owned(), password, TEST_SESSION_MAX_AGE)
+            .await
+            .unwrap();
         let after = context.driver().now_utc();
 
         let session =
@@ -198,7 +215,8 @@ mod tests {
     async fn test_login_unknown_user() {
         let context = TestContext::setup(AuthnOptions::default()).await;
 
-        match context.driver().login("foo".to_owned(), password!("bar")).await {
+        match context.driver().login("foo".to_owned(), password!("bar"), TEST_SESSION_MAX_AGE).await
+        {
             Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("Unknown user")),
             e => panic!("{:?}", e),
         }
@@ -220,7 +238,11 @@ mod tests {
         .await
         .unwrap();
 
-        match context.driver().login(username.as_str().to_owned(), password!("abc")).await {
+        match context
+            .driver()
+            .login(username.as_str().to_owned(), password!("abc"), TEST_SESSION_MAX_AGE)
+            .await
+        {
             Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("Invalid password")),
             e => panic!("{:?}", e),
         }
@@ -242,7 +264,11 @@ mod tests {
         .await
         .unwrap();
 
-        match context.driver().login(username.as_str().to_owned(), password!("irrelevant")).await {
+        match context
+            .driver()
+            .login(username.as_str().to_owned(), password!("irrelevant"), TEST_SESSION_MAX_AGE)
+            .await
+        {
             Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("Login not allowed")),
             e => panic!("{:?}", e),
         }
@@ -266,7 +292,11 @@ mod tests {
         .unwrap();
         db::set_user_activation_code(&mut context.ex().await, user, Some(50)).await.unwrap();
 
-        match context.driver().login(username.as_str().to_owned(), password).await {
+        match context
+            .driver()
+            .login(username.as_str().to_owned(), password, TEST_SESSION_MAX_AGE)
+            .await
+        {
             Err(DriverError::NotActivated) => (),
             e => panic!("{:?}", e),
         }
@@ -290,12 +320,37 @@ mod tests {
         .unwrap();
 
         assert_eq!(0, context.driver().sessions_cache.lock().await.len());
-        let (session, NO_EXTENSIONS) =
-            context.driver().login(username.as_str().to_owned(), password).await.unwrap();
+        let (session, _, NO_EXTENSIONS) = context
+            .driver()
+            .login(username.as_str().to_owned(), password, TEST_SESSION_MAX_AGE)
+            .await
+            .unwrap();
         let driver = context.driver();
         let cache = driver.sessions_cache.lock().await;
         assert_eq!(1, cache.len());
         assert!(cache.contains_key(&session.access_token));
+    }
+
+    #[tokio::test]
+    async fn test_login_caps_requested_max_age() {
+        let max_age = Duration::from_secs(10);
+        let opts = AuthnOptions { session_max_age: max_age, ..Default::default() };
+        let context = TestContext::setup(opts).await;
+        let username = username!("hello");
+        context.create_active_user(&username).await;
+
+        let (session, actual_max_age, NO_EXTENSIONS) = context
+            .driver()
+            .login(
+                username.as_str().to_owned(),
+                password!("test0password"),
+                Some(Duration::from_secs(20)),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(max_age, actual_max_age);
+        assert_eq!(max_age, session.max_age);
     }
 
     #[tokio::test]
@@ -329,7 +384,11 @@ mod tests {
             db::get_user_by_username(&mut context.ex().await, username.clone()).await.unwrap();
         let last_login_before = user_before.last_login;
 
-        match context.driver().login(username.as_str().to_owned(), password).await {
+        match context
+            .driver()
+            .login(username.as_str().to_owned(), password, TEST_SESSION_MAX_AGE)
+            .await
+        {
             Err(DriverError::BackendError(msg)) => assert!(msg.contains("hook-failure-test")),
             e => panic!("{:?}", e),
         }
