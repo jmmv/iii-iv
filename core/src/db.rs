@@ -21,6 +21,7 @@
 
 use crate::model::ModelError;
 use async_trait::async_trait;
+use std::time::Duration;
 
 #[cfg(feature = "postgres")]
 pub mod postgres;
@@ -61,6 +62,22 @@ impl From<ModelError> for DbError {
 
 /// Result type for this module.
 pub type DbResult<T> = Result<T, DbError>;
+
+/// Converts a duration as extracted from the database into a `Duration`.
+///
+/// The input parameters must both be positive.  The reason why their types are `i64`s instead of
+/// the `u64` you would expect is because the numeric types exposed by SQLx are all signed.  We
+/// could simply cast the types and accept negative representations in the database, but that
+/// would pose difficulties when attempting to compare timestamps via relation operators in SQL.
+pub fn build_duration(duration_sec: i64, duration_nsec: i64) -> DbResult<Duration> {
+    match (u64::try_from(duration_sec), u64::try_from(duration_nsec)) {
+        (Ok(sec), Ok(nsec)) => Ok(Duration::from_secs(sec) + Duration::from_nanos(nsec)),
+        _ => Err(DbError::DataIntegrityError(format!(
+            "Duration cannot have negative quantities: sec={}, nsec={}",
+            duration_sec, duration_nsec
+        ))),
+    }
+}
 
 /// A database executor that can talk to multiple database implementations.
 ///

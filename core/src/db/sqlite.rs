@@ -15,6 +15,7 @@
 
 //! Common utilities to interact with an SQLite database.
 
+pub use crate::db::build_duration;
 use crate::db::{Db, DbError, DbResult, Executor, TxExecutor};
 use async_trait::async_trait;
 use futures::future::BoxFuture;
@@ -263,23 +264,6 @@ impl Db for SqliteDb {
 pub async fn run_schema(e: &mut SqliteExecutor, schema: &str) -> DbResult<()> {
     sqlx::raw_sql(AssertSqlSafe(schema)).execute(e).await.map_err(map_sqlx_error)?;
     Ok(())
-}
-
-/// Converts a duration as extracted from the database into a `Duration`.
-///
-/// The input parameters must both be positive.  The reason why their types are `i64`s instead of
-/// the `u64` you would expect is because the numeric types exposed by sqlx and SQLite are all
-/// signed.  We could simply cast the types and accept negative representations in the database,
-/// but that would pose difficulties when attempting to compare timestamps via relation operators
-/// in SQL queries.
-pub fn build_duration(duration_sec: i64, duration_nsec: i64) -> DbResult<Duration> {
-    match (u64::try_from(duration_sec), u64::try_from(duration_nsec)) {
-        (Ok(sec), Ok(nsec)) => Ok(Duration::from_secs(sec) + Duration::from_nanos(nsec)),
-        _ => Err(DbError::DataIntegrityError(format!(
-            "Duration cannot have negative quantities: sec={}, nsec={}",
-            duration_sec, duration_nsec
-        ))),
-    }
 }
 
 /// Converts a timestamp as extracted from the database into an `OffsetDateTime`.
