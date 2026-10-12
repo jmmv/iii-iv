@@ -86,6 +86,10 @@ pub enum RestError {
         /// Descriptive message explaining the nature of the problem.
         message: String,
     },
+
+    /// Indicates that the service cannot handle the request at this time.
+    #[error("Service temporarily unavailable")]
+    Unavailable,
 }
 
 impl From<DriverError> for RestError {
@@ -98,6 +102,7 @@ impl From<DriverError> for RestError {
             DriverError::NotActivated => RestError::NotActivated,
             DriverError::NotFound(_) => RestError::NotFound(e.to_string()),
             DriverError::Unauthorized(_) => RestError::Forbidden(e.to_string()),
+            DriverError::Unavailable => RestError::Unavailable,
         }
     }
 }
@@ -152,6 +157,9 @@ impl IntoResponse for RestError {
                     "WWW-Authenticate",
                     format!("{} realm=\"{}\"", scheme, realm).parse().unwrap(),
                 );
+            }
+            RestError::Unavailable => {
+                status = http::StatusCode::SERVICE_UNAVAILABLE;
             }
         };
 
@@ -957,6 +965,15 @@ mod tests {
         );
         let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
         assert_eq!(b"Bad request", body.as_ref());
+    }
+
+    #[tokio::test]
+    async fn test_unavailable_rest_error_into_response() {
+        let response = RestError::from(DriverError::Unavailable).into_response();
+
+        assert_eq!(http::StatusCode::SERVICE_UNAVAILABLE, response.status());
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(b"Service temporarily unavailable", body.as_ref());
     }
 
     #[tokio::test]

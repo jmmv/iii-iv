@@ -55,6 +55,10 @@ pub enum DriverError {
     /// Indicates that the calling user is not allowed to perform a read or write operation.
     #[error("{0}")]
     Unauthorized(String),
+
+    /// Indicates that the service cannot handle the request at this time.
+    #[error("Service temporarily unavailable")]
+    Unavailable,
 }
 
 impl From<DbError> for DriverError {
@@ -64,7 +68,7 @@ impl From<DbError> for DriverError {
             DbError::BackendError(_) => DriverError::BackendError(e.to_string()),
             DbError::DataIntegrityError(_) => DriverError::BackendError(e.to_string()),
             DbError::NotFound => DriverError::NotFound(e.to_string()),
-            DbError::Unavailable => DriverError::BackendError(e.to_string()),
+            DbError::Unavailable => DriverError::Unavailable,
         }
     }
 }
