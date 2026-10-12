@@ -65,7 +65,10 @@ pub async fn create_test_user(
     password: Password,
     email: EmailAddress,
 ) -> User {
-    let password = password.validate_and_hash(|_| None).unwrap();
+    let password = tokio::task::spawn_blocking(move || password.validate_and_hash(|_| None))
+        .await
+        .unwrap()
+        .unwrap();
 
     let user = db::create_user(ex, Some(username), Some(password), email, None).await.unwrap();
     let last_login = OffsetDateTime::from_unix_timestamp(100100).unwrap();

@@ -32,6 +32,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         old_password: Password,
         new_password: Password,
     ) -> DriverResult<()> {
+        let permit = self.acquire_password_hash_capacity()?;
         let mut tx = self.db.begin().await?;
         let now = self.clock.now_utc();
 
@@ -46,7 +47,8 @@ impl<H: AuthnHooks> AuthnDriver<H> {
             }
         };
 
-        if !old_password.verify(old_hash)? {
+        let (verified, permit) = self.verify_password(old_password, old_hash, permit).await?;
+        if !verified {
             return Err(DriverError::InvalidInput("Invalid password".to_owned()));
         }
 
@@ -54,7 +56,9 @@ impl<H: AuthnHooks> AuthnDriver<H> {
             return Err(DriverError::NotActivated);
         }
 
-        let new_password = new_password.validate_and_hash(password_validator)?;
+        let (new_password, permit) =
+            self.hash_password(new_password, password_validator, permit).await?;
+        drop(permit);
         match db::update_user_password(tx.ex(), session.user.id, old_hash, new_password).await {
             Ok(()) => {}
             Err(DbError::NotFound) => {

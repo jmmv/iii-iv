@@ -31,6 +31,7 @@ use serde::Serialize;
 use std::sync::Arc;
 use std::time::Duration;
 use time::OffsetDateTime;
+use tokio::sync::Semaphore;
 
 mod activate;
 mod change_password;
@@ -38,6 +39,7 @@ pub(crate) mod email;
 mod hooks;
 mod login;
 mod logout;
+mod passwords;
 pub use hooks::{AuthnHooks, AuthnNoHooks, NO_EXTENSIONS, NoExtensions};
 mod signup;
 mod tasks;
@@ -47,6 +49,9 @@ pub mod testutils;
 
 /// Default delay before retrying email deliveries.
 const DEFAULT_EMAIL_RETRY_DELAY: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// Default maximum number of password-hashing jobs that may run concurrently.
+const DEFAULT_PASSWORD_HASH_CONCURRENCY: usize = 4;
 
 /// Default number of sessions to keep cached in memory.
 const DEFAULT_SESSIONS_CACHE_CAPACITY: usize = 10 * 1024;
@@ -72,6 +77,10 @@ pub struct AuthnOptions {
     /// Whether users can sign up without an invitation.
     #[option(default = true)]
     pub open_signups: bool,
+
+    /// Maximum number of password-hashing jobs that may run concurrently.
+    #[option(default = DEFAULT_PASSWORD_HASH_CONCURRENCY)]
+    pub password_hash_concurrency: usize,
 
     /// The number of sessions to keep cached in memory.
     #[option(default = DEFAULT_SESSIONS_CACHE_CAPACITY)]
@@ -99,6 +108,7 @@ impl Default for AuthnOptions {
         Self {
             email_retry_delay: DEFAULT_EMAIL_RETRY_DELAY,
             open_signups: true,
+            password_hash_concurrency: DEFAULT_PASSWORD_HASH_CONCURRENCY,
             sessions_cache_ttl: DEFAULT_SESSIONS_CACHE_TTL,
             sessions_cache_capacity: DEFAULT_SESSIONS_CACHE_CAPACITY,
             session_max_age: DEFAULT_SESSION_MAX_AGE,
@@ -181,6 +191,12 @@ pub struct AuthnDriver<H: AuthnHooks> {
     /// Options for the authentication driver.
     opts: AuthnOptions,
 
+    /// Password-hashing implementation.
+    password_hasher: Arc<dyn passwords::PasswordHasher>,
+
+    /// Capacity shared by all password-hashing operations.
+    password_hash_semaphore: Arc<Semaphore>,
+
     /// Cache of sessions.
     sessions_cache: Arc<Mutex<LruCache<AccessToken, DriverResult<CachedSession>>>>,
 
@@ -225,8 +241,20 @@ impl<H: AuthnHooks> AuthnDriver<H> {
             opts.sessions_cache_capacity,
         );
         let sessions_cache = Arc::from(Mutex::from(sessions_cache));
+        let password_hash_semaphore = Arc::new(Semaphore::new(opts.password_hash_concurrency));
 
-        Self { db, clock, task_enqueuer, realm, usernames, opts, sessions_cache, hooks }
+        Self {
+            db,
+            clock,
+            task_enqueuer,
+            realm,
+            usernames,
+            opts,
+            password_hasher: Arc::new(passwords::BcryptPasswordHasher),
+            password_hash_semaphore,
+            sessions_cache,
+            hooks,
+        }
     }
 
     /// Obtains the current time from the driver.
@@ -338,6 +366,7 @@ mod tests {
             [
                 "TEST_AUTHN_EMAIL_RETRY_DELAY",
                 "TEST_AUTHN_OPEN_SIGNUPS",
+                "TEST_AUTHN_PASSWORD_HASH_CONCURRENCY",
                 "TEST_AUTHN_SESSIONS_CACHE_CAPACITY",
                 "TEST_AUTHN_SESSIONS_CACHE_TTL",
                 "TEST_AUTHN_SESSION_MAX_AGE",
@@ -346,6 +375,7 @@ mod tests {
             || {
                 let opts = AuthnOptions::from_env("TEST").unwrap();
                 assert_eq!(AuthnOptions::default(), opts);
+                assert_eq!(4, opts.password_hash_concurrency);
                 assert_eq!(Duration::ZERO, opts.sessions_cache_ttl);
             },
         );
@@ -358,6 +388,7 @@ mod tests {
             [
                 ("TEST_AUTHN_EMAIL_RETRY_DELAY", Some("50m")),
                 ("TEST_AUTHN_OPEN_SIGNUPS", Some("false")),
+                ("TEST_AUTHN_PASSWORD_HASH_CONCURRENCY", Some("5")),
                 ("TEST_AUTHN_SESSIONS_CACHE_CAPACITY", Some("30")),
                 ("TEST_AUTHN_SESSIONS_CACHE_TTL", Some("40m")),
                 ("TEST_AUTHN_SESSION_MAX_AGE", Some("10m")),
@@ -369,6 +400,7 @@ mod tests {
                     AuthnOptions {
                         email_retry_delay: Duration::from_secs(50 * 60),
                         open_signups: false,
+                        password_hash_concurrency: 5,
                         sessions_cache_capacity: 30,
                         sessions_cache_ttl: Duration::from_secs(40 * 60),
                         session_max_age: Duration::from_secs(10 * 60),

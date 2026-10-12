@@ -63,6 +63,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
             ));
         }
 
+        let permit = self.acquire_password_hash_capacity()?;
         let mut tx = self.db.begin().await?;
         let now = self.clock.now_utc();
 
@@ -97,7 +98,8 @@ impl<H: AuthnHooks> AuthnDriver<H> {
             _ => {}
         }
 
-        let password = password.validate_and_hash(password_validator)?;
+        let (password, permit) = self.hash_password(password, password_validator, permit).await?;
+        drop(permit);
 
         let user = match db::create_user(tx.ex(), username, Some(password), email, coupon).await {
             Ok(user) => user,
