@@ -42,6 +42,7 @@ serde_json = { workspace = true }
 serde_urlencoded = { workspace = true }
 serde = { workspace = true }
 time = { workspace = true }
+tokio = { workspace = true, features = ["rt", "sync"] }
 url = { workspace = true, optional = true }
 uuid = { workspace = true }
 

@@ -95,6 +95,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_password_hash_capacity_exhausted() {
+        let opts = AuthnOptions { password_hash_concurrency: 0, ..Default::default() };
+        let mut context = TestContextBuilder::new().with_opts(opts).build().await;
+        context.create_whoami_user().await;
+
+        for whoami in [context.whoami().as_str(), "unknown"] {
+            OneShotBuilder::new(context.app(), route())
+                .with_basic_auth(whoami, context.whoami_password().as_str())
+                .send_empty()
+                .await
+                .expect_status(http::StatusCode::SERVICE_UNAVAILABLE)
+                .expect_error("Service temporarily unavailable")
+                .await;
+        }
+    }
+
+    #[tokio::test]
     async fn test_ok_with_requested_max_age() {
         let opts =
             AuthnOptions { session_max_age: Duration::from_secs(4182), ..Default::default() };

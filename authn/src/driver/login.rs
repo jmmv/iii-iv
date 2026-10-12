@@ -32,6 +32,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         password: Password,
         requested_max_age: Option<Duration>,
     ) -> DriverResult<(Session, Duration, H::LoginOutput)> {
+        let permit = self.acquire_password_hash_capacity()?;
         let mut tx = self.db.begin().await?;
         let now = self.clock.now_utc();
         let max_age =
@@ -58,7 +59,9 @@ impl<H: AuthnHooks> AuthnDriver<H> {
 
         match user.password.as_ref() {
             Some(hash) => {
-                if !password.verify(hash)? {
+                let (verified, permit) = self.verify_password(password, hash, permit).await?;
+                drop(permit);
+                if !verified {
                     return Err(DriverError::Unauthorized("Invalid password".to_owned()));
                 }
             }
@@ -137,6 +140,24 @@ mod tests {
         let user = db::get_user_by_username(&mut context.ex().await, username).await.unwrap();
         assert!(user.last_login.unwrap() >= before && user.last_login.unwrap() <= after);
         assert_eq!(&email_address!("some@example.com"), &user.email);
+    }
+
+    #[tokio::test]
+    async fn test_login_capacity_rejection_does_not_reveal_account_existence() {
+        let opts = AuthnOptions { password_hash_concurrency: 1, ..Default::default() };
+        let context = TestContext::setup(opts).await;
+        let username = username!("hello");
+        context.create_active_user(&username).await;
+        let driver = context.driver();
+        let _permit = driver.acquire_password_hash_capacity().unwrap();
+
+        for login in [username.as_str(), "unknown"] {
+            let result = driver
+                .clone()
+                .login(login.to_owned(), password!("password"), TEST_SESSION_MAX_AGE)
+                .await;
+            assert!(matches!(result, Err(DriverError::Unavailable)));
+        }
     }
 
     #[tokio::test]
