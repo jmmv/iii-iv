@@ -35,23 +35,9 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         let mut tx = self.db.begin().await?;
         let now = self.clock.now_utc();
 
-        let session = match db::get_session(tx.ex(), &token).await {
-            Ok(session) => session,
-            Err(DbError::NotFound) => {
-                return Err(DriverError::NotFound("Entity not found".to_owned()));
-            }
-            Err(e) => return Err(e.into()),
-        };
+        let session = self.get_session_uncached(&mut tx, now, token).await?;
 
-        let user = match db::get_user_by_id(tx.ex(), session.user_id).await {
-            Ok(user) => user,
-            Err(DbError::NotFound) => {
-                return Err(DriverError::NotFound("User not found".to_owned()));
-            }
-            Err(e) => return Err(e.into()),
-        };
-
-        let old_hash = match user.password.as_ref() {
+        let old_hash = match session.user.password.as_ref() {
             Some(hash) => hash,
             None => {
                 return Err(DriverError::Unauthorized(
@@ -64,12 +50,12 @@ impl<H: AuthnHooks> AuthnDriver<H> {
             return Err(DriverError::InvalidInput("Invalid password".to_owned()));
         }
 
-        if user.activation_code.is_some() {
+        if session.user.activation_code.is_some() {
             return Err(DriverError::NotActivated);
         }
 
         let new_password = new_password.validate_and_hash(password_validator)?;
-        match db::update_user_password(tx.ex(), user.id, old_hash, new_password).await {
+        match db::update_user_password(tx.ex(), session.user.id, old_hash, new_password).await {
             Ok(()) => {}
             Err(DbError::NotFound) => {
                 return Err(DriverError::InvalidInput(
@@ -79,7 +65,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
             Err(e) => return Err(e.into()),
         }
 
-        db::delete_sessions_for_user(tx.ex(), user.id, now).await?;
+        db::delete_sessions_for_user(tx.ex(), session.user.id, now).await?;
 
         tx.commit().await?;
 
@@ -216,19 +202,100 @@ mod tests {
         let context = TestContext::setup(AuthnOptions::default()).await;
         let username = username!("test");
 
-        let token = context.do_test_login(username.clone()).await;
+        let token1 = context.do_test_login(username.clone()).await;
+        let (session2, _, NO_EXTENSIONS) = context
+            .driver()
+            .login(
+                username.as_str().to_owned(),
+                password!("test0password"),
+                Some(Duration::from_secs(100)),
+            )
+            .await
+            .unwrap();
 
         let old_password = password!("test0password");
         let new_password = password!("new1password");
 
         context
             .driver()
-            .change_password(token.clone(), old_password.clone(), new_password.clone())
+            .change_password(token1.clone(), old_password.clone(), new_password.clone())
             .await
             .unwrap();
 
-        match db::get_session(&mut context.ex().await, &token).await {
-            Err(DbError::NotFound) => (),
+        for token in [token1, session2.access_token] {
+            match db::get_session(&mut context.ex().await, &token).await {
+                Err(DbError::NotFound) => (),
+                e => panic!("{:?}", e),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_change_password_rejects_expired_session() {
+        let opts = AuthnOptions { session_max_age: Duration::from_secs(10), ..Default::default() };
+        let context = TestContext::setup(opts).await;
+        let username = username!("test");
+        let original_token = context.do_test_login(username).await;
+        let original_session =
+            db::get_session(&mut context.ex().await, &original_token).await.unwrap();
+        let token = AccessToken::generate();
+        let session = Session::new(
+            token.clone(),
+            original_session.user_id,
+            context.now_delta(-10),
+            Duration::from_secs(20),
+        );
+        db::put_session(&mut context.ex().await, &session).await.unwrap();
+
+        match context
+            .driver()
+            .change_password(token, password!("test0password"), password!("new1password"))
+            .await
+        {
+            Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("expired")),
+            e => panic!("{:?}", e),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_change_password_rejects_future_session() {
+        let opts = AuthnOptions { session_max_skew: Duration::from_secs(10), ..Default::default() };
+        let context = TestContext::setup(opts).await;
+        let username = username!("test");
+        let original_token = context.do_test_login(username).await;
+        let original_session =
+            db::get_session(&mut context.ex().await, &original_token).await.unwrap();
+        let token = AccessToken::generate();
+        let session = Session::new(
+            token.clone(),
+            original_session.user_id,
+            context.now_delta(11),
+            Duration::from_secs(100),
+        );
+        db::put_session(&mut context.ex().await, &session).await.unwrap();
+
+        match context
+            .driver()
+            .change_password(token, password!("test0password"), password!("new1password"))
+            .await
+        {
+            Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("expired")),
+            e => panic!("{:?}", e),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_change_password_rejects_logged_out_session() {
+        let context = TestContext::setup(AuthnOptions::default()).await;
+        let token = context.do_test_login(username!("test")).await;
+        context.driver().logout(token.clone()).await.unwrap();
+
+        match context
+            .driver()
+            .change_password(token, password!("test0password"), password!("new1password"))
+            .await
+        {
+            Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("Invalid session")),
             e => panic!("{:?}", e),
         }
     }
@@ -251,8 +318,8 @@ mod tests {
             .change_password(token, password!("test0password"), password!("another1password"))
             .await
         {
-            Err(DriverError::NotFound(msg)) => {
-                assert!(msg.contains("Entity not found"))
+            Err(DriverError::Unauthorized(msg)) => {
+                assert!(msg.contains("Invalid session"))
             }
             e => panic!("{:?}", e),
         }

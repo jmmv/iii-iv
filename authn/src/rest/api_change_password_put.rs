@@ -127,8 +127,8 @@ mod tests {
             .with_bearer_auth(token.as_str())
             .send_json(&request)
             .await
-            .expect_status(http::StatusCode::NOT_FOUND)
-            .expect_error("Entity not found")
+            .expect_status(http::StatusCode::FORBIDDEN)
+            .expect_error("Invalid session")
             .await;
     }
 }

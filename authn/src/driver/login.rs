@@ -16,7 +16,7 @@
 //! Extends the driver with the `login` method.
 
 use crate::db;
-use crate::driver::{AuthnDriver, AuthnHooks};
+use crate::driver::{AuthnDriver, AuthnHooks, CachedSession};
 use crate::model::{AccessToken, Password, Session};
 use iii_iv_core::db::DbError;
 use iii_iv_core::driver::{DriverError, DriverResult};
@@ -80,7 +80,8 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         tx.commit().await.unwrap();
 
         let mut cache = self.sessions_cache.lock().await;
-        let previous = cache.insert(access_token, Ok(Arc::from(user)));
+        let cached_session = CachedSession { expires_at: now + max_age, user: Arc::from(user) };
+        let previous = cache.insert(access_token, Ok(cached_session));
         assert!(previous.is_none(), "The session has not yet been returned to the client");
 
         Ok((session, max_age, output))
