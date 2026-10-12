@@ -79,10 +79,12 @@ impl<H: AuthnHooks> AuthnDriver<H> {
 
         tx.commit().await.unwrap();
 
-        let mut cache = self.sessions_cache.lock().await;
-        let cached_session = CachedSession { expires_at: now + max_age, user: Arc::from(user) };
-        let previous = cache.insert(access_token, Ok(cached_session));
-        assert!(previous.is_none(), "The session has not yet been returned to the client");
+        if !self.opts.sessions_cache_ttl.is_zero() {
+            let mut cache = self.sessions_cache.lock().await;
+            let cached_session = CachedSession { expires_at: now + max_age, user: Arc::from(user) };
+            let previous = cache.insert(access_token, Ok(cached_session));
+            assert!(previous.is_none(), "The session has not yet been returned to the client");
+        }
 
         Ok((session, max_age, output))
     }
@@ -305,7 +307,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_login_inserts_session_into_cache() {
-        let context = TestContext::setup(AuthnOptions::default()).await;
+        let opts =
+            AuthnOptions { sessions_cache_ttl: Duration::from_secs(60), ..Default::default() };
+        let context = TestContext::setup(opts).await;
 
         let username = username!("hello");
         let password = password!("password");

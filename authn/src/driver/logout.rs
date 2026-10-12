@@ -48,9 +48,15 @@ mod tests {
     use super::*;
     use crate::driver::AuthnOptions;
     use crate::driver::testutils::*;
+    use iii_iv_core::clocks::Clock;
+    use iii_iv_core::clocks::testutils::SettableClock;
+    use iii_iv_core::db::Db;
     use iii_iv_core::db::DbError;
+    use iii_iv_core::driver::DriverError;
     use iii_iv_core::model::username;
+    use std::sync::Arc;
     use std::time::Duration;
+    use time::macros::datetime;
 
     #[tokio::test]
     async fn test_ok() {
@@ -108,5 +114,92 @@ mod tests {
 
         context.driver().logout(token.clone()).await.unwrap();
         assert_eq!(0, context.driver().sessions_cache.lock().await.len());
+    }
+
+    #[tokio::test]
+    async fn test_logout_visible_across_drivers_by_default() {
+        let db: Arc<dyn Db + Send + Sync> =
+            Arc::from(iii_iv_core::db::sqlite::testutils::setup().await);
+        let clock: Arc<dyn Clock + Send + Sync> =
+            Arc::from(SettableClock::new(datetime!(2023-12-01 05:50:00 UTC)));
+        let first = TestContext::setup_with(
+            AuthnOptions::default(),
+            db.clone(),
+            clock.clone(),
+            "the-realm",
+            true,
+        )
+        .await;
+        let second =
+            TestContext::setup_with(AuthnOptions::default(), db, clock, "the-realm", true).await;
+        let token = first.do_test_login(username!("test")).await;
+
+        let mut tx = second.db().begin().await.unwrap();
+        second
+            .driver()
+            .get_session(&mut tx, second.driver().now_utc(), token.clone())
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        first.driver().logout(token.clone()).await.unwrap();
+
+        let mut tx = second.db().begin().await.unwrap();
+        match second.driver().get_session(&mut tx, second.driver().now_utc(), token).await {
+            Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("Invalid session")),
+            e => panic!("{:?}", e),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_logout_cache_delay_is_not_extended_by_access() {
+        let cache_ttl = Duration::from_secs(2);
+        let lookup_interval = Duration::from_millis(1200);
+        let opts = AuthnOptions { sessions_cache_ttl: cache_ttl, ..Default::default() };
+        let db: Arc<dyn Db + Send + Sync> =
+            Arc::from(iii_iv_core::db::sqlite::testutils::setup().await);
+        let clock: Arc<dyn Clock + Send + Sync> =
+            Arc::from(SettableClock::new(datetime!(2023-12-01 05:50:00 UTC)));
+        let first =
+            TestContext::setup_with(opts.clone(), db.clone(), clock.clone(), "the-realm", true)
+                .await;
+        let second = TestContext::setup_with(opts, db, clock, "the-realm", true).await;
+        let token = first.do_test_login(username!("test")).await;
+
+        let mut tx = second.db().begin().await.unwrap();
+        second
+            .driver()
+            .get_session(&mut tx, second.driver().now_utc(), token.clone())
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        first.driver().logout(token.clone()).await.unwrap();
+
+        let mut tx = second.db().begin().await.unwrap();
+        second
+            .driver()
+            .get_session(&mut tx, second.driver().now_utc(), token.clone())
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        // The first delayed lookup occurs within the original TTL.  The second occurs after it and
+        // must miss the cache even though the first lookup accessed the entry.
+        std::thread::sleep(lookup_interval);
+        let mut tx = second.db().begin().await.unwrap();
+        second
+            .driver()
+            .get_session(&mut tx, second.driver().now_utc(), token.clone())
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        std::thread::sleep(lookup_interval);
+        let mut tx = second.db().begin().await.unwrap();
+        match second.driver().get_session(&mut tx, second.driver().now_utc(), token).await {
+            Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("Invalid session")),
+            e => panic!("{:?}", e),
+        }
     }
 }
