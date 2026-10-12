@@ -83,8 +83,13 @@ mod tests {
     use crate::driver::NO_EXTENSIONS;
     use crate::driver::testutils::*;
     use crate::model::{Session, password};
+    use iii_iv_core::clocks::Clock;
+    use iii_iv_core::clocks::testutils::SettableClock;
+    use iii_iv_core::db::Db;
     use iii_iv_core::model::{EmailAddress, username};
+    use std::sync::Arc;
     use std::time::Duration;
+    use time::macros::datetime;
 
     #[tokio::test]
     async fn test_change_password_ok() {
@@ -254,6 +259,100 @@ mod tests {
         {
             Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("expired")),
             e => panic!("{:?}", e),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_change_password_visible_across_drivers_by_default() {
+        let db: Arc<dyn Db + Send + Sync> =
+            Arc::from(iii_iv_core::db::sqlite::testutils::setup().await);
+        let clock: Arc<dyn Clock + Send + Sync> =
+            Arc::from(SettableClock::new(datetime!(2023-12-01 05:50:00 UTC)));
+        let first = TestContext::setup_with(
+            AuthnOptions::default(),
+            db.clone(),
+            clock.clone(),
+            "the-realm",
+            true,
+        )
+        .await;
+        let second =
+            TestContext::setup_with(AuthnOptions::default(), db, clock, "the-realm", true).await;
+        let username = username!("test");
+        let token1 = first.do_test_login(username.clone()).await;
+        let (session2, _, NO_EXTENSIONS) = second
+            .driver()
+            .login(
+                username.as_str().to_owned(),
+                password!("test0password"),
+                Some(Duration::from_secs(100)),
+            )
+            .await
+            .unwrap();
+
+        for token in [token1.clone(), session2.access_token.clone()] {
+            let mut tx = second.db().begin().await.unwrap();
+            second.driver().get_session(&mut tx, second.driver().now_utc(), token).await.unwrap();
+            tx.commit().await.unwrap();
+        }
+
+        first
+            .driver()
+            .change_password(token1.clone(), password!("test0password"), password!("new1password"))
+            .await
+            .unwrap();
+
+        for token in [token1, session2.access_token] {
+            let mut tx = second.db().begin().await.unwrap();
+            match second.driver().get_session(&mut tx, second.driver().now_utc(), token).await {
+                Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("Invalid session")),
+                e => panic!("{:?}", e),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_change_password_delayed_across_drivers_with_cache() {
+        let opts =
+            AuthnOptions { sessions_cache_ttl: Duration::from_secs(60), ..Default::default() };
+        let db: Arc<dyn Db + Send + Sync> =
+            Arc::from(iii_iv_core::db::sqlite::testutils::setup().await);
+        let clock: Arc<dyn Clock + Send + Sync> =
+            Arc::from(SettableClock::new(datetime!(2023-12-01 05:50:00 UTC)));
+        let first =
+            TestContext::setup_with(opts.clone(), db.clone(), clock.clone(), "the-realm", true)
+                .await;
+        let second = TestContext::setup_with(opts, db, clock, "the-realm", true).await;
+        let username = username!("test");
+        let token1 = first.do_test_login(username.clone()).await;
+        let (session2, _, NO_EXTENSIONS) = second
+            .driver()
+            .login(
+                username.as_str().to_owned(),
+                password!("test0password"),
+                Some(Duration::from_secs(100)),
+            )
+            .await
+            .unwrap();
+
+        let mut tx = second.db().begin().await.unwrap();
+        second
+            .driver()
+            .get_session(&mut tx, second.driver().now_utc(), token1.clone())
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        first
+            .driver()
+            .change_password(token1.clone(), password!("test0password"), password!("new1password"))
+            .await
+            .unwrap();
+
+        for token in [token1, session2.access_token] {
+            let mut tx = second.db().begin().await.unwrap();
+            second.driver().get_session(&mut tx, second.driver().now_utc(), token).await.unwrap();
+            tx.commit().await.unwrap();
         }
     }
 

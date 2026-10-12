@@ -52,7 +52,7 @@ const DEFAULT_EMAIL_RETRY_DELAY: Duration = Duration::from_secs(24 * 60 * 60);
 const DEFAULT_SESSIONS_CACHE_CAPACITY: usize = 10 * 1024;
 
 /// Default amount of time to keep cached sessions in memory.
-const DEFAULT_SESSIONS_CACHE_TTL: Duration = Duration::from_secs(60);
+const DEFAULT_SESSIONS_CACHE_TTL: Duration = Duration::ZERO;
 
 /// Default value for the `SESSION_MAX_AGE` setting when not specified.
 const DEFAULT_SESSION_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
@@ -77,7 +77,9 @@ pub struct AuthnOptions {
     #[option(default = DEFAULT_SESSIONS_CACHE_CAPACITY)]
     pub sessions_cache_capacity: usize,
 
-    /// The mount of time to keep cached sessions in memory.
+    /// The amount of time to keep cached sessions in memory.  Caching is disabled by default.
+    /// Enabling it may delay session revocation across service instances by up to this amount of
+    /// time.
     #[option(default = DEFAULT_SESSIONS_CACHE_TTL)]
     pub sessions_cache_ttl: Duration,
 
@@ -281,9 +283,11 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         now: OffsetDateTime,
         token: AccessToken,
     ) -> DriverResult<Arc<User>> {
-        {
+        if !self.opts.sessions_cache_ttl.is_zero() {
             let mut cache = self.sessions_cache.lock().await;
-            if let Some(result) = cache.get(&token).cloned() {
+            // Do not refresh the TTL on hits because that could extend cross-instance revocation
+            // lag indefinitely.
+            if let Some(result) = cache.peek(&token).cloned() {
                 return match result {
                     Ok(session) if now >= session.expires_at => {
                         let _previous = cache.remove(&token);
@@ -298,6 +302,9 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         }
 
         let result = self.get_session_uncached(tx, now, token.clone()).await;
+        if self.opts.sessions_cache_ttl.is_zero() {
+            return result.map(|session| session.user);
+        }
 
         let mut cache = self.sessions_cache.lock().await;
         if let Some(old_result) = cache.insert(token, result.clone()) {
@@ -339,6 +346,7 @@ mod tests {
             || {
                 let opts = AuthnOptions::from_env("TEST").unwrap();
                 assert_eq!(AuthnOptions::default(), opts);
+                assert_eq!(Duration::ZERO, opts.sessions_cache_ttl);
             },
         );
     }
