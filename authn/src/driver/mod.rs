@@ -142,6 +142,16 @@ where
     }
 }
 
+/// A successfully validated session suitable for caching.
+#[derive(Clone, Debug, PartialEq)]
+struct CachedSession {
+    /// Absolute time at which the session stops being valid.
+    expires_at: OffsetDateTime,
+
+    /// User that owns the session.
+    user: Arc<User>,
+}
+
 /// Business logic.
 ///
 /// The public operations exposed by the driver are all "one shot": they start and commit a
@@ -170,7 +180,7 @@ pub struct AuthnDriver<H: AuthnHooks> {
     opts: AuthnOptions,
 
     /// Cache of sessions.
-    sessions_cache: Arc<Mutex<LruCache<AccessToken, DriverResult<Arc<User>>>>>,
+    sessions_cache: Arc<Mutex<LruCache<AccessToken, DriverResult<CachedSession>>>>,
 
     /// Hooks to customize the behavior of the authn APIs.
     hooks: H,
@@ -236,7 +246,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         tx: &mut TxExecutor,
         now: OffsetDateTime,
         token: AccessToken,
-    ) -> DriverResult<User> {
+    ) -> DriverResult<CachedSession> {
         let session = match db::get_session(tx.ex(), &token).await {
             Ok(session) => session,
             Err(DbError::NotFound) => {
@@ -245,11 +255,10 @@ impl<H: AuthnHooks> AuthnDriver<H> {
             Err(e) => return Err(e.into()),
         };
 
-        let whoami = db::get_user_by_id(tx.ex(), session.user_id).await?;
-
         let login_time = session.login_time;
         let max_age = session.max_age.min(self.opts.session_max_age);
-        let expired = login_time < (now - max_age);
+        let expires_at = login_time + max_age;
+        let expired = now >= expires_at;
         let skew = login_time > (now + self.opts.session_max_skew);
         if expired || skew {
             return Err(DriverError::Unauthorized(
@@ -257,14 +266,15 @@ impl<H: AuthnHooks> AuthnDriver<H> {
             ));
         }
 
-        Ok(whoami)
+        let user = Arc::from(db::get_user_by_id(tx.ex(), session.user_id).await?);
+        Ok(CachedSession { expires_at, user })
     }
 
     /// Decodes the session in `token`, validates it and returns the user that owns the session.
     ///
-    /// Both OK and error results come from an internal cache, which should have been configured to
-    /// evict entries relatively quickly.  In general, the cache should only hold entries for the
-    /// predicted length of a frontend interaction.
+    /// When caching is enabled, both OK and error results come from an internal cache.  Successful
+    /// entries are always rejected at their absolute expiration time even if their cache TTL is
+    /// longer.
     pub async fn get_session(
         &self,
         tx: &mut TxExecutor,
@@ -273,12 +283,21 @@ impl<H: AuthnHooks> AuthnDriver<H> {
     ) -> DriverResult<Arc<User>> {
         {
             let mut cache = self.sessions_cache.lock().await;
-            if let Some(result) = cache.get(&token) {
-                return result.clone();
+            if let Some(result) = cache.get(&token).cloned() {
+                return match result {
+                    Ok(session) if now >= session.expires_at => {
+                        let _previous = cache.remove(&token);
+                        Err(DriverError::Unauthorized(
+                            "Session expired; please log in again".to_owned(),
+                        ))
+                    }
+                    Ok(session) => Ok(session.user),
+                    Err(error) => Err(error),
+                };
             }
         }
 
-        let result = self.get_session_uncached(tx, now, token.clone()).await.map(Arc::from);
+        let result = self.get_session_uncached(tx, now, token.clone()).await;
 
         let mut cache = self.sessions_cache.lock().await;
         if let Some(old_result) = cache.insert(token, result.clone()) {
@@ -290,7 +309,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
             }
         }
 
-        result
+        result.map(|session| session.user)
     }
 }
 
@@ -383,12 +402,12 @@ mod tests {
                 .is_ok()
         );
 
-        for i in [-50 * 60, 10 * 60, 23 * 3600].into_iter() {
+        for i in [-50 * 60, 10 * 60, 24 * 3600 - 1].into_iter() {
             let now = context.now_delta(i);
             assert!(context.driver().get_session(&mut tx, now, token.clone()).await.is_ok());
         }
 
-        for i in [-2 * 3600, 25 * 3600].into_iter() {
+        for i in [-2 * 3600, 24 * 3600, 25 * 3600].into_iter() {
             let now = context.now_delta(i);
             match context.driver().get_session(&mut tx, now, token.clone()).await {
                 Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("expired")),
@@ -417,13 +436,13 @@ mod tests {
         assert!(
             context
                 .driver()
-                .get_session(&mut tx, context.now_delta(10), session.access_token.clone())
+                .get_session(&mut tx, context.now_delta(9), session.access_token.clone())
                 .await
                 .is_ok()
         );
         match context
             .driver()
-            .get_session(&mut tx, context.now_delta(11), session.access_token)
+            .get_session(&mut tx, context.now_delta(10), session.access_token)
             .await
         {
             Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("expired")),
@@ -506,6 +525,30 @@ mod tests {
         // Re-fetch the user session, which should now see the modified values.
         let user = context.driver().get_session(&mut tx, now, token).await.unwrap();
         assert_eq!(last_login2, user.last_login.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_get_session_cached_result_expires() {
+        let opts = AuthnOptions {
+            sessions_cache_ttl: Duration::from_secs(48 * 60 * 60),
+            ..Default::default()
+        };
+        let context = TestContext::setup(opts).await;
+        let token = context.do_test_login(username!("user")).await;
+        let mut tx = context.db().begin().await.unwrap();
+
+        assert!(
+            context
+                .driver()
+                .get_session(&mut tx, context.now_delta(24 * 3600 - 1), token.clone())
+                .await
+                .is_ok()
+        );
+
+        match context.driver().get_session(&mut tx, context.now_delta(24 * 3600), token).await {
+            Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("expired")),
+            e => panic!("{:?}", e),
+        }
     }
 
     #[tokio::test]
