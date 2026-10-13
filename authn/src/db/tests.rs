@@ -19,7 +19,6 @@ use crate::db::*;
 use crate::model::{AccessToken, Coupon, Session, User, coupon_name, hashed_password};
 use iii_iv_core::db::{DbError, Executor};
 use iii_iv_core::model::{EmailAddress, Username, email_address, username};
-use std::time::Duration;
 use time::macros::datetime;
 use uuid::Uuid;
 
@@ -314,7 +313,7 @@ async fn test_delete_sessions_for_user_ok(ex: &mut Executor) {
         AccessToken::generate(),
         user.id,
         datetime!(2022-05-17 06:29:28 UTC),
-        Duration::from_secs(3600),
+        datetime!(2022-05-17 07:29:28 UTC),
     );
     put_session(ex, &session1).await.unwrap();
 
@@ -322,7 +321,7 @@ async fn test_delete_sessions_for_user_ok(ex: &mut Executor) {
         AccessToken::generate(),
         user.id,
         datetime!(2022-05-17 06:29:28 UTC),
-        Duration::from_secs(3600),
+        datetime!(2022-05-17 07:29:28 UTC),
     );
     put_session(ex, &session2).await.unwrap();
 
@@ -347,7 +346,7 @@ async fn test_sessions_ok(ex: &mut Executor) {
         AccessToken::generate(),
         user1.id,
         datetime!(2022-05-17 06:29:28 UTC),
-        Duration::from_secs(3600),
+        datetime!(2022-05-17 07:29:28 UTC),
     );
     put_session(ex, &session1).await.unwrap();
 
@@ -356,7 +355,7 @@ async fn test_sessions_ok(ex: &mut Executor) {
         AccessToken::generate(),
         user1.id,
         datetime!(2022-05-17 06:29:28 UTC),
-        Duration::from_secs(3600),
+        datetime!(2022-05-17 07:29:28 UTC),
     );
     put_session(ex, &session2).await.unwrap();
 
@@ -381,7 +380,7 @@ async fn test_sessions_missing(ex: &mut Executor) {
         AccessToken::generate(),
         user.id,
         datetime!(2022-05-17 06:29:28 UTC),
-        Duration::from_secs(3600),
+        datetime!(2022-05-17 07:29:28 UTC),
     );
     put_session(ex, &session).await.unwrap();
 

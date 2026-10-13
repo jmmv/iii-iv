@@ -73,7 +73,8 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         }
 
         let access_token = AccessToken::generate();
-        let session = Session::new(access_token.clone(), user.id, now, max_age);
+        let expiration_time = now + max_age;
+        let session = Session::new(access_token.clone(), user.id, now, expiration_time);
         db::put_session(tx.ex(), &session).await?;
 
         db::update_user(tx.ex(), user.id, now).await?;
@@ -84,7 +85,8 @@ impl<H: AuthnHooks> AuthnDriver<H> {
 
         if !self.opts.sessions_cache_ttl.is_zero() {
             let mut cache = self.sessions_cache.lock().await;
-            let cached_session = CachedSession { expires_at: now + max_age, user: Arc::from(user) };
+            let cached_session =
+                CachedSession { expires_at: expiration_time, user: Arc::from(user) };
             let previous = cache.insert(access_token, Ok(cached_session));
             assert!(previous.is_none(), "The session has not yet been returned to the client");
         }
@@ -376,7 +378,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(max_age, actual_max_age);
-        assert_eq!(max_age, session.max_age);
+        assert_eq!(session.login_time + max_age, session.expiration_time);
     }
 
     #[tokio::test]

@@ -65,9 +65,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     user_id UUID NOT NULL REFERENCES users (id),
 
     login_time TIMESTAMPTZ NOT NULL,
-
-    max_age_secs BIGINT NOT NULL,
-    max_age_nsecs INTEGER NOT NULL,
+    expiration_time TIMESTAMPTZ NOT NULL,
 
     -- Logout time, if known.  Sessions have a maximum validity time as enforced by the driver
     -- but users can also explicitly log out.

@@ -16,7 +16,6 @@
 //! Database abstraction to manipulate users and authentication.
 
 use crate::model::{AccessToken, Coupon, CouponName, HashedPassword, Session, User};
-use iii_iv_core::db::build_duration;
 #[cfg(feature = "postgres")]
 use iii_iv_core::db::postgres;
 #[cfg(any(feature = "sqlite", test))]
@@ -237,12 +236,11 @@ impl TryFrom<PgRow> for Session {
         let user_id: Uuid = row.try_get("user_id").map_err(postgres::map_sqlx_error)?;
         let login_time: OffsetDateTime =
             row.try_get("login_time").map_err(postgres::map_sqlx_error)?;
-        let max_age_secs: i64 = row.try_get("max_age_secs").map_err(postgres::map_sqlx_error)?;
-        let max_age_nsecs: i32 = row.try_get("max_age_nsecs").map_err(postgres::map_sqlx_error)?;
+        let expiration_time: OffsetDateTime =
+            row.try_get("expiration_time").map_err(postgres::map_sqlx_error)?;
 
         let access_token = AccessToken::new(access_token)?;
-        let max_age = build_duration(max_age_secs, i64::from(max_age_nsecs))?;
-        Ok(Session::new(access_token, user_id, login_time, max_age))
+        Ok(Session::new(access_token, user_id, login_time, expiration_time))
     }
 }
 
@@ -288,15 +286,16 @@ impl TryFrom<SqliteRow> for Session {
             row.try_get("login_time_secs").map_err(sqlite::map_sqlx_error)?;
         let login_time_nsecs: i64 =
             row.try_get("login_time_nsecs").map_err(sqlite::map_sqlx_error)?;
-        let max_age_secs: i64 = row.try_get("max_age_secs").map_err(sqlite::map_sqlx_error)?;
-        let max_age_nsecs: i32 = row.try_get("max_age_nsecs").map_err(sqlite::map_sqlx_error)?;
+        let expiration_time_secs: i64 =
+            row.try_get("expiration_time_secs").map_err(sqlite::map_sqlx_error)?;
+        let expiration_time_nsecs: i64 =
+            row.try_get("expiration_time_nsecs").map_err(sqlite::map_sqlx_error)?;
 
         let access_token = AccessToken::new(access_token)?;
         let login_time = build_timestamp(login_time_secs, login_time_nsecs)?;
+        let expiration_time = build_timestamp(expiration_time_secs, expiration_time_nsecs)?;
 
-        let max_age = build_duration(max_age_secs, i64::from(max_age_nsecs))?;
-
-        Ok(Session::new(access_token, user_id, login_time, max_age))
+        Ok(Session::new(access_token, user_id, login_time, expiration_time))
     }
 }
 
@@ -661,7 +660,7 @@ pub async fn get_session(ex: &mut Executor, access_token: &AccessToken) -> DbRes
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
             let query_str = "
-                SELECT access_token, user_id, login_time, max_age_secs, max_age_nsecs
+                SELECT access_token, user_id, login_time, expiration_time
                 FROM sessions
                 WHERE access_token = $1 AND logout_time IS NULL";
             let raw_session = sqlx::query(AssertSqlSafe(query_str))
@@ -675,8 +674,8 @@ pub async fn get_session(ex: &mut Executor, access_token: &AccessToken) -> DbRes
         #[cfg(any(feature = "sqlite", test))]
         Executor::Sqlite(ex) => {
             let query_str = "
-                SELECT access_token, user_id, login_time_secs, login_time_nsecs, max_age_secs,
-                       max_age_nsecs
+                SELECT access_token, user_id, login_time_secs, login_time_nsecs,
+                       expiration_time_secs, expiration_time_nsecs
                 FROM sessions
                 WHERE
                     access_token = ? AND
@@ -702,18 +701,15 @@ pub(crate) async fn put_session(ex: &mut Executor, session: &Session) -> DbResul
         Executor::Postgres(ex) => {
             let query_str = "
                 INSERT INTO sessions (
-                    access_token, user_id, login_time, max_age_secs, max_age_nsecs
+                    access_token, user_id, login_time, expiration_time
                 )
-                VALUES ($1, $2, $3, $4, $5)";
+                VALUES ($1, $2, $3, $4)";
 
             let done = sqlx::query(AssertSqlSafe(query_str))
                 .bind(session.access_token.as_str())
                 .bind(session.user_id)
                 .bind(session.login_time)
-                .bind(i64::try_from(session.max_age.as_secs()).map_err(|_| {
-                    DbError::DataIntegrityError("Session maximum age is too large".to_owned())
-                })?)
-                .bind(session.max_age.subsec_nanos() as i32)
+                .bind(session.expiration_time)
                 .execute(ex)
                 .await
                 .map_err(postgres::map_sqlx_error)?;
@@ -723,11 +719,13 @@ pub(crate) async fn put_session(ex: &mut Executor, session: &Session) -> DbResul
         #[cfg(any(feature = "sqlite", test))]
         Executor::Sqlite(ex) => {
             let (login_time_secs, login_time_nsecs) = unpack_timestamp(session.login_time);
+            let (expiration_time_secs, expiration_time_nsecs) =
+                unpack_timestamp(session.expiration_time);
 
             let query_str = "
                 INSERT INTO sessions (
-                    access_token, user_id, login_time_secs, login_time_nsecs, max_age_secs,
-                    max_age_nsecs
+                    access_token, user_id, login_time_secs, login_time_nsecs,
+                    expiration_time_secs, expiration_time_nsecs
                 )
                 VALUES (?, ?, ?, ?, ?, ?)";
             let done = sqlx::query(AssertSqlSafe(query_str))
@@ -735,10 +733,8 @@ pub(crate) async fn put_session(ex: &mut Executor, session: &Session) -> DbResul
                 .bind(session.user_id)
                 .bind(login_time_secs)
                 .bind(login_time_nsecs)
-                .bind(i64::try_from(session.max_age.as_secs()).map_err(|_| {
-                    DbError::DataIntegrityError("Session maximum age is too large".to_owned())
-                })?)
-                .bind(session.max_age.subsec_nanos() as i32)
+                .bind(expiration_time_secs)
+                .bind(expiration_time_nsecs)
                 .execute(ex)
                 .await
                 .map_err(sqlite::map_sqlx_error)?;

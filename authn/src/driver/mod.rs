@@ -286,8 +286,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         };
 
         let login_time = session.login_time;
-        let max_age = session.max_age.min(self.opts.session_max_age);
-        let expires_at = login_time + max_age;
+        let expires_at = session.expiration_time.min(login_time + self.opts.session_max_age);
         let expired = now >= expires_at;
         let skew = login_time > (now + self.opts.session_max_skew);
         if expired || skew {
