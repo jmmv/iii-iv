@@ -152,12 +152,9 @@ mod tests {
             let mut tx = context.db().begin().await.unwrap();
             let user = db::get_user_by_username(tx.ex(), username.clone()).await.unwrap();
             let access_token = AccessToken::generate();
-            let session = Session::new(
-                access_token.clone(),
-                user.id,
-                context.driver().now_utc(),
-                Duration::from_secs(3600),
-            );
+            let now = context.driver().now_utc();
+            let session =
+                Session::new(access_token.clone(), user.id, now, now + Duration::from_secs(3600));
             db::put_session(tx.ex(), &session).await.unwrap();
             db::update_user(tx.ex(), user.id, context.driver().now_utc()).await.unwrap();
             tx.commit().await.unwrap();
@@ -252,7 +249,7 @@ mod tests {
             token.clone(),
             original_session.user_id,
             context.now_delta(-10),
-            Duration::from_secs(20),
+            context.now_delta(10),
         );
         db::put_session(&mut context.ex().await, &session).await.unwrap();
 
@@ -373,7 +370,7 @@ mod tests {
             token.clone(),
             original_session.user_id,
             context.now_delta(11),
-            Duration::from_secs(100),
+            context.now_delta(111),
         );
         db::put_session(&mut context.ex().await, &session).await.unwrap();
 
