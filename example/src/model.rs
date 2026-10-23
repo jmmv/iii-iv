@@ -71,7 +71,7 @@ impl Version {
 }
 
 /// Content of the keys stored in our key/value store.
-#[derive(Constructor, Serialize)]
+#[derive(Serialize)]
 #[cfg_attr(test, derive(Debug, Deserialize, PartialEq))]
 pub(crate) struct Entry {
     /// The key's raw value.
@@ -79,4 +79,11 @@ pub(crate) struct Entry {
 
     /// The key's current version number.
     pub(crate) version: Version,
+}
+
+impl Entry {
+    /// Creates an entry with the given value and version.
+    pub(crate) const fn new(value: String, version: Version) -> Self {
+        Self { value, version }
+    }
 }
