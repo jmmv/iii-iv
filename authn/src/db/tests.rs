@@ -63,6 +63,21 @@ async fn test_coupon_redemption(ex: &mut Executor) {
     assert_eq!(DbError::NotFound, redeem_coupon(ex, &coupon_name!("UNKNOWN")).await.unwrap_err());
 }
 
+async fn test_put_user_ok(ex: &mut Executor) {
+    let user = User::new(
+        Uuid::parse_str("3f6333ef-443c-4528-88b7-d369675a2884").unwrap(),
+        Some(username!("fixture-user")),
+        email_address!("fixture@example.com"),
+    )
+    .with_activation_code(Some(u64::MAX))
+    .with_last_login(datetime!(2026-05-10 11:12:13.456 UTC))
+    .with_password(hashed_password!("fixture-hash"));
+
+    put_user(ex, &user).await.unwrap();
+
+    assert_eq!(user, get_user_by_id(ex, user.id).await.unwrap());
+}
+
 async fn test_user_with_coupon(ex: &mut Executor) {
     let coupon = Coupon::new(
         coupon_name!("ATTRIBUTED"),
@@ -400,6 +415,7 @@ macro_rules! generate_db_tests [
             test_users_not_found,
             test_coupons_ok,
             test_coupon_redemption,
+            test_put_user_ok,
             test_user_with_coupon,
             test_user_without_username,
             test_user_corrupted_name,

@@ -338,29 +338,23 @@ impl TryFrom<SqliteRow> for User {
     }
 }
 
-/// Creates a new user with an optional `username`, a hashed `password`, an `email` address,
-/// and a `coupon`.
-/// The user is created as activated (no activation code) and as not having logged in.
-pub async fn create_user(
-    ex: &mut Executor,
-    username: Option<Username>,
-    password: Option<HashedPassword>,
-    email: EmailAddress,
-    coupon: Option<CouponName>,
-) -> DbResult<User> {
-    let id = Uuid::new_v4();
+/// Persists a user.
+pub async fn put_user(ex: &mut Executor, user: &User) -> DbResult<()> {
     let rows_affected = match ex {
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
             let query_str = "
-                INSERT INTO users (id, username, password, email, coupon)
-                VALUES ($1, $2, $3, $4, $5)";
+                INSERT INTO users (
+                    id, username, password, email, coupon, activation_code, last_login
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7)";
             let done = sqlx::query(AssertSqlSafe(query_str))
-                .bind(id)
-                .bind(username.as_ref().map(Username::as_str))
-                .bind(password.as_ref().map(|x| Some(x.as_str())))
-                .bind(email.as_str())
-                .bind(coupon.as_ref().map(CouponName::as_str))
+                .bind(user.id)
+                .bind(user.username.as_ref().map(Username::as_str))
+                .bind(user.password.as_ref().map(HashedPassword::as_str))
+                .bind(user.email.as_str())
+                .bind(user.coupon.as_ref().map(CouponName::as_str))
+                .bind(user.activation_code.map(|code| code as i64))
+                .bind(user.last_login)
                 .execute(ex)
                 .await
                 .map_err(postgres::map_sqlx_error)?;
@@ -369,15 +363,21 @@ pub async fn create_user(
 
         #[cfg(any(feature = "sqlite", test))]
         Executor::Sqlite(ex) => {
+            let (last_login_secs, last_login_nsecs) = user.last_login.map(unpack_timestamp).unzip();
             let query_str = "
-                INSERT INTO users (id, username, password, email, coupon)
-                VALUES (?, ?, ?, ?, ?)";
+                INSERT INTO users (
+                    id, username, password, email, coupon, activation_code,
+                    last_login_secs, last_login_nsecs
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
             let done = sqlx::query(AssertSqlSafe(query_str))
-                .bind(id)
-                .bind(username.as_ref().map(Username::as_str))
-                .bind(password.as_ref().map(|x| Some(x.as_str())))
-                .bind(email.as_str())
-                .bind(coupon.as_ref().map(CouponName::as_str))
+                .bind(user.id)
+                .bind(user.username.as_ref().map(Username::as_str))
+                .bind(user.password.as_ref().map(HashedPassword::as_str))
+                .bind(user.email.as_str())
+                .bind(user.coupon.as_ref().map(CouponName::as_str))
+                .bind(user.activation_code.map(|code| code as i64))
+                .bind(last_login_secs)
+                .bind(last_login_nsecs)
                 .execute(ex)
                 .await
                 .map_err(sqlite::map_sqlx_error)?;
@@ -391,13 +391,27 @@ pub async fn create_user(
     if rows_affected != 1 {
         return Err(DbError::BackendError("Insertion affected more than one row".to_owned()));
     }
-    let mut user = User::new(id, username, email);
+    Ok(())
+}
+
+/// Creates a new user with an optional `username`, a hashed `password`, an `email` address,
+/// and a `coupon`.
+/// The user is created as activated (no activation code) and as not having logged in.
+pub async fn create_user(
+    ex: &mut Executor,
+    username: Option<Username>,
+    password: Option<HashedPassword>,
+    email: EmailAddress,
+    coupon: Option<CouponName>,
+) -> DbResult<User> {
+    let mut user = User::new(Uuid::new_v4(), username, email);
     if let Some(password) = password {
         user = user.with_password(password);
     }
     if let Some(coupon) = coupon {
         user = user.with_coupon(coupon);
     }
+    put_user(ex, &user).await?;
     Ok(user)
 }
 
@@ -695,7 +709,7 @@ pub async fn get_session(ex: &mut Executor, access_token: &AccessToken) -> DbRes
 }
 
 /// Saves a session.
-pub(crate) async fn put_session(ex: &mut Executor, session: &Session) -> DbResult<()> {
+pub async fn put_session(ex: &mut Executor, session: &Session) -> DbResult<()> {
     let rows_affected = match ex {
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
