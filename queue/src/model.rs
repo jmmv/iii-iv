@@ -100,11 +100,11 @@ impl From<DriverError> for ExecError {
         match value {
             DriverError::AlreadyExists(_) => ExecError::Failed(msg),
             DriverError::BackendError(_) => ExecError::RetryAfterDelay(Duration::ZERO, msg),
+            DriverError::Forbidden(_) => ExecError::Failed(msg),
             DriverError::InvalidInput(_) => ExecError::Failed(msg),
             DriverError::NoSpace(_) => ExecError::Failed(msg),
             DriverError::NotActivated => ExecError::Failed(msg),
             DriverError::NotFound(_) => ExecError::Failed(msg),
-            DriverError::Unauthorized(_) => ExecError::Failed(msg),
             DriverError::Unavailable => ExecError::RetryAfterDelay(Duration::ZERO, msg),
         }
     }

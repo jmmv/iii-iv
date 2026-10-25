@@ -36,6 +36,10 @@ pub enum DriverError {
     #[error("{0}")]
     BackendError(String),
 
+    /// Indicates that an authenticated caller cannot perform an operation.
+    #[error("{0}")]
+    Forbidden(String),
+
     /// Indicates an error in the input data.
     #[error("{0}")]
     InvalidInput(String),
@@ -51,10 +55,6 @@ pub enum DriverError {
     /// Indicates that a requested entry does not exist.
     #[error("{0}")]
     NotFound(String),
-
-    /// Indicates that the calling user is not allowed to perform a read or write operation.
-    #[error("{0}")]
-    Unauthorized(String),
 
     /// Indicates that the service cannot handle the request at this time.
     #[error("Service temporarily unavailable")]
