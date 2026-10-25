@@ -56,6 +56,10 @@ pub enum DriverError {
     #[error("{0}")]
     NotFound(String),
 
+    /// Indicates that the caller could not be authenticated.
+    #[error("Authentication required")]
+    Unauthenticated,
+
     /// Indicates that the service cannot handle the request at this time.
     #[error("Service temporarily unavailable")]
     Unavailable,

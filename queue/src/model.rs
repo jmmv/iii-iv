@@ -105,6 +105,7 @@ impl From<DriverError> for ExecError {
             DriverError::NoSpace(_) => ExecError::Failed(msg),
             DriverError::NotActivated => ExecError::Failed(msg),
             DriverError::NotFound(_) => ExecError::Failed(msg),
+            DriverError::Unauthenticated => ExecError::Failed(msg),
             DriverError::Unavailable => ExecError::RetryAfterDelay(Duration::ZERO, msg),
         }
     }

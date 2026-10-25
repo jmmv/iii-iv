@@ -92,18 +92,39 @@ pub enum RestError {
     Unavailable,
 }
 
-impl From<DriverError> for RestError {
-    fn from(e: DriverError) -> Self {
-        match e {
-            DriverError::AlreadyExists(_) => RestError::InvalidRequest(e.to_string()),
-            DriverError::BackendError(_) => RestError::InternalError(e.to_string()),
-            DriverError::Forbidden(_) => RestError::Forbidden(e.to_string()),
-            DriverError::InvalidInput(_) => RestError::InvalidRequest(e.to_string()),
-            DriverError::NoSpace(_) => RestError::NoSpace(e.to_string()),
-            DriverError::NotActivated => RestError::NotActivated,
-            DriverError::NotFound(_) => RestError::NotFound(e.to_string()),
-            DriverError::Unavailable => RestError::Unavailable,
+impl RestError {
+    /// Converts a driver error into a REST error using the caller's authentication policy.
+    pub fn from_driver_error<F>(error: DriverError, unauthenticated: F) -> Self
+    where
+        F: FnOnce() -> Self,
+    {
+        match error {
+            DriverError::AlreadyExists(_) => Self::InvalidRequest(error.to_string()),
+            DriverError::BackendError(_) => Self::InternalError(error.to_string()),
+            DriverError::Forbidden(_) => Self::Forbidden(error.to_string()),
+            DriverError::InvalidInput(_) => Self::InvalidRequest(error.to_string()),
+            DriverError::NoSpace(_) => Self::NoSpace(error.to_string()),
+            DriverError::NotActivated => Self::NotActivated,
+            DriverError::NotFound(_) => Self::NotFound(error.to_string()),
+            DriverError::Unauthenticated => unauthenticated(),
+            DriverError::Unavailable => Self::Unavailable,
         }
+    }
+
+    /// Creates an authentication failure with the challenge required by HTTP 401 responses.
+    pub fn unauthorized<S>(scheme: &'static str, realm: &'static str, message: S) -> Self
+    where
+        S: Into<String>,
+    {
+        Self::Unauthorized { scheme, realm, message: message.into() }
+    }
+}
+
+impl From<DriverError> for RestError {
+    fn from(error: DriverError) -> Self {
+        Self::from_driver_error(error, || {
+            Self::InternalError("Unexpected authentication failure".to_owned())
+        })
     }
 }
 
@@ -967,6 +988,13 @@ mod tests {
         assert_eq!(b"Bad request", body.as_ref());
     }
 
+    #[test]
+    fn test_forbidden_driver_error() {
+        let error = RestError::from(DriverError::Forbidden("Operation not allowed".to_owned()));
+
+        assert_eq!(RestError::Forbidden("Operation not allowed".to_owned()), error);
+    }
+
     #[tokio::test]
     async fn test_unavailable_rest_error_into_response() {
         let response = RestError::from(DriverError::Unavailable).into_response();
@@ -976,14 +1004,33 @@ mod tests {
         assert_eq!(b"Service temporarily unavailable", body.as_ref());
     }
 
+    #[test]
+    fn test_unauthenticated_driver_error_is_internal() {
+        let error = RestError::from(DriverError::Unauthenticated);
+
+        assert_eq!(RestError::InternalError("Unexpected authentication failure".to_owned()), error);
+    }
+
+    #[test]
+    fn test_unauthenticated_driver_error_uses_caller_policy() {
+        let error = RestError::from_driver_error(DriverError::Unauthenticated, || {
+            RestError::unauthorized("Bearer", "example", "Invalid session")
+        });
+
+        assert_eq!(
+            RestError::Unauthorized {
+                scheme: "Bearer",
+                realm: "example",
+                message: "Invalid session".to_owned(),
+            },
+            error
+        );
+    }
+
     #[tokio::test]
     async fn test_unauthorized_rest_error_into_response() {
-        let response = RestError::Unauthorized {
-            scheme: "Basic",
-            realm: "example",
-            message: "Invalid credentials".to_owned(),
-        }
-        .into_response();
+        let response =
+            RestError::unauthorized("Basic", "example", "Invalid credentials").into_response();
 
         assert_eq!(http::StatusCode::UNAUTHORIZED, response.status());
         assert_eq!("Basic realm=\"example\"", response.headers().get("WWW-Authenticate").unwrap());
