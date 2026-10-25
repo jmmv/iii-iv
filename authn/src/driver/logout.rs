@@ -146,7 +146,7 @@ mod tests {
 
         let mut tx = second.db().begin().await.unwrap();
         match second.driver().get_session(&mut tx, second.driver().now_utc(), token).await {
-            Err(DriverError::Forbidden(msg)) => assert!(msg.contains("Invalid session")),
+            Err(DriverError::Unauthenticated) => {}
             e => panic!("{:?}", e),
         }
     }
@@ -198,7 +198,7 @@ mod tests {
         std::thread::sleep(lookup_interval);
         let mut tx = second.db().begin().await.unwrap();
         match second.driver().get_session(&mut tx, second.driver().now_utc(), token).await {
-            Err(DriverError::Forbidden(msg)) => assert!(msg.contains("Invalid session")),
+            Err(DriverError::Unauthenticated) => {}
             e => panic!("{:?}", e),
         }
     }

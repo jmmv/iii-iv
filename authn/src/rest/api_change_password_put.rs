@@ -40,12 +40,18 @@ pub(crate) async fn handler<H: AuthnHooks>(
     headers: HeaderMap,
     Json(request): Json<ChangePasswordRequest>,
 ) -> Result<(), RestError> {
-    let access_token = get_bearer_auth(&headers, driver.realm())?;
+    let realm = driver.realm();
+    let access_token = get_bearer_auth(&headers, realm)?;
 
     driver
         .clone()
         .change_password(access_token, request.old_password, request.new_password)
-        .await?;
+        .await
+        .map_err(|error| {
+            RestError::from_driver_error(error, || {
+                RestError::unauthorized("Bearer", realm, "Invalid session")
+            })
+        })?;
 
     Ok(())
 }
@@ -127,7 +133,8 @@ mod tests {
             .with_bearer_auth(token.as_str())
             .send_json(&request)
             .await
-            .expect_status(http::StatusCode::FORBIDDEN)
+            .expect_status(http::StatusCode::UNAUTHORIZED)
+            .expect_header(http::header::WWW_AUTHENTICATE.as_str(), "Bearer realm=\"the-realm\"")
             .expect_error("Invalid session")
             .await;
     }
