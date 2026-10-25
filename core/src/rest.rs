@@ -97,11 +97,11 @@ impl From<DriverError> for RestError {
         match e {
             DriverError::AlreadyExists(_) => RestError::InvalidRequest(e.to_string()),
             DriverError::BackendError(_) => RestError::InternalError(e.to_string()),
+            DriverError::Forbidden(_) => RestError::Forbidden(e.to_string()),
             DriverError::InvalidInput(_) => RestError::InvalidRequest(e.to_string()),
             DriverError::NoSpace(_) => RestError::NoSpace(e.to_string()),
             DriverError::NotActivated => RestError::NotActivated,
             DriverError::NotFound(_) => RestError::NotFound(e.to_string()),
-            DriverError::Unauthorized(_) => RestError::Forbidden(e.to_string()),
             DriverError::Unavailable => RestError::Unavailable,
         }
     }

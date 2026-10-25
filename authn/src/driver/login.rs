@@ -52,7 +52,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         let user = match user_result {
             Ok(user) => user,
             Err(DbError::NotFound) => {
-                return Err(DriverError::Unauthorized("Unknown user".to_owned()));
+                return Err(DriverError::Forbidden("Unknown user".to_owned()));
             }
             Err(e) => return Err(e.into()),
         };
@@ -62,10 +62,10 @@ impl<H: AuthnHooks> AuthnDriver<H> {
                 let (verified, permit) = self.verify_password(password, hash, permit).await?;
                 drop(permit);
                 if !verified {
-                    return Err(DriverError::Unauthorized("Invalid password".to_owned()));
+                    return Err(DriverError::Forbidden("Invalid password".to_owned()));
                 }
             }
-            None => return Err(DriverError::Unauthorized("Login not allowed".to_owned())),
+            None => return Err(DriverError::Forbidden("Login not allowed".to_owned())),
         };
 
         if user.activation_code.is_some() {
@@ -243,7 +243,7 @@ mod tests {
 
         match context.driver().login("foo".to_owned(), password!("bar"), TEST_SESSION_MAX_AGE).await
         {
-            Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("Unknown user")),
+            Err(DriverError::Forbidden(msg)) => assert!(msg.contains("Unknown user")),
             e => panic!("{:?}", e),
         }
     }
@@ -269,7 +269,7 @@ mod tests {
             .login(username.as_str().to_owned(), password!("abc"), TEST_SESSION_MAX_AGE)
             .await
         {
-            Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("Invalid password")),
+            Err(DriverError::Forbidden(msg)) => assert!(msg.contains("Invalid password")),
             e => panic!("{:?}", e),
         }
     }
@@ -295,7 +295,7 @@ mod tests {
             .login(username.as_str().to_owned(), password!("irrelevant"), TEST_SESSION_MAX_AGE)
             .await
         {
-            Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("Login not allowed")),
+            Err(DriverError::Forbidden(msg)) => assert!(msg.contains("Login not allowed")),
             e => panic!("{:?}", e),
         }
     }

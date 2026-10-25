@@ -280,7 +280,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         let session = match db::get_session(tx.ex(), &token).await {
             Ok(session) => session,
             Err(DbError::NotFound) => {
-                return Err(DriverError::Unauthorized("Invalid session".to_owned()));
+                return Err(DriverError::Forbidden("Invalid session".to_owned()));
             }
             Err(e) => return Err(e.into()),
         };
@@ -290,9 +290,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         let expired = now >= expires_at;
         let skew = login_time > (now + self.opts.session_max_skew);
         if expired || skew {
-            return Err(DriverError::Unauthorized(
-                "Session expired; please log in again".to_owned(),
-            ));
+            return Err(DriverError::Forbidden("Session expired; please log in again".to_owned()));
         }
 
         let user = Arc::from(db::get_user_by_id(tx.ex(), session.user_id).await?);
@@ -318,7 +316,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
                 return match result {
                     Ok(session) if now >= session.expires_at => {
                         let _previous = cache.remove(&token);
-                        Err(DriverError::Unauthorized(
+                        Err(DriverError::Forbidden(
                             "Session expired; please log in again".to_owned(),
                         ))
                     }
@@ -449,7 +447,7 @@ mod tests {
         for i in [-2 * 3600, 24 * 3600, 25 * 3600].into_iter() {
             let now = context.now_delta(i);
             match context.driver().get_session(&mut tx, now, token.clone()).await {
-                Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("expired")),
+                Err(DriverError::Forbidden(msg)) => assert!(msg.contains("expired")),
                 e => panic!("{:?}", e),
             }
         }
@@ -484,7 +482,7 @@ mod tests {
             .get_session(&mut tx, context.now_delta(10), session.access_token)
             .await
         {
-            Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("expired")),
+            Err(DriverError::Forbidden(msg)) => assert!(msg.contains("expired")),
             e => panic!("{:?}", e),
         }
     }
@@ -516,12 +514,12 @@ mod tests {
             .get_session(&mut tx, context.now_delta(-2 * 3600), token.clone())
             .await
         {
-            Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("expired")),
+            Err(DriverError::Forbidden(msg)) => assert!(msg.contains("expired")),
             e => panic!("{:?}", e),
         }
 
         match context.driver().get_session(&mut tx, context.now_delta(-48 * 3600), token).await {
-            Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("expired")),
+            Err(DriverError::Forbidden(msg)) => assert!(msg.contains("expired")),
             e => panic!("{:?}", e),
         }
     }
@@ -585,7 +583,7 @@ mod tests {
         );
 
         match context.driver().get_session(&mut tx, context.now_delta(24 * 3600), token).await {
-            Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("expired")),
+            Err(DriverError::Forbidden(msg)) => assert!(msg.contains("expired")),
             e => panic!("{:?}", e),
         }
     }

@@ -41,9 +41,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         let old_hash = match session.user.password.as_ref() {
             Some(hash) => hash,
             None => {
-                return Err(DriverError::Unauthorized(
-                    "Password not set; cannot change".to_owned(),
-                ));
+                return Err(DriverError::Forbidden("Password not set; cannot change".to_owned()));
             }
         };
 
@@ -258,7 +256,7 @@ mod tests {
             .change_password(token, password!("test0password"), password!("new1password"))
             .await
         {
-            Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("expired")),
+            Err(DriverError::Forbidden(msg)) => assert!(msg.contains("expired")),
             e => panic!("{:?}", e),
         }
     }
@@ -306,7 +304,7 @@ mod tests {
         for token in [token1, session2.access_token] {
             let mut tx = second.db().begin().await.unwrap();
             match second.driver().get_session(&mut tx, second.driver().now_utc(), token).await {
-                Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("Invalid session")),
+                Err(DriverError::Forbidden(msg)) => assert!(msg.contains("Invalid session")),
                 e => panic!("{:?}", e),
             }
         }
@@ -379,7 +377,7 @@ mod tests {
             .change_password(token, password!("test0password"), password!("new1password"))
             .await
         {
-            Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("expired")),
+            Err(DriverError::Forbidden(msg)) => assert!(msg.contains("expired")),
             e => panic!("{:?}", e),
         }
     }
@@ -395,7 +393,7 @@ mod tests {
             .change_password(token, password!("test0password"), password!("new1password"))
             .await
         {
-            Err(DriverError::Unauthorized(msg)) => assert!(msg.contains("Invalid session")),
+            Err(DriverError::Forbidden(msg)) => assert!(msg.contains("Invalid session")),
             e => panic!("{:?}", e),
         }
     }
@@ -418,7 +416,7 @@ mod tests {
             .change_password(token, password!("test0password"), password!("another1password"))
             .await
         {
-            Err(DriverError::Unauthorized(msg)) => {
+            Err(DriverError::Forbidden(msg)) => {
                 assert!(msg.contains("Invalid session"))
             }
             e => panic!("{:?}", e),
