@@ -134,6 +134,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_change_password_without_password() {
+        let context = TestContext::setup(AuthnOptions::default()).await;
+        let user = db::create_user(
+            &mut context.ex().await,
+            Some(username!("test")),
+            None,
+            EmailAddress::new("test@example.com").unwrap(),
+            None,
+        )
+        .await
+        .unwrap();
+        let token = AccessToken::generate();
+        let now = context.driver().now_utc();
+        let session = Session::new(token.clone(), user.id, now, now + Duration::from_secs(3600));
+        db::put_session(&mut context.ex().await, &session).await.unwrap();
+
+        match context
+            .driver()
+            .change_password(token, password!("old0password"), password!("new1password"))
+            .await
+        {
+            Err(DriverError::Forbidden(msg)) => assert!(msg.contains("Password not set")),
+            e => panic!("{:?}", e),
+        }
+    }
+
+    #[tokio::test]
     async fn test_change_password_not_activated() {
         let context = TestContext::setup(AuthnOptions::default()).await;
         let username = username!("test");
@@ -256,7 +283,7 @@ mod tests {
             .change_password(token, password!("test0password"), password!("new1password"))
             .await
         {
-            Err(DriverError::Forbidden(msg)) => assert!(msg.contains("expired")),
+            Err(DriverError::Unauthenticated) => {}
             e => panic!("{:?}", e),
         }
     }
@@ -304,7 +331,7 @@ mod tests {
         for token in [token1, session2.access_token] {
             let mut tx = second.db().begin().await.unwrap();
             match second.driver().get_session(&mut tx, second.driver().now_utc(), token).await {
-                Err(DriverError::Forbidden(msg)) => assert!(msg.contains("Invalid session")),
+                Err(DriverError::Unauthenticated) => {}
                 e => panic!("{:?}", e),
             }
         }
@@ -377,7 +404,7 @@ mod tests {
             .change_password(token, password!("test0password"), password!("new1password"))
             .await
         {
-            Err(DriverError::Forbidden(msg)) => assert!(msg.contains("expired")),
+            Err(DriverError::Unauthenticated) => {}
             e => panic!("{:?}", e),
         }
     }
@@ -393,7 +420,7 @@ mod tests {
             .change_password(token, password!("test0password"), password!("new1password"))
             .await
         {
-            Err(DriverError::Forbidden(msg)) => assert!(msg.contains("Invalid session")),
+            Err(DriverError::Unauthenticated) => {}
             e => panic!("{:?}", e),
         }
     }
@@ -416,9 +443,7 @@ mod tests {
             .change_password(token, password!("test0password"), password!("another1password"))
             .await
         {
-            Err(DriverError::Forbidden(msg)) => {
-                assert!(msg.contains("Invalid session"))
-            }
+            Err(DriverError::Unauthenticated) => {}
             e => panic!("{:?}", e),
         }
     }

@@ -52,7 +52,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         let user = match user_result {
             Ok(user) => user,
             Err(DbError::NotFound) => {
-                return Err(DriverError::Forbidden("Unknown user".to_owned()));
+                return Err(DriverError::Unauthenticated);
             }
             Err(e) => return Err(e.into()),
         };
@@ -62,10 +62,10 @@ impl<H: AuthnHooks> AuthnDriver<H> {
                 let (verified, permit) = self.verify_password(password, hash, permit).await?;
                 drop(permit);
                 if !verified {
-                    return Err(DriverError::Forbidden("Invalid password".to_owned()));
+                    return Err(DriverError::Unauthenticated);
                 }
             }
-            None => return Err(DriverError::Forbidden("Login not allowed".to_owned())),
+            None => return Err(DriverError::Unauthenticated),
         };
 
         if user.activation_code.is_some() {
@@ -241,11 +241,10 @@ mod tests {
     async fn test_login_unknown_user() {
         let context = TestContext::setup(AuthnOptions::default()).await;
 
-        match context.driver().login("foo".to_owned(), password!("bar"), TEST_SESSION_MAX_AGE).await
-        {
-            Err(DriverError::Forbidden(msg)) => assert!(msg.contains("Unknown user")),
-            e => panic!("{:?}", e),
-        }
+        assert_eq!(
+            Err(DriverError::Unauthenticated),
+            context.driver().login("foo".to_owned(), password!("bar"), TEST_SESSION_MAX_AGE).await
+        );
     }
 
     #[tokio::test]
@@ -264,14 +263,13 @@ mod tests {
         .await
         .unwrap();
 
-        match context
-            .driver()
-            .login(username.as_str().to_owned(), password!("abc"), TEST_SESSION_MAX_AGE)
-            .await
-        {
-            Err(DriverError::Forbidden(msg)) => assert!(msg.contains("Invalid password")),
-            e => panic!("{:?}", e),
-        }
+        assert_eq!(
+            Err(DriverError::Unauthenticated),
+            context
+                .driver()
+                .login(username.as_str().to_owned(), password!("abc"), TEST_SESSION_MAX_AGE)
+                .await
+        );
     }
 
     #[tokio::test]
@@ -290,14 +288,13 @@ mod tests {
         .await
         .unwrap();
 
-        match context
-            .driver()
-            .login(username.as_str().to_owned(), password!("irrelevant"), TEST_SESSION_MAX_AGE)
-            .await
-        {
-            Err(DriverError::Forbidden(msg)) => assert!(msg.contains("Login not allowed")),
-            e => panic!("{:?}", e),
-        }
+        assert_eq!(
+            Err(DriverError::Unauthenticated),
+            context
+                .driver()
+                .login(username.as_str().to_owned(), password!("irrelevant"), TEST_SESSION_MAX_AGE)
+                .await
+        );
     }
 
     #[tokio::test]

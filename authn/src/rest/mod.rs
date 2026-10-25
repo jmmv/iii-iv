@@ -88,8 +88,9 @@ mod tests {
             .with_basic_auth("the-user", "the password")
             .send_empty()
             .await
-            .expect_status(StatusCode::FORBIDDEN)
-            .expect_error("Invalid password")
+            .expect_status(StatusCode::UNAUTHORIZED)
+            .expect_header(http::header::WWW_AUTHENTICATE.as_str(), "Basic realm=\"the-realm\"")
+            .expect_error("Authentication required")
             .await;
 
         OneShotBuilder::new(context.app(), (Method::POST, "/api/test/login"))

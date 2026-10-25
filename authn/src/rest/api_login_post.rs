@@ -52,10 +52,17 @@ pub(crate) async fn handler<H: AuthnHooks>(
     Query(request): Query<LoginRequest>,
     _: EmptyBody,
 ) -> Result<impl IntoResponse, RestError> {
-    let (username, password) = get_basic_auth(&headers, driver.realm())?;
+    let realm = driver.realm();
+    let (username, password) = get_basic_auth(&headers, realm)?;
 
-    let (session, session_max_age, output) =
-        driver.login(username, password, request.max_age.map(Duration::from_secs)).await?;
+    let (session, session_max_age, output) = driver
+        .login(username, password, request.max_age.map(Duration::from_secs))
+        .await
+        .map_err(|error| {
+            RestError::from_driver_error(error, || {
+                RestError::unauthorized("Basic", realm, "Authentication required")
+            })
+        })?;
     let response = LoginResponse { access_token: session.access_token, session_max_age };
 
     Ok(JsonMultipart(response, output))
@@ -185,8 +192,9 @@ mod tests {
             .with_basic_auth(context.whoami().as_str(), "password")
             .send_empty()
             .await
-            .expect_status(http::StatusCode::FORBIDDEN)
-            .expect_error("Unknown user")
+            .expect_status(http::StatusCode::UNAUTHORIZED)
+            .expect_header(http::header::WWW_AUTHENTICATE.as_str(), "Basic realm=\"the-realm\"")
+            .expect_error("Authentication required")
             .await;
     }
 
