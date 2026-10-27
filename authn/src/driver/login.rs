@@ -18,7 +18,7 @@
 use crate::db;
 use crate::driver::{AuthnDriver, AuthnHooks, CachedSession};
 use crate::model::{AccessToken, HashedPassword, Password, Session, User};
-use iii_iv_core::db::DbError;
+use iii_iv_core::db::{DbError, Executor};
 use iii_iv_core::driver::{DriverError, DriverResult};
 use iii_iv_core::model::{EmailAddress, Username};
 use std::sync::Arc;
@@ -32,7 +32,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
     /// Resolves `login` to an account without exposing expected lookup failures.
     async fn find_login_user(
         &self,
-        tx: &mut iii_iv_core::db::TxExecutor,
+        ex: &mut Executor,
         login: String,
     ) -> DriverResult<Option<User>> {
         let user_result = if self.usernames {
@@ -40,13 +40,13 @@ impl<H: AuthnHooks> AuthnDriver<H> {
                 Ok(username) => username,
                 Err(_) => return Ok(None),
             };
-            db::get_user_by_username(tx.ex(), username).await
+            db::get_user_by_username(ex, username).await
         } else {
             let email = match EmailAddress::new(login) {
                 Ok(email) => email,
                 Err(_) => return Ok(None),
             };
-            db::get_user_by_email(tx.ex(), email).await
+            db::get_user_by_email(ex, email).await
         };
 
         match user_result {
@@ -65,12 +65,13 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         requested_max_age: Option<Duration>,
     ) -> DriverResult<(Session, Duration, H::LoginOutput)> {
         let permit = self.acquire_password_hash_capacity()?;
-        let mut tx = self.db.begin().await?;
-        let now = self.clock.now_utc();
         let max_age =
             requested_max_age.unwrap_or(self.opts.session_max_age).min(self.opts.session_max_age);
 
-        let user = self.find_login_user(&mut tx, login).await?;
+        let user = {
+            let mut ex = self.db.ex().await?;
+            self.find_login_user(&mut ex, login).await?
+        };
         let hash =
             user.as_ref().and_then(|user| user.password.as_ref()).unwrap_or(&DUMMY_PASSWORD_HASH);
 
@@ -82,10 +83,18 @@ impl<H: AuthnHooks> AuthnDriver<H> {
             return Err(DriverError::Unauthenticated);
         }
 
-        if user.activation_code.is_some() {
+        let mut tx = self.db.begin().await?;
+        let current_user = match db::get_user_by_id(tx.ex(), user.id).await {
+            Ok(user) => user,
+            Err(DbError::NotFound) => return Err(DriverError::Unauthenticated),
+            Err(error) => return Err(error.into()),
+        };
+        if current_user.password != user.password || current_user.activation_code.is_some() {
             return Err(DriverError::Unauthenticated);
         }
 
+        let user = current_user;
+        let now = self.clock.now_utc();
         let access_token = AccessToken::generate();
         let expiration_time = now + max_age;
         let session = Session::new(access_token.clone(), user.id, now, expiration_time);
@@ -95,7 +104,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
 
         let output = self.hooks.login_hook(&mut tx, now, &user).await?;
 
-        tx.commit().await.unwrap();
+        tx.commit().await?;
 
         if !self.opts.sessions_cache_ttl.is_zero() {
             let mut cache = self.sessions_cache.lock().await;
@@ -154,6 +163,78 @@ mod tests {
         let hashes = Arc::new(Mutex::new(Vec::new()));
         let hasher = Arc::new(RecordingHasher { hashes: hashes.clone(), verified });
         (driver.with_password_hasher(hasher), hashes)
+    }
+
+    /// Runs an account mutation while password verification is in progress.
+    struct MutatingHasher {
+        action: Box<dyn Fn() + Send + Sync>,
+    }
+
+    impl PasswordHasher for MutatingHasher {
+        fn hash(
+            &self,
+            _password: Password,
+            _validator: fn(&str) -> Option<&'static str>,
+        ) -> ModelResult<HashedPassword> {
+            unreachable!()
+        }
+
+        fn verify(&self, _password: Password, _hash: HashedPassword) -> ModelResult<bool> {
+            (self.action)();
+            Ok(true)
+        }
+    }
+
+    async fn do_login_rechecks_account_after_verification_test(change_password: bool) {
+        let context = TestContext::setup(AuthnOptions::default()).await;
+
+        let username = username!("hello");
+        context.create_active_user(&username).await;
+
+        let driver = context.driver();
+        let db = driver.db.clone();
+        let user =
+            db::get_user_by_username(&mut context.ex().await, username.clone()).await.unwrap();
+
+        let runtime = tokio::runtime::Handle::current();
+        let hasher = MutatingHasher {
+            action: Box::new(move || {
+                runtime.block_on(async {
+                    let mut ex = db.ex().await.unwrap();
+                    if change_password {
+                        db::update_user_password(
+                            &mut ex,
+                            user.id,
+                            user.password.as_ref().unwrap(),
+                            hashed_password!("changed"),
+                        )
+                        .await
+                        .unwrap();
+                    } else {
+                        let current = db::get_user_by_id(&mut ex, user.id).await.unwrap();
+                        db::set_user_activation_code(&mut ex, current, Some(42)).await.unwrap();
+                    }
+                })
+            }),
+        };
+
+        assert_eq!(
+            Err(DriverError::Unauthenticated),
+            driver
+                .with_password_hasher(Arc::new(hasher))
+                .login(username.as_str().to_owned(), password!("password"), TEST_SESSION_MAX_AGE)
+                .await,
+        );
+    }
+
+    #[tokio::test]
+    async fn test_login_rechecks_account_after_verification_change_password() {
+        do_login_rechecks_account_after_verification_test(true).await;
+    }
+
+    #[tokio::test]
+    async fn test_login_rechecks_account_after_verification_change_activation_code() {
+        do_login_rechecks_account_after_verification_test(false).await;
     }
 
     #[tokio::test]
