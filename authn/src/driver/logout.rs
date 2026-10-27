@@ -18,7 +18,8 @@
 use crate::db;
 use crate::driver::{AuthnDriver, AuthnHooks};
 use crate::model::AccessToken;
-use iii_iv_core::driver::DriverResult;
+use iii_iv_core::db::DbError;
+use iii_iv_core::driver::{DriverError, DriverResult};
 
 impl<H: AuthnHooks> AuthnDriver<H> {
     /// Marks a session as deleted.
@@ -26,7 +27,11 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         let mut tx = self.db.begin().await?;
         let now = self.clock.now_utc();
 
-        let session = db::get_session(tx.ex(), &token).await?;
+        let session = match db::get_session(tx.ex(), &token).await {
+            Ok(session) => session,
+            Err(DbError::NotFound) => return Err(DriverError::Unauthenticated),
+            Err(error) => return Err(error.into()),
+        };
         db::delete_session(tx.ex(), session, now).await?;
 
         tx.commit().await?;
@@ -51,7 +56,6 @@ mod tests {
     use iii_iv_core::clocks::Clock;
     use iii_iv_core::clocks::testutils::SettableClock;
     use iii_iv_core::db::Db;
-    use iii_iv_core::db::DbError;
     use iii_iv_core::driver::DriverError;
     use iii_iv_core::model::username;
     use std::sync::Arc;
@@ -74,7 +78,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_not_found() {
+    async fn test_only_removes_requested_session() {
         let context = TestContext::setup(AuthnOptions::default()).await;
 
         let username1 = username!("test1");
@@ -85,6 +89,14 @@ mod tests {
 
         db::get_session(&mut context.ex().await, &token1).await.unwrap_err();
         db::get_session(&mut context.ex().await, &token2).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_unknown_session() {
+        let context = TestContext::setup(AuthnOptions::default()).await;
+        let token = AccessToken::generate();
+
+        assert_eq!(Err(DriverError::Unauthenticated), context.driver().logout(token).await);
     }
 
     #[tokio::test]
