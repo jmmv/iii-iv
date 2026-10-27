@@ -89,16 +89,17 @@ mod tests {
             .send_empty()
             .await
             .expect_status(StatusCode::UNAUTHORIZED)
-            .expect_header(http::header::WWW_AUTHENTICATE.as_str(), "Basic realm=\"the-realm\"")
-            .expect_error("Authentication required")
+            .expect_header("WWW-Authenticate", "Basic realm=\"the-realm\"")
+            .expect_error("Invalid login credentials")
             .await;
 
         OneShotBuilder::new(context.app(), (Method::POST, "/api/test/login"))
             .with_basic_auth("the-user", "The1234Password")
             .send_empty()
             .await
-            .expect_status(StatusCode::CONFLICT)
-            .expect_error("Account.*not.*activated")
+            .expect_status(StatusCode::UNAUTHORIZED)
+            .expect_header("WWW-Authenticate", "Basic realm=\"the-realm\"")
+            .expect_error("Invalid login credentials")
             .await;
 
         let user_id = context.user_id(&username!("the-user")).await;

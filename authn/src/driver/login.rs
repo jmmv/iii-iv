@@ -17,14 +17,46 @@
 
 use crate::db;
 use crate::driver::{AuthnDriver, AuthnHooks, CachedSession};
-use crate::model::{AccessToken, Password, Session};
+use crate::model::{AccessToken, HashedPassword, Password, Session, User};
 use iii_iv_core::db::DbError;
 use iii_iv_core::driver::{DriverError, DriverResult};
 use iii_iv_core::model::{EmailAddress, Username};
 use std::sync::Arc;
 use std::time::Duration;
 
+/// Fixed bcrypt hash used to equalize work for login attempts without a real password hash.
+static DUMMY_PASSWORD_HASH: HashedPassword =
+    HashedPassword::from_static("$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy");
+
 impl<H: AuthnHooks> AuthnDriver<H> {
+    /// Resolves `login` to an account without exposing expected lookup failures.
+    async fn find_login_user(
+        &self,
+        tx: &mut iii_iv_core::db::TxExecutor,
+        login: String,
+    ) -> DriverResult<Option<User>> {
+        let user_result = if self.usernames {
+            let username = match Username::new(login) {
+                Ok(username) => username,
+                Err(_) => return Ok(None),
+            };
+            db::get_user_by_username(tx.ex(), username).await
+        } else {
+            let email = match EmailAddress::new(login) {
+                Ok(email) => email,
+                Err(_) => return Ok(None),
+            };
+            db::get_user_by_email(tx.ex(), email).await
+        };
+
+        match user_result {
+            Ok(user) if user.password.is_some() => Ok(Some(user)),
+            Ok(_) => Ok(None),
+            Err(DbError::NotFound) => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
     /// Logs a user with their configured login identifier, `password`, and an optional session age.
     pub(crate) async fn login(
         self,
@@ -38,38 +70,20 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         let max_age =
             requested_max_age.unwrap_or(self.opts.session_max_age).min(self.opts.session_max_age);
 
-        let user_result = if self.usernames {
-            match Username::new(login) {
-                Ok(username) => db::get_user_by_username(tx.ex(), username).await,
-                Err(e) => return Err(e.into()),
-            }
-        } else {
-            match EmailAddress::new(login) {
-                Ok(email) => db::get_user_by_email(tx.ex(), email).await,
-                Err(e) => return Err(e.into()),
-            }
-        };
-        let user = match user_result {
-            Ok(user) => user,
-            Err(DbError::NotFound) => {
-                return Err(DriverError::Unauthenticated);
-            }
-            Err(e) => return Err(e.into()),
-        };
+        let user = self.find_login_user(&mut tx, login).await?;
+        let hash =
+            user.as_ref().and_then(|user| user.password.as_ref()).unwrap_or(&DUMMY_PASSWORD_HASH);
 
-        match user.password.as_ref() {
-            Some(hash) => {
-                let (verified, permit) = self.verify_password(password, hash, permit).await?;
-                drop(permit);
-                if !verified {
-                    return Err(DriverError::Unauthenticated);
-                }
-            }
-            None => return Err(DriverError::Unauthenticated),
-        };
+        let (verified, permit) = self.verify_password(password, hash, permit).await?;
+        drop(permit);
+
+        let user = user.ok_or(DriverError::Unauthenticated)?;
+        if !verified {
+            return Err(DriverError::Unauthenticated);
+        }
 
         if user.activation_code.is_some() {
-            return Err(DriverError::NotActivated);
+            return Err(DriverError::Unauthenticated);
         }
 
         let access_token = AccessToken::generate();
@@ -98,17 +112,49 @@ impl<H: AuthnHooks> AuthnDriver<H> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::driver::passwords::PasswordHasher;
     use crate::driver::testutils::*;
     use crate::driver::{AuthnOptions, NO_EXTENSIONS};
-    use crate::model::password;
+    use crate::model::{hashed_password, password};
     use iii_iv_core::clocks::testutils::SettableClock;
     use iii_iv_core::driver::DriverError;
-    use iii_iv_core::model::{email_address, username};
-    use std::sync::Arc;
+    use iii_iv_core::model::{ModelResult, email_address, username};
+    use std::sync::{Arc, Mutex};
     use time::OffsetDateTime;
     use time::macros::datetime;
 
     const TEST_SESSION_MAX_AGE: Option<Duration> = Some(Duration::from_secs(100));
+
+    /// Password hasher that records verification calls and returns a fixed result.
+    struct RecordingHasher {
+        hashes: Arc<Mutex<Vec<String>>>,
+        verified: bool,
+    }
+
+    impl PasswordHasher for RecordingHasher {
+        fn hash(
+            &self,
+            _password: Password,
+            _validator: fn(&str) -> Option<&'static str>,
+        ) -> ModelResult<HashedPassword> {
+            Ok(hashed_password!("unused"))
+        }
+
+        fn verify(&self, _password: Password, hash: HashedPassword) -> ModelResult<bool> {
+            self.hashes.lock().unwrap().push(hash.as_str().to_owned());
+            Ok(self.verified)
+        }
+    }
+
+    /// Replaces the production hasher with a recording implementation.
+    fn with_recording_hasher(
+        driver: AuthnDriver<crate::driver::AuthnNoHooks>,
+        verified: bool,
+    ) -> (AuthnDriver<crate::driver::AuthnNoHooks>, Arc<Mutex<Vec<String>>>) {
+        let hashes = Arc::new(Mutex::new(Vec::new()));
+        let hasher = Arc::new(RecordingHasher { hashes: hashes.clone(), verified });
+        (driver.with_password_hasher(hasher), hashes)
+    }
 
     #[tokio::test]
     async fn test_login_ok_first_time() {
@@ -127,13 +173,16 @@ mod tests {
         .await
         .unwrap();
 
+        let expected_hash = user.password.as_ref().unwrap().as_str().to_owned();
+        let (driver, hashes) = with_recording_hasher(context.driver(), true);
         let before = context.driver().now_utc();
-        let (response, _, NO_EXTENSIONS) = context
-            .driver()
+        let (response, _, NO_EXTENSIONS) = driver
             .login(username.as_str().to_owned(), password, TEST_SESSION_MAX_AGE)
             .await
             .unwrap();
         let after = context.driver().now_utc();
+
+        assert_eq!(&[expected_hash], hashes.lock().unwrap().as_slice());
 
         let session =
             db::get_session(&mut context.ex().await, &response.access_token).await.unwrap();
@@ -158,7 +207,7 @@ mod tests {
                 .clone()
                 .login(login.to_owned(), password!("password"), TEST_SESSION_MAX_AGE)
                 .await;
-            assert!(matches!(result, Err(DriverError::Unavailable)));
+            assert_eq!(Err(DriverError::Unavailable), result);
         }
     }
 
@@ -177,23 +226,36 @@ mod tests {
         .await
         .unwrap();
 
-        let (session, _, NO_EXTENSIONS) = context
-            .driver()
-            .login(email.as_str().to_owned(), password, TEST_SESSION_MAX_AGE)
-            .await
-            .unwrap();
+        let expected_hash = user.password.as_ref().unwrap().as_str().to_owned();
+        let (driver, hashes) = with_recording_hasher(context.driver(), true);
+        let (session, _, NO_EXTENSIONS) =
+            driver.login(email.as_str().to_owned(), password, TEST_SESSION_MAX_AGE).await.unwrap();
 
         assert_eq!(user.id, session.user_id);
+        assert_eq!(&[expected_hash], hashes.lock().unwrap().as_slice());
     }
 
     #[tokio::test]
     async fn test_login_by_email_rejected_with_usernames() {
         let context = TestContext::setup(AuthnOptions::default()).await;
-        let result = context
-            .driver()
+        let (driver, hashes) = with_recording_hasher(context.driver(), true);
+        let result = driver
             .login("some@example.com".to_owned(), password!("password"), TEST_SESSION_MAX_AGE)
             .await;
-        assert!(matches!(result, Err(DriverError::InvalidInput(_))));
+        assert_eq!(Err(DriverError::Unauthenticated), result);
+        assert_eq!(&[DUMMY_PASSWORD_HASH.as_str()], hashes.lock().unwrap().as_slice());
+    }
+
+    #[tokio::test]
+    async fn test_login_invalid_email() {
+        let context = TestContext::setup_without_usernames(AuthnOptions::default()).await;
+        let (driver, hashes) = with_recording_hasher(context.driver(), true);
+
+        assert_eq!(
+            Err(DriverError::Unauthenticated),
+            driver.login("invalid".to_owned(), password!("password"), TEST_SESSION_MAX_AGE).await
+        );
+        assert_eq!(&[DUMMY_PASSWORD_HASH.as_str()], hashes.lock().unwrap().as_slice());
     }
 
     #[tokio::test]
@@ -240,11 +302,13 @@ mod tests {
     #[tokio::test]
     async fn test_login_unknown_user() {
         let context = TestContext::setup(AuthnOptions::default()).await;
+        let (driver, hashes) = with_recording_hasher(context.driver(), true);
 
         assert_eq!(
             Err(DriverError::Unauthenticated),
-            context.driver().login("foo".to_owned(), password!("bar"), TEST_SESSION_MAX_AGE).await
+            driver.login("foo".to_owned(), password!("bar"), TEST_SESSION_MAX_AGE).await
         );
+        assert_eq!(&[DUMMY_PASSWORD_HASH.as_str()], hashes.lock().unwrap().as_slice());
     }
 
     #[tokio::test]
@@ -253,7 +317,7 @@ mod tests {
 
         let username = username!("hello");
 
-        db::create_user(
+        let user = db::create_user(
             &mut context.ex().await,
             Some(username.clone()),
             Some(Password::new("ABC").unwrap().validate_and_hash(|_| None).unwrap()),
@@ -263,13 +327,15 @@ mod tests {
         .await
         .unwrap();
 
+        let expected_hash = user.password.as_ref().unwrap().as_str().to_owned();
+        let (driver, hashes) = with_recording_hasher(context.driver(), false);
         assert_eq!(
             Err(DriverError::Unauthenticated),
-            context
-                .driver()
+            driver
                 .login(username.as_str().to_owned(), password!("abc"), TEST_SESSION_MAX_AGE)
                 .await
         );
+        assert_eq!(&[expected_hash], hashes.lock().unwrap().as_slice());
     }
 
     #[tokio::test]
@@ -288,13 +354,14 @@ mod tests {
         .await
         .unwrap();
 
+        let (driver, hashes) = with_recording_hasher(context.driver(), true);
         assert_eq!(
             Err(DriverError::Unauthenticated),
-            context
-                .driver()
+            driver
                 .login(username.as_str().to_owned(), password!("irrelevant"), TEST_SESSION_MAX_AGE)
                 .await
         );
+        assert_eq!(&[DUMMY_PASSWORD_HASH.as_str()], hashes.lock().unwrap().as_slice());
     }
 
     #[tokio::test]
@@ -314,15 +381,16 @@ mod tests {
         .await
         .unwrap();
         db::set_user_activation_code(&mut context.ex().await, user, Some(50)).await.unwrap();
+        let user =
+            db::get_user_by_username(&mut context.ex().await, username.clone()).await.unwrap();
 
-        match context
-            .driver()
-            .login(username.as_str().to_owned(), password, TEST_SESSION_MAX_AGE)
-            .await
-        {
-            Err(DriverError::NotActivated) => (),
-            e => panic!("{:?}", e),
-        }
+        let expected_hash = user.password.as_ref().unwrap().as_str().to_owned();
+        let (driver, hashes) = with_recording_hasher(context.driver(), true);
+        assert_eq!(
+            Err(DriverError::Unauthenticated),
+            driver.login(username.as_str().to_owned(), password, TEST_SESSION_MAX_AGE).await
+        );
+        assert_eq!(&[expected_hash], hashes.lock().unwrap().as_slice());
     }
 
     #[tokio::test]
@@ -414,7 +482,10 @@ mod tests {
             .login(username.as_str().to_owned(), password, TEST_SESSION_MAX_AGE)
             .await
         {
-            Err(DriverError::BackendError(msg)) => assert!(msg.contains("hook-failure-test")),
+            Err(DriverError::BackendError(msg)) => {
+                assert!(msg.contains("hook-failure-test"));
+            }
+
             e => panic!("{:?}", e),
         }
 

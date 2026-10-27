@@ -141,6 +141,19 @@ impl TestContext {
             .unwrap()
     }
 
+    /// Creates the `whoami` user without a password.
+    pub(crate) async fn create_password_disabled_whoami_user(&mut self) -> User {
+        db::create_user(
+            &mut self.db.ex().await.unwrap(),
+            Some(Username::new(self.whoami.clone()).unwrap()),
+            None,
+            EmailAddress::new(format!("{}@example.com", self.whoami)).unwrap(),
+            None,
+        )
+        .await
+        .unwrap()
+    }
+
     /// Checks if the user with `username` exists by directly querying the backing database.
     pub(crate) async fn user_exists(&mut self, username: &Username) -> bool {
         match db::get_user_by_username(&mut self.db.ex().await.unwrap(), username.clone()).await {
