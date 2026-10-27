@@ -27,8 +27,13 @@ pub(crate) async fn handler<H: AuthnHooks>(
     headers: HeaderMap,
     _: EmptyBody,
 ) -> Result<(), RestError> {
-    let access_token = get_bearer_auth(&headers, driver.realm())?;
-    driver.logout(access_token).await?;
+    let realm = driver.realm();
+    let access_token = get_bearer_auth(&headers, realm)?;
+    driver.logout(access_token).await.map_err(|error| {
+        RestError::from_driver_error(error, || {
+            RestError::unauthorized("Bearer", realm, "Invalid session")
+        })
+    })?;
 
     Ok(())
 }
@@ -65,7 +70,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_not_found() {
+    async fn test_invalid_session() {
         let mut context = TestContextBuilder::new().build().await;
 
         context.create_whoami_user().await;
@@ -75,8 +80,9 @@ mod tests {
             .with_bearer_auth(token.as_str())
             .send_empty()
             .await
-            .expect_status(http::StatusCode::NOT_FOUND)
-            .expect_error("Entity not found")
+            .expect_status(http::StatusCode::UNAUTHORIZED)
+            .expect_header(http::header::WWW_AUTHENTICATE.as_str(), "Bearer realm=\"the-realm\"")
+            .expect_error("Invalid session")
             .await;
 
         assert!(!context.session_exists(&token).await);
