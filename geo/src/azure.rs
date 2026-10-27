@@ -188,7 +188,7 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    #[serial(AZURE_GEO_LOCATOR)]
+    #[serial(AZURE_MAPS)]
     pub fn test_azuregeolocatoroptions_from_env_all_present() {
         let overrides = [("TEST_AZURE_GEO_LOCATOR_KEY", Some("the-key"))];
         temp_env::with_vars(overrides, || {
@@ -201,7 +201,7 @@ mod tests {
     }
 
     #[test]
-    #[serial(AZURE_GEO_LOCATOR)]
+    #[serial(AZURE_MAPS)]
     pub fn test_azuregeolocatoroptions_from_env_use_defaults() {
         let overrides = [("TEST_AZURE_GEO_LOCATOR_KEY", Some("the-key"))];
         temp_env::with_vars(overrides, || {
@@ -214,7 +214,7 @@ mod tests {
     }
 
     #[test]
-    #[serial(AZURE_GEO_LOCATOR)]
+    #[serial(AZURE_MAPS)]
     pub fn test_azuregeolocatoroptions_from_env_missing() {
         temp_env::with_var_unset("TEST_AZURE_GEO_LOCATOR_KEY", || {
             let err = AzureGeoLocatorOptions::from_env("TEST").unwrap_err();

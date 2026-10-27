@@ -428,6 +428,7 @@ mod tests {
             let db = Arc::from(PostgresDb::connect(PostgresOptions::from_env("TEST").unwrap()).unwrap());
             (db.clone(), db)
         },
+        #[serial(POSTGRES)],
         #[ignore = "Requires environment configuration and is expensive"]
     );
 
@@ -436,6 +437,7 @@ mod tests {
             let db = Arc::from(setup().await);
             (db.clone(), db)
         },
+        #[serial(POSTGRES)],
         #[ignore = "Requires environment configuration and is expensive"]
     );
 
