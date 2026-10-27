@@ -170,9 +170,17 @@ pub mod testutils {
     /// The `extra` metadata parameter can be used to tag the generated tests.
     #[macro_export]
     macro_rules! generate_one_test [
-        ( $name:ident, $setup:expr, $module:path $(, #[$extra:meta] )? ) => {
+        ( $name:ident, $setup:expr, $module:path, #[$extra:meta] ) => {
+            $crate::db::testutils::generate_one_test!($name, $setup, $module, [#[$extra]]);
+        };
+
+        ( $name:ident, $setup:expr, $module:path ) => {
+            $crate::db::testutils::generate_one_test!($name, $setup, $module, []);
+        };
+
+        ( $name:ident, $setup:expr, $module:path, [$(#[$extra:meta])*] ) => {
             #[tokio::test]
-            $(#[$extra])?
+            $(#[$extra])*
             async fn $name() {
                 $crate::db::testutils::paste! {
                     let db = {
@@ -201,15 +209,21 @@ pub mod testutils {
     /// The `extra` metadata parameter can be used to tag the generated tests.
     #[macro_export]
     macro_rules! generate_tests [
+        ( ($setup:expr), $extra:tt, $module:path $(, $name:ident)+ ) => {
+            $(
+                $crate::db::testutils::generate_one_test!($name, $setup, $module, $extra);
+            )+
+        };
+
         ( #[$extra:meta], $setup:expr, $module:path $(, $name:ident)+ ) => {
             $(
-                $crate::db::testutils::generate_one_test!($name, $setup, $module, #[$extra]);
+                $crate::db::testutils::generate_one_test!($name, $setup, $module, [#[$extra]]);
             )+
         };
 
         ( $setup:expr, $module:path $(, $name:ident)+ ) => {
             $(
-                $crate::db::testutils::generate_one_test!($name, $setup, $module);
+                $crate::db::testutils::generate_one_test!($name, $setup, $module, []);
             )+
         };
     ];
@@ -313,9 +327,18 @@ mod tests {
     /// to the database.
     #[macro_export]
     macro_rules! generate_db_ro_concurrent_tests [
-        ( $setup:expr $(, #[$extra:meta])? ) => {
+        ( $setup:expr, $(#[$extra:meta]),+ ) => {
             $crate::db::testutils::generate_tests!(
-                $( #[$extra], )?
+                ( $setup ),
+                [$(#[$extra])*],
+                $crate::db::tests,
+                test_multiple_txs,
+                test_begin_tx_after_commit
+            );
+        };
+
+        ( $setup:expr ) => {
+            $crate::db::testutils::generate_tests!(
                 $setup,
                 $crate::db::tests,
                 test_multiple_txs,
@@ -329,16 +352,26 @@ mod tests {
     /// Instantiates tests that need write access to the test database.
     #[macro_export]
     macro_rules! generate_db_rw_tests [
-        ( $setup:expr $(, #[$extra:meta])? ) => {
+        ( $setup:expr, $(#[$extra:meta]),+ ) => {
             $crate::db::testutils::generate_tests!(
-                $( #[$extra], )?
+                ( $setup ),
+                [$(#[$extra])*],
+                $crate::db::tests,
+                test_direct_execution,
+                test_tx_commit,
+                test_tx_rollback_on_drop
+            );
+        };
+
+        ( $setup:expr ) => {
+            $crate::db::testutils::generate_tests!(
                 $setup,
                 $crate::db::tests,
                 test_direct_execution,
                 test_tx_commit,
                 test_tx_rollback_on_drop
             );
-        }
+        };
     ];
 
     pub(super) use generate_db_rw_tests;
