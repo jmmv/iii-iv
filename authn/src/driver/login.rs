@@ -23,6 +23,7 @@ use iii_iv_core::driver::{DriverError, DriverResult};
 use iii_iv_core::model::{EmailAddress, Username};
 use std::sync::Arc;
 use std::time::Duration;
+use time::OffsetDateTime;
 
 /// Fixed bcrypt hash used to equalize work for login attempts without a real password hash.
 static DUMMY_PASSWORD_HASH: HashedPassword =
@@ -57,21 +58,21 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         }
     }
 
-    /// Logs a user with their configured login identifier, `password`, and an optional session age.
-    pub(crate) async fn login(
-        self,
-        login: String,
-        password: Password,
-        requested_max_age: Option<Duration>,
-    ) -> DriverResult<(Session, Duration, H::LoginOutput)> {
+    /// Performs user admission.
+    ///
+    /// Retrieves the user from the database and verifies that the password is correct.
+    ///
+    /// This does NOT use a db transaction to ensure the calls to the password hasher do not keep
+    /// the db busy. It's the responsibility of the caller to re-check that the returned user is
+    /// still valid before operating on it.
+    async fn admit_user(&self, login: String, password: Password) -> DriverResult<User> {
         let permit = self.acquire_password_hash_capacity()?;
-        let max_age =
-            requested_max_age.unwrap_or(self.opts.session_max_age).min(self.opts.session_max_age);
 
         let user = {
             let mut ex = self.db.ex().await?;
             self.find_login_user(&mut ex, login).await?
         };
+
         let hash =
             user.as_ref().and_then(|user| user.password.as_ref()).unwrap_or(&DUMMY_PASSWORD_HASH);
 
@@ -83,17 +84,45 @@ impl<H: AuthnHooks> AuthnDriver<H> {
             return Err(DriverError::Unauthenticated);
         }
 
+        Ok(user)
+    }
+
+    /// Caches the logged-in session if session caching is enabled.
+    async fn maybe_cache_session(
+        &self,
+        user: User,
+        access_token: AccessToken,
+        expiration_time: OffsetDateTime,
+    ) {
+        if self.opts.sessions_cache_ttl.is_zero() {
+            return;
+        }
+
+        let mut cache = self.sessions_cache.lock().await;
+        let cached_session = CachedSession { expires_at: expiration_time, user: Arc::from(user) };
+        let previous = cache.insert(access_token, Ok(cached_session));
+        assert!(previous.is_none(), "The session has not yet been returned to the client");
+    }
+
+    /// Performs the login once we have admitted a user.
+    ///
+    /// This must recheck that `admitted_user` is still valid.
+    async fn do_login(
+        &self,
+        admitted_user: User,
+        max_age: Duration,
+    ) -> DriverResult<(Session, H::LoginOutput)> {
         let mut tx = self.db.begin().await?;
-        let current_user = match db::get_user_by_id(tx.ex(), user.id).await {
+
+        let user = match db::get_user_by_id(tx.ex(), admitted_user.id).await {
             Ok(user) => user,
             Err(DbError::NotFound) => return Err(DriverError::Unauthenticated),
             Err(error) => return Err(error.into()),
         };
-        if current_user.password != user.password || current_user.activation_code.is_some() {
+        if user.password != admitted_user.password || user.activation_code.is_some() {
             return Err(DriverError::Unauthenticated);
         }
 
-        let user = current_user;
         let now = self.clock.now_utc();
         let access_token = AccessToken::generate();
         let expiration_time = now + max_age;
@@ -106,14 +135,22 @@ impl<H: AuthnHooks> AuthnDriver<H> {
 
         tx.commit().await?;
 
-        if !self.opts.sessions_cache_ttl.is_zero() {
-            let mut cache = self.sessions_cache.lock().await;
-            let cached_session =
-                CachedSession { expires_at: expiration_time, user: Arc::from(user) };
-            let previous = cache.insert(access_token, Ok(cached_session));
-            assert!(previous.is_none(), "The session has not yet been returned to the client");
-        }
+        self.maybe_cache_session(user, access_token, expiration_time).await;
+        Ok((session, output))
+    }
 
+    /// Logs a user with their configured login identifier, `password`, and an optional session age.
+    pub(crate) async fn login(
+        self,
+        login: String,
+        password: Password,
+        requested_max_age: Option<Duration>,
+    ) -> DriverResult<(Session, Duration, H::LoginOutput)> {
+        let max_age =
+            requested_max_age.unwrap_or(self.opts.session_max_age).min(self.opts.session_max_age);
+
+        let user = self.admit_user(login, password).await?;
+        let (session, output) = self.do_login(user, max_age).await?;
         Ok((session, max_age, output))
     }
 }
