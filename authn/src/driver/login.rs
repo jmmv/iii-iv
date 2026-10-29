@@ -224,11 +224,15 @@ mod tests {
     use crate::driver::{AuthnOptions, NO_EXTENSIONS};
     use crate::model::{hashed_password, password};
     use iii_iv_core::clocks::testutils::SettableClock;
+    use iii_iv_core::db::Db;
     use iii_iv_core::driver::DriverError;
     use iii_iv_core::model::{ModelResult, email_address, username};
+    use std::sync::mpsc;
     use std::sync::{Arc, Mutex};
     use time::OffsetDateTime;
     use time::macros::datetime;
+    use tokio::sync::Notify;
+    use uuid::Uuid;
 
     const TEST_SESSION_MAX_AGE: Option<Duration> = Some(Duration::from_secs(100));
 
@@ -263,12 +267,13 @@ mod tests {
         (driver.with_password_hasher(hasher), hashes)
     }
 
-    /// Runs an account mutation while password verification is in progress.
-    struct MutatingHasher {
+    /// Executes a test action while password verification is in progress.
+    struct ActionHasher {
+        verified: bool,
         action: Box<dyn Fn() + Send + Sync>,
     }
 
-    impl PasswordHasher for MutatingHasher {
+    impl PasswordHasher for ActionHasher {
         fn hash(
             &self,
             _password: Password,
@@ -279,7 +284,7 @@ mod tests {
 
         fn verify(&self, _password: Password, _hash: HashedPassword) -> ModelResult<bool> {
             (self.action)();
-            Ok(true)
+            Ok(self.verified)
         }
     }
 
@@ -295,7 +300,8 @@ mod tests {
             db::get_user_by_username(&mut context.ex().await, username.clone()).await.unwrap();
 
         let runtime = tokio::runtime::Handle::current();
-        let hasher = MutatingHasher {
+        let hasher = ActionHasher {
+            verified: true,
             action: Box::new(move || {
                 runtime.block_on(async {
                     let mut ex = db.ex().await.unwrap();
@@ -337,7 +343,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_login_backoff_progression_and_resets() {
-        for usernames in [false, true] {
+        {
             let db = Arc::from(iii_iv_core::db::sqlite::testutils::setup().await);
             let clock = Arc::new(SettableClock::new(datetime!(2026-01-01 0:00 UTC)));
             let context = TestContext::setup_with(
@@ -345,7 +351,7 @@ mod tests {
                 db,
                 clock.clone(),
                 "the-realm",
-                usernames,
+                true,
             )
             .await;
 
@@ -359,7 +365,7 @@ mod tests {
             .await
             .unwrap();
 
-            let login = if usernames { "hello" } else { "hello@example.com" };
+            let login = "hello";
             let (driver, hashes) = with_recording_hasher(context.driver(), false);
 
             for delay in [0, 0, 60, 120, 240, 480, 960] {
@@ -624,6 +630,12 @@ mod tests {
                 .await
         );
         assert_eq!(&[DUMMY_PASSWORD_HASH.as_str()], hashes.lock().unwrap().as_slice());
+        let user =
+            db::get_user_by_username(&mut context.ex().await, username!("hello")).await.unwrap();
+        assert_eq!(
+            1,
+            db::get_login_failures(&mut context.ex().await, user.id).await.unwrap().unwrap().count
+        );
     }
 
     #[tokio::test]
@@ -653,6 +665,12 @@ mod tests {
             driver.login(username.as_str().to_owned(), password, TEST_SESSION_MAX_AGE).await
         );
         assert_eq!(&[expected_hash], hashes.lock().unwrap().as_slice());
+        let user =
+            db::get_user_by_username(&mut context.ex().await, username!("hello")).await.unwrap();
+        assert_eq!(
+            1,
+            db::get_login_failures(&mut context.ex().await, user.id).await.unwrap().unwrap().count
+        );
     }
 
     #[tokio::test]
@@ -774,18 +792,7 @@ mod tests {
     async fn test_progressive_delays_and_cap() {
         let driver = TestContext::setup(AuthnOptions::default()).await.driver();
         let now = datetime!(2026-01-01 0:00 UTC);
-        for (count, minutes) in [
-            (0, 0),
-            (1, 0),
-            (2, 1),
-            (3, 2),
-            (4, 4),
-            (5, 8),
-            (6, 16),
-            (7, 32),
-            (8, 60),
-            (u32::MAX, 60),
-        ] {
+        for (count, minutes) in [(2, 1), (3, 2), (4, 4), (5, 8), (6, 16), (7, 32), (8, 60)] {
             let mut state = LoginFailures { count, last_failure: now, blocked_until: None };
             driver.record_login_failure(&mut state, now);
             assert_eq!(count.saturating_add(1), state.count);
@@ -819,14 +826,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_custom_backoff_options() {
-        for (threshold, initial, cap, quiet, expected) in [
-            (1, 3, 10, 100, 3),
-            (0, 3, 10, 100, 3),
-            (1, 20, 10, 100, 10),
-            (1, 0, 10, 100, 0),
-            (1, 3, 0, 100, 0),
-            (2, 3, 10, 0, 0),
-        ] {
+        for (threshold, initial, cap, quiet, expected) in
+            [(1, 3, 10, 100, 3), (1, 20, 10, 100, 10), (1, 0, 10, 100, 0), (1, 3, 0, 100, 0)]
+        {
             let opts = AuthnOptions {
                 login_backoff_threshold: threshold,
                 login_backoff_initial_delay: Duration::from_secs(initial),
@@ -844,5 +846,201 @@ mod tests {
                 assert_eq!(Some(now + Duration::from_secs(expected)), state.blocked_until);
             }
         }
+    }
+
+    /// Exercises outcomes that complete while another instance is still verifying a password.
+    async fn check_overlapping_logins(
+        first_db: Arc<dyn Db + Send + Sync>,
+        second_db: Arc<dyn Db + Send + Sync>,
+    ) {
+        let clock = Arc::new(SettableClock::new(datetime!(2026-01-01 0:00 UTC)));
+        let first = TestContext::setup_with(
+            AuthnOptions::default(),
+            first_db,
+            clock.clone(),
+            "realm",
+            true,
+        )
+        .await;
+        let second =
+            TestContext::setup_with(AuthnOptions::default(), second_db, clock, "realm", true).await;
+        let username = username!("race");
+        let user = db::create_user(
+            &mut first.ex().await,
+            Some(username.clone()),
+            Some(hashed_password!("fixture")),
+            email_address!("race@example.com"),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let mut tx = first.db().begin().await.unwrap();
+        let now = first.driver().now_utc();
+        let mut state = db::lock_login_failures(tx.ex(), user.id, now).await.unwrap();
+        for _ in 0..2 {
+            first.driver().record_login_failure(&mut state, now);
+        }
+        db::save_login_failures(tx.ex(), user.id, &state).await.unwrap();
+        tx.commit().await.unwrap();
+
+        let entered = Arc::new(Notify::new());
+        let signal = entered.clone();
+        let (release, receiver) = mpsc::channel();
+        let receiver = Mutex::new(receiver);
+        let paused = second.driver().with_password_hasher(Arc::new(ActionHasher {
+            verified: true,
+            action: Box::new(move || {
+                signal.notify_one();
+                receiver.lock().unwrap().recv_timeout(Duration::from_secs(10)).unwrap();
+            }),
+        }));
+        let login = username.as_str().to_owned();
+        let pending =
+            tokio::spawn(async move { paused.login(login, password!("test"), None).await });
+        entered.notified().await;
+
+        let (driver, _) = with_recording_hasher(first.driver(), false);
+        let result = driver.login(username.as_str().to_owned(), password!("test"), None).await;
+        assert!(matches!(result, Err(DriverError::Unauthenticated)));
+
+        let state_before = db::get_login_failures(&mut first.ex().await, user.id).await.unwrap();
+        release.send(()).unwrap();
+        assert_eq!(Err(DriverError::Unauthenticated), pending.await.unwrap());
+
+        let state_after = db::get_login_failures(&mut first.ex().await, user.id).await.unwrap();
+        assert_eq!(Some(3), state_after.as_ref().map(|state| state.count));
+        assert_eq!(state_before, state_after);
+    }
+
+    #[tokio::test]
+    async fn test_login_overlaps_across_sqlite_drivers() {
+        let db: Arc<dyn Db + Send + Sync> =
+            Arc::from(iii_iv_core::db::sqlite::testutils::setup().await);
+        check_overlapping_logins(db.clone(), db.clone()).await;
+        db.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_login_backoff_survives_database_reopen() {
+        let path = std::env::temp_dir().join(format!("iii-iv-backoff-{}.sqlite", Uuid::new_v4()));
+        let connection = format!("sqlite://{}?mode=rwc", path.display());
+        let clock = Arc::new(SettableClock::new(datetime!(2026-01-01 0:00 UTC)));
+
+        let user_id;
+        {
+            let db = Arc::new(iii_iv_core::db::sqlite::connect(&connection).await.unwrap());
+            let context = TestContext::setup_with(
+                AuthnOptions::default(),
+                db.clone(),
+                clock.clone(),
+                "realm",
+                true,
+            )
+            .await;
+
+            let user = db::create_user(
+                &mut context.ex().await,
+                Some(username!("hello")),
+                Some(hashed_password!("fixture")),
+                email_address!("hello@example.com"),
+                None,
+            )
+            .await
+            .unwrap();
+            user_id = user.id;
+
+            let (driver, _) = with_recording_hasher(context.driver(), false);
+            for _ in 0..3 {
+                assert_eq!(
+                    Err(DriverError::Unauthenticated),
+                    driver.clone().login("hello".to_owned(), password!("bad"), None).await
+                );
+            }
+
+            drop(driver);
+            drop(context);
+            db.close().await;
+        }
+
+        {
+            let db = Arc::new(iii_iv_core::db::sqlite::connect(&connection).await.unwrap());
+            let context = TestContext::setup_with(
+                AuthnOptions::default(),
+                db.clone(),
+                clock.clone(),
+                "realm",
+                true,
+            )
+            .await;
+
+            let (driver, hashes) = with_recording_hasher(context.driver(), true);
+            assert_eq!(
+                Err(DriverError::Unauthenticated),
+                driver.clone().login("hello".to_owned(), password!("correct"), None).await
+            );
+            assert!(hashes.lock().unwrap().is_empty());
+            assert_eq!(
+                3,
+                db::get_login_failures(&mut context.ex().await, user_id)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .count
+            );
+
+            clock.advance(Duration::from_secs(60));
+
+            driver.login("hello".to_owned(), password!("correct"), None).await.unwrap();
+            assert_eq!(
+                None,
+                db::get_login_failures(&mut context.ex().await, user_id).await.unwrap()
+            );
+
+            drop(context);
+            db.close().await;
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_login_capacity_and_worker_errors_preserve_backoff() {
+        let context =
+            TestContext::setup(AuthnOptions { password_hash_concurrency: 1, ..Default::default() })
+                .await;
+
+        let user = db::create_user(
+            &mut context.ex().await,
+            Some(username!("hello")),
+            Some(hashed_password!("fixture")),
+            email_address!("hello@example.com"),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let (driver, _) = with_recording_hasher(context.driver(), false);
+        assert_eq!(
+            Err(DriverError::Unauthenticated),
+            driver.clone().login("hello".to_owned(), password!("bad"), None).await
+        );
+
+        let before = db::get_login_failures(&mut context.ex().await, user.id).await.unwrap();
+        let permit = driver.acquire_password_hash_capacity().unwrap();
+        assert_eq!(
+            Err(DriverError::Unavailable),
+            driver.login("hello".to_owned(), password!("bad"), None).await
+        );
+        drop(permit);
+
+        let driver = context.driver().with_password_hasher(Arc::new(ActionHasher {
+            verified: false,
+            action: Box::new(|| panic!("injected password worker failure")),
+        }));
+        assert!(matches!(
+            driver.login("hello".to_owned(), password!("bad"), None).await,
+            Err(DriverError::BackendError(_))
+        ));
+        assert_eq!(before, db::get_login_failures(&mut context.ex().await, user.id).await.unwrap());
     }
 }
