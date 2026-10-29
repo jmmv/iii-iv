@@ -59,6 +59,13 @@ CREATE TABLE IF NOT EXISTS users (
     last_login TIMESTAMPTZ
 );
 
+CREATE TABLE IF NOT EXISTS login_failures (
+    user_id UUID PRIMARY KEY NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    failure_count BIGINT NOT NULL CHECK (failure_count BETWEEN 0 AND 4294967295),
+    last_failure TIMESTAMPTZ NOT NULL,
+    blocked_until TIMESTAMPTZ
+);
+
 CREATE TABLE IF NOT EXISTS sessions (
     access_token CHAR(256) PRIMARY KEY NOT NULL,
 

@@ -30,6 +30,11 @@ use sqlx::{AssertSqlSafe, Row};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+mod login_failures;
+pub(crate) use login_failures::{
+    clear_login_failures, get_login_failures, lock_login_failures, save_login_failures,
+};
+
 #[cfg(test)]
 mod tests;
 
