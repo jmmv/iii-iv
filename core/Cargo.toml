@@ -33,7 +33,6 @@ testutils = [
     "dep:hyper",
     "dep:json_value_merge",
     "dep:mime",
-    "dep:paste",
     "dep:rand",
     "dep:regex",
     "dep:serde_urlencoded",
@@ -54,7 +53,6 @@ iii-iv-options-derive = { path = "../options-derive" }
 json_value_merge = { workspace = true, optional = true }
 log = { workspace = true }
 mime = { workspace = true, optional = true }
-paste = { workspace = true, optional = true }
 rand = { workspace = true, optional = true }
 regex = { workspace = true, optional = true }
 serde_json = { workspace = true }
@@ -70,7 +68,6 @@ url = { workspace = true }
 
 [dev-dependencies]
 env_logger = { workspace = true }
-paste = { workspace = true }
 rand = { workspace = true }
 serde_test = { workspace = true }
 serial_test = { workspace = true }
