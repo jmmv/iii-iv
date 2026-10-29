@@ -33,6 +33,9 @@ pub enum DriverError {
     AlreadyExists(String),
 
     /// Catch-all error type for unexpected database errors.
+    ///
+    /// These errors are returned as "internal server errors" in the REST layer, but their messages
+    /// are logged instead of returned to avoid disclosing internal-only details.
     #[error("{0}")]
     BackendError(String),
 

@@ -36,6 +36,7 @@ use axum::extract::{FromRequest, Request};
 use axum::http::header::AsHeaderName;
 use axum::http::{HeaderMap, HeaderValue};
 use axum::response::IntoResponse;
+use log::error;
 use std::fmt;
 
 mod base_urls;
@@ -50,9 +51,9 @@ pub enum RestError {
     #[error("Access denied: {0}")]
     Forbidden(String),
 
-    /// Catch-all error type for all unexpected errors.
-    #[error("{0}")]
-    InternalError(String),
+    /// Catch-all error type for all unexpected errors.  Use [`Self::internal`] to log the cause.
+    #[error("Internal server error")]
+    InternalError,
 
     /// Indicates an error in the contents of the request.
     #[error("{0}")]
@@ -100,7 +101,7 @@ impl RestError {
     {
         match error {
             DriverError::AlreadyExists(_) => Self::InvalidRequest(error.to_string()),
-            DriverError::BackendError(_) => Self::InternalError(error.to_string()),
+            DriverError::BackendError(_) => Self::internal(error),
             DriverError::Forbidden(_) => Self::Forbidden(error.to_string()),
             DriverError::InvalidInput(_) => Self::InvalidRequest(error.to_string()),
             DriverError::NoSpace(_) => Self::NoSpace(error.to_string()),
@@ -109,6 +110,15 @@ impl RestError {
             DriverError::Unauthenticated => unauthenticated(),
             DriverError::Unavailable => Self::Unavailable,
         }
+    }
+
+    /// Logs an unexpected failure and creates an error with a fixed public message.
+    ///
+    /// The cause is discarded after logging.  Callers must ensure that it contains no passwords,
+    /// password hashes, bearer tokens, activation codes, email addresses, or raw login identifiers.
+    pub fn internal(cause: impl fmt::Display) -> Self {
+        error!("Internal REST error: {}", cause);
+        Self::InternalError
     }
 
     /// Creates an authentication failure with the challenge required by HTTP 401 responses.
@@ -122,15 +132,13 @@ impl RestError {
 
 impl From<DriverError> for RestError {
     fn from(error: DriverError) -> Self {
-        Self::from_driver_error(error, || {
-            Self::InternalError("Unexpected authentication failure".to_owned())
-        })
+        Self::from_driver_error(error, || Self::internal("Unexpected authentication failure"))
     }
 }
 
 impl From<fmt::Error> for RestError {
     fn from(e: fmt::Error) -> Self {
-        RestError::InternalError(e.to_string())
+        RestError::internal(e)
     }
 }
 
@@ -154,7 +162,7 @@ impl IntoResponse for RestError {
             RestError::Forbidden(_) => {
                 status = http::StatusCode::FORBIDDEN;
             }
-            RestError::InternalError(_) => {
+            RestError::InternalError => {
                 status = http::StatusCode::INTERNAL_SERVER_ERROR;
             }
             RestError::InvalidRequest(_) => {
@@ -988,6 +996,29 @@ mod tests {
         assert_eq!(b"Bad request", body.as_ref());
     }
 
+    #[tokio::test]
+    async fn test_internal_rest_errors_into_response() {
+        let errors = [
+            RestError::InternalError,
+            RestError::internal("private diagnostic"),
+            RestError::from(DriverError::BackendError("private SQL diagnostic".to_owned())),
+            RestError::from(DriverError::BackendError("private hook diagnostic".to_owned())),
+            RestError::from(DriverError::Unauthenticated),
+            RestError::from(fmt::Error),
+        ];
+        for error in errors {
+            assert_eq!("Internal server error", error.to_string());
+            let response = error.into_response();
+            assert_eq!(http::StatusCode::INTERNAL_SERVER_ERROR, response.status());
+            assert_eq!(
+                "text/plain; charset=utf-8",
+                response.headers().get(http::header::CONTENT_TYPE).unwrap()
+            );
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            assert_eq!(b"Internal server error", body.as_ref());
+        }
+    }
+
     #[test]
     fn test_forbidden_driver_error() {
         let error = RestError::from(DriverError::Forbidden("Operation not allowed".to_owned()));
@@ -1008,7 +1039,7 @@ mod tests {
     fn test_unauthenticated_driver_error_is_internal() {
         let error = RestError::from(DriverError::Unauthenticated);
 
-        assert_eq!(RestError::InternalError("Unexpected authentication failure".to_owned()), error);
+        assert_eq!(RestError::InternalError, error);
     }
 
     #[test]

@@ -24,7 +24,6 @@ use axum::response::{IntoResponse, Response};
 use base64::Engine;
 use base64::engine::general_purpose;
 use http::header::{self, HeaderMap};
-use http::{HeaderValue, StatusCode};
 use iii_iv_core::rest::{RestError, RestResult, get_unique_header};
 use json_value_merge::Merge;
 use serde::Serialize;
@@ -98,12 +97,7 @@ where
 
         match result {
             Ok(merged) => Json(merged).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                [(header::CONTENT_TYPE, HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref()))],
-                err.to_string(),
-            )
-                .into_response(),
+            Err(err) => RestError::internal(err).into_response(),
         }
     }
 }
@@ -268,6 +262,33 @@ mod tests {
 
     #[derive(Serialize)]
     struct EmptyDict {}
+
+    /// Output that fails serialization with a diagnostic that must remain private.
+    struct FailingOutput;
+
+    impl Serialize for FailingOutput {
+        fn serialize<S: serde::Serializer>(&self, _: S) -> Result<S::Ok, S::Error> {
+            use serde::ser::Error;
+            Err(S::Error::custom("private serialization diagnostic"))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_json_multipart_into_response_serialization_failures() {
+        let responses = [
+            JsonMultipart(FailingOutput, EmptyDict {}).into_response(),
+            JsonMultipart(EmptyDict {}, FailingOutput).into_response(),
+        ];
+        for response in responses {
+            assert_eq!(http::StatusCode::INTERNAL_SERVER_ERROR, response.status());
+            assert_eq!(
+                "text/plain; charset=utf-8",
+                response.headers().get(header::CONTENT_TYPE).unwrap()
+            );
+            let body = body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            assert_eq!(b"Internal server error", body.as_ref());
+        }
+    }
 
     #[derive(Debug, Deserialize, PartialEq, Serialize)]
     struct Dict1 {
