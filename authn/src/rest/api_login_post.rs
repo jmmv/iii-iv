@@ -356,7 +356,7 @@ mod tests {
             .with_basic_auth(context.whoami().as_str(), context.whoami_password().as_str())
             .send_empty()
             .await
-            .expect_status(http::StatusCode::INTERNAL_SERVER_ERROR)
+            .expect_status(http::StatusCode::BAD_REQUEST)
             .expect_error("hook-failure-test")
             .await;
     }

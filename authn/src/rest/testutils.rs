@@ -412,7 +412,7 @@ impl AuthnHooks for FailingLoginHook {
         _now: OffsetDateTime,
         _user: &User,
     ) -> DriverResult<Self::LoginOutput> {
-        Err(DriverError::BackendError("hook-failure-test".into()))
+        Err(DriverError::InvalidInput("hook-failure-test".into()))
     }
 
     type SignupInput = NoExtensions;
@@ -455,6 +455,6 @@ impl AuthnHooks for FailingSignupHook {
         _user: &User,
         _input: Self::SignupInput,
     ) -> DriverResult<()> {
-        Err(DriverError::BackendError("hook-failure-test".into()))
+        Err(DriverError::InvalidInput("hook-failure-test".into()))
     }
 }

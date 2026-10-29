@@ -240,7 +240,7 @@ mod tests {
         OneShotBuilder::new(context.app(), route())
             .send_json(request)
             .await
-            .expect_status(http::StatusCode::INTERNAL_SERVER_ERROR)
+            .expect_status(http::StatusCode::BAD_REQUEST)
             .expect_error("hook-failure-test")
             .await;
 
