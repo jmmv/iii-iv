@@ -14,6 +14,20 @@
 // under the License.
 
 //! Business logic for user authentication.
+//!
+//! # Login backoff
+//!
+//! Login rejections for known accounts are persisted across service instances and restarts.
+//! The third verified rejection within a 15-minute quiet window blocks login for one minute.
+//! Subsequent rejections double the delay, capped at one hour.  Blocked requests skip password
+//! verification and do not extend the lock, even if the supplied password is correct.
+//! Inactive and password-disabled account rejections count; unknown identifiers use dummy
+//! verification without creating account state.  Capacity and infrastructure errors do not count.
+//!
+//! Successful active login clears the history.  After an active lock expires, 15 minutes since
+//! the last verified rejection also resets history.  Consequently, ordinary sequential attempts
+//! reach a 16-minute lock and then reset; the one-hour cap bounds higher persisted counts.
+//! All failures retain the generic credential rejection response.
 
 use crate::db;
 use crate::model::{AccessToken, AuthnTask, User};
@@ -50,6 +64,18 @@ pub mod testutils;
 /// Default delay before retrying email deliveries.
 const DEFAULT_EMAIL_RETRY_DELAY: Duration = Duration::from_secs(24 * 60 * 60);
 
+/// Default login backoff threshold.
+const DEFAULT_LOGIN_BACKOFF_THRESHOLD: u32 = 3;
+
+/// Default login backoff quiet window.
+const DEFAULT_LOGIN_BACKOFF_QUIET_WINDOW: Duration = Duration::from_secs(15 * 60);
+
+/// Default login backoff initial delay.
+const DEFAULT_LOGIN_BACKOFF_INITIAL_DELAY: Duration = Duration::from_secs(60);
+
+/// Default login backoff max delay.
+const DEFAULT_LOGIN_BACKOFF_MAX_DELAY: Duration = Duration::from_secs(60 * 60);
+
 /// Default maximum number of password-hashing jobs that may run concurrently.
 const DEFAULT_PASSWORD_HASH_CONCURRENCY: usize = 4;
 
@@ -73,6 +99,22 @@ pub struct AuthnOptions {
     /// Delay before retrying email deliveries.
     #[option(default = DEFAULT_EMAIL_RETRY_DELAY)]
     pub email_retry_delay: Duration,
+
+    /// Login backoff threshold.  Zero values are accepted.
+    #[option(default = DEFAULT_LOGIN_BACKOFF_THRESHOLD)]
+    pub login_backoff_threshold: u32,
+
+    /// Login backoff quiet window.  Zero values are accepted.
+    #[option(default = DEFAULT_LOGIN_BACKOFF_QUIET_WINDOW)]
+    pub login_backoff_quiet_window: Duration,
+
+    /// Login backoff initial delay.  Zero values are accepted.
+    #[option(default = DEFAULT_LOGIN_BACKOFF_INITIAL_DELAY)]
+    pub login_backoff_initial_delay: Duration,
+
+    /// Login backoff max delay.  Zero values are accepted.
+    #[option(default = DEFAULT_LOGIN_BACKOFF_MAX_DELAY)]
+    pub login_backoff_max_delay: Duration,
 
     /// Whether users can sign up without an invitation.
     #[option(default = true)]
@@ -107,6 +149,10 @@ impl Default for AuthnOptions {
     fn default() -> Self {
         Self {
             email_retry_delay: DEFAULT_EMAIL_RETRY_DELAY,
+            login_backoff_threshold: DEFAULT_LOGIN_BACKOFF_THRESHOLD,
+            login_backoff_quiet_window: DEFAULT_LOGIN_BACKOFF_QUIET_WINDOW,
+            login_backoff_initial_delay: DEFAULT_LOGIN_BACKOFF_INITIAL_DELAY,
+            login_backoff_max_delay: DEFAULT_LOGIN_BACKOFF_MAX_DELAY,
             open_signups: true,
             password_hash_concurrency: DEFAULT_PASSWORD_HASH_CONCURRENCY,
             sessions_cache_ttl: DEFAULT_SESSIONS_CACHE_TTL,
@@ -360,6 +406,10 @@ mod tests {
         temp_env::with_vars_unset(
             [
                 "TEST_AUTHN_EMAIL_RETRY_DELAY",
+                "TEST_AUTHN_LOGIN_BACKOFF_THRESHOLD",
+                "TEST_AUTHN_LOGIN_BACKOFF_QUIET_WINDOW",
+                "TEST_AUTHN_LOGIN_BACKOFF_INITIAL_DELAY",
+                "TEST_AUTHN_LOGIN_BACKOFF_MAX_DELAY",
                 "TEST_AUTHN_OPEN_SIGNUPS",
                 "TEST_AUTHN_PASSWORD_HASH_CONCURRENCY",
                 "TEST_AUTHN_SESSIONS_CACHE_CAPACITY",
@@ -382,6 +432,10 @@ mod tests {
         temp_env::with_vars(
             [
                 ("TEST_AUTHN_EMAIL_RETRY_DELAY", Some("50m")),
+                ("TEST_AUTHN_LOGIN_BACKOFF_THRESHOLD", Some("5")),
+                ("TEST_AUTHN_LOGIN_BACKOFF_INITIAL_DELAY", Some("2s")),
+                ("TEST_AUTHN_LOGIN_BACKOFF_MAX_DELAY", Some("10s")),
+                ("TEST_AUTHN_LOGIN_BACKOFF_QUIET_WINDOW", Some("30s")),
                 ("TEST_AUTHN_OPEN_SIGNUPS", Some("false")),
                 ("TEST_AUTHN_PASSWORD_HASH_CONCURRENCY", Some("5")),
                 ("TEST_AUTHN_SESSIONS_CACHE_CAPACITY", Some("30")),
@@ -394,6 +448,10 @@ mod tests {
                 assert_eq!(
                     AuthnOptions {
                         email_retry_delay: Duration::from_secs(50 * 60),
+                        login_backoff_threshold: 5,
+                        login_backoff_quiet_window: Duration::from_secs(30),
+                        login_backoff_initial_delay: Duration::from_secs(2),
+                        login_backoff_max_delay: Duration::from_secs(10),
                         open_signups: false,
                         password_hash_concurrency: 5,
                         sessions_cache_capacity: 30,

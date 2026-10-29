@@ -92,6 +92,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_blocked_account_has_generic_rejection() {
+        let mut context = TestContextBuilder::new().build().await;
+        context.create_whoami_user().await;
+        for _ in 0..3 {
+            expect_invalid_login(
+                OneShotBuilder::new(context.app(), route())
+                    .with_basic_auth(context.whoami().as_str(), "incorrect")
+                    .send_empty()
+                    .await,
+            )
+            .await;
+        }
+        expect_invalid_login(
+            OneShotBuilder::new(context.app(), route())
+                .with_basic_auth(context.whoami().as_str(), context.whoami_password().as_str())
+                .send_empty()
+                .await,
+        )
+        .await;
+    }
+
+    #[tokio::test]
     async fn test_ok() {
         let opts =
             AuthnOptions { session_max_age: Duration::from_secs(4182), ..Default::default() };

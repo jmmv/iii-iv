@@ -17,8 +17,9 @@
 
 use crate::db::*;
 use crate::model::{AccessToken, Coupon, Session, User, coupon_name, hashed_password};
-use iii_iv_core::db::{DbError, Executor};
+use iii_iv_core::db::{Db, DbError, Executor};
 use iii_iv_core::model::{EmailAddress, Username, email_address, username};
+use std::sync::Arc;
 use time::macros::datetime;
 use uuid::Uuid;
 
@@ -405,12 +406,49 @@ async fn test_sessions_missing(ex: &mut Executor) {
     }
 }
 
+async fn test_login_failures_persistence(ex: &mut Executor) {
+    let user = create_simple_user(ex, "backoff").await;
+    let now = datetime!(2026-01-01 0:00:00.123456 UTC);
+
+    assert_eq!(None, get_login_failures(ex, user.id).await.unwrap());
+
+    let mut state = lock_login_failures(ex, user.id, now).await.unwrap();
+    assert_eq!(0, state.count);
+    for _ in 0..3 {
+        state.count += 1;
+        state.last_failure = now;
+    }
+    save_login_failures(ex, user.id, &state).await.unwrap();
+    assert_eq!(Some(state), get_login_failures(ex, user.id).await.unwrap());
+
+    clear_login_failures(ex, user.id).await.unwrap();
+    assert_eq!(None, get_login_failures(ex, user.id).await.unwrap());
+    lock_login_failures(ex, user.id, now).await.unwrap();
+
+    delete_user(ex, user.id).await.unwrap();
+    assert_eq!(None, get_login_failures(ex, user.id).await.unwrap());
+}
+
+async fn test_login_failures_rollback(db: Arc<dyn Db + Send + Sync>) {
+    let user = create_simple_user(&mut db.ex().await.unwrap(), "backoff").await;
+    let now = datetime!(2026-01-01 0:00 UTC);
+    {
+        let mut tx = db.begin().await.unwrap();
+        let mut state = lock_login_failures(tx.ex(), user.id, now).await.unwrap();
+        state.count = 3;
+        save_login_failures(tx.ex(), user.id, &state).await.unwrap();
+        clear_login_failures(tx.ex(), user.id).await.unwrap();
+    }
+    assert_eq!(None, get_login_failures(&mut db.ex().await.unwrap(), user.id).await.unwrap());
+}
+
 macro_rules! generate_db_tests [
     ( $setup:expr $(, #[$extra:meta] )? ) => {
-        iii_iv_core::db::testutils::generate_tests!(
+        generate_tests!(
             $(#[$extra],)?
             $setup,
             $crate::db::tests,
+            test_login_failures_persistence,
             test_users_ok,
             test_users_not_found,
             test_coupons_ok,
@@ -440,6 +478,7 @@ mod postgres {
     use crate::db::init_schema;
     use iii_iv_core::db::Db;
     use iii_iv_core::db::postgres::PostgresDb;
+    use iii_iv_core::db::testutils::generate_tests;
     use std::sync::Arc;
 
     async fn setup() -> PostgresDb {
@@ -447,6 +486,13 @@ mod postgres {
         init_schema(&mut db.ex().await.unwrap()).await.unwrap();
         db
     }
+
+    generate_tests!(
+        #[ignore = "Requires environment configuration and is expensive"],
+        { let db = Arc::from(setup().await); (db.clone(), db) },
+        crate::db::tests,
+        test_login_failures_rollback
+    );
 
     generate_db_tests!(
         {
@@ -461,6 +507,7 @@ mod sqlite {
     use crate::db::init_schema;
     use iii_iv_core::db::Db;
     use iii_iv_core::db::sqlite::SqliteDb;
+    use iii_iv_core::db::testutils::generate_tests;
     use std::sync::Arc;
 
     async fn setup() -> SqliteDb {
@@ -468,6 +515,15 @@ mod sqlite {
         init_schema(&mut db.ex().await.unwrap()).await.unwrap();
         db
     }
+
+    generate_tests!(
+        {
+            let db = Arc::from(setup().await);
+            (db.clone(), db)
+        },
+        crate::db::tests,
+        test_login_failures_rollback
+    );
 
     generate_db_tests!({
         let db = Arc::from(setup().await);
