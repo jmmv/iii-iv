@@ -163,8 +163,6 @@ pub fn ensure_one_upsert(rows_affected: u64) -> DbResult<()> {
 /// Macros to help instantiate tests for multiple database systems.
 #[cfg(any(test, feature = "testutils"))]
 pub mod testutils {
-    pub use paste::paste;
-
     /// Instantiates the `module::name` test for the database configured by `setup`.
     ///
     /// The `extra` metadata parameter can be used to tag the generated tests.
@@ -182,16 +180,16 @@ pub mod testutils {
             #[tokio::test]
             $(#[$extra])*
             async fn $name() {
-                $crate::db::testutils::paste! {
-                    let db = {
-                        let (db, arg) = $setup;
-                        $module :: [< $name >](arg).await;
-                        db
-                    };
-                    // arg must be dropped at this point to not hog a potential connection to the
-                    // database, which would deadlock the close await.
-                    db.close().await;
-                }
+                let db = {
+                    use $module as test_module;
+
+                    let (db, arg) = $setup;
+                    test_module::$name(arg).await;
+                    db
+                };
+                // arg must be dropped at this point to not hog a potential connection to the
+                // database, which would deadlock the close await.
+                db.close().await;
             }
         }
     ];
