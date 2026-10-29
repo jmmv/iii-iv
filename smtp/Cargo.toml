@@ -18,7 +18,6 @@ testutils = ["dep:futures", "dep:env_logger", "dep:quoted_printable", "iii-iv-co
 [dependencies]
 async-trait = { workspace = true }
 axum = { workspace = true }
-derivative = { workspace = true }
 env_logger = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
 http = { workspace = true }

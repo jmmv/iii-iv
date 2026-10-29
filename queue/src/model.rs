@@ -32,8 +32,6 @@
 //! difficulties in mutating in-process state from the tasks, but that's very much
 //! intentional because it should not be done.
 
-#[cfg(test)]
-use derivative::Derivative;
 use iii_iv_core::{db::DbError, driver::DriverError};
 use serde_json::Result as SerdeJsonResult;
 use std::time::Duration;
@@ -114,6 +112,14 @@ impl From<DriverError> for ExecError {
 /// Result type returned by the closue used to run tasks.
 pub type ExecResult = Result<Option<String>, ExecError>;
 
+/// Compares two JSON task deserialization results for testing purposes only.
+#[cfg(test)]
+fn cmp_json_task<T: PartialEq>(lhs: &SerdeJsonResult<T>, rhs: &SerdeJsonResult<T>) -> bool {
+    let lhs = lhs.as_ref().map_err(|e| e.to_string());
+    let rhs = rhs.as_ref().map_err(|e| e.to_string());
+    lhs == rhs
+}
+
 /// A runnable task.
 ///
 /// Runnable tasks are those that have never started running or that may have started running
@@ -122,18 +128,25 @@ pub type ExecResult = Result<Option<String>, ExecError>;
 /// To distinguish the two cases above, and to prevent a bad task from poisoning execution
 /// perpetually, tasks have a `runs` counter that specify how many times they have been
 /// attempted.
-#[cfg_attr(test, derive(Derivative))]
-#[cfg_attr(test, derivative(Debug, PartialEq))]
+#[cfg_attr(test, derive(Debug))]
 pub struct RunnableTask<T: Send + Sync> {
     /// Unique identifier of the task.
     pub(crate) id: Uuid,
 
     /// Task description as extracted from the database.
-    #[cfg_attr(test, derivative(PartialEq(compare_with = "crate::model::cmp_json_task")))]
     pub(crate) json_task: SerdeJsonResult<T>,
 
     /// Number of times the task started to run.
     pub(crate) runs: u8,
+}
+
+#[cfg(test)]
+impl<T: PartialEq + Send + Sync> PartialEq for RunnableTask<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+            && cmp_json_task(&self.json_task, &other.json_task)
+            && self.runs == other.runs
+    }
 }
 
 impl<T: Send + Sync> RunnableTask<T> {
@@ -161,24 +174,51 @@ impl<T: Send + Sync> RunnableTask<T> {
 ///
 /// This type provides access to the task description and the ability to apply an execution
 /// function to produce a task result.
-#[cfg_attr(test, derive(Derivative))]
-#[cfg_attr(test, derivative(Debug, PartialEq))]
+#[cfg_attr(test, derive(Debug))]
 pub struct RunningTask<T: Send + Sync> {
     /// Unique identifier of the task.
     pub(crate) id: Uuid,
 
     /// Task description as extracted from the database.
-    #[cfg_attr(test, derivative(PartialEq(compare_with = "crate::model::cmp_json_task")))]
     pub(crate) json_task: SerdeJsonResult<T>,
 
     /// Number of times the task started to run.
     pub(crate) runs: u8,
 }
 
-/// Compares two JSON task deserialization results for testing purposes only.
 #[cfg(test)]
-fn cmp_json_task<T: PartialEq>(lhs: &SerdeJsonResult<T>, rhs: &SerdeJsonResult<T>) -> bool {
-    let lhs = lhs.as_ref().map_err(|e| e.to_string());
-    let rhs = rhs.as_ref().map_err(|e| e.to_string());
-    lhs == rhs
+impl<T: PartialEq + Send + Sync> PartialEq for RunningTask<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+            && cmp_json_task(&self.json_task, &other.json_task)
+            && self.runs == other.runs
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_task_equality() {
+        let id = Uuid::new_v4();
+        for task in ["1", "invalid", "null"] {
+            let lhs = RunnableTask::new(id, serde_json::from_str::<u32>(task), 0);
+            let rhs = RunnableTask::new(id, serde_json::from_str::<u32>(task), 0);
+            assert_eq!(lhs, rhs);
+            assert_eq!(lhs.try_run(), rhs.try_run());
+        }
+        for (lhs_task, rhs_task, rhs_id, rhs_runs) in [
+            ("1", "2", id, 0),
+            ("1", "invalid", id, 0),
+            ("invalid", "null", id, 0),
+            ("1", "1", Uuid::new_v4(), 0),
+            ("1", "1", id, 1),
+        ] {
+            let lhs = RunnableTask::new(id, serde_json::from_str::<u32>(lhs_task), 0);
+            let rhs = RunnableTask::new(rhs_id, serde_json::from_str::<u32>(rhs_task), rhs_runs);
+            assert_ne!(lhs, rhs);
+            assert_ne!(lhs.try_run(), rhs.try_run());
+        }
+    }
 }

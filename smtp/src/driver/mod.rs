@@ -17,7 +17,6 @@
 
 use crate::db::{count_email_log, put_email_log, update_email_log};
 use async_trait::async_trait;
-use derivative::Derivative;
 use iii_iv_core::clocks::Clock;
 use iii_iv_core::config::Options;
 use iii_iv_core::db::Db;
@@ -32,9 +31,8 @@ use std::sync::Arc;
 pub mod testutils;
 
 /// Options to establish an SMTP connection.
-#[derive(Derivative, Options)]
-#[derivative(Debug)]
-#[cfg_attr(test, derivative(PartialEq))]
+#[derive(Debug, Options)]
+#[cfg_attr(test, derive(PartialEq))]
 #[options(prefix = "SMTP")]
 pub struct SmtpOptions {
     /// SMTP server to use.
@@ -44,7 +42,6 @@ pub struct SmtpOptions {
     pub username: String,
 
     /// Password for logging into the SMTP server.
-    #[derivative(Debug = "ignore")]
     pub password: SecretString,
 
     /// Maximum number of messages to send per day, if any.
@@ -182,6 +179,19 @@ mod tests {
     use futures::future;
     use serial_test::serial;
     use std::time::Duration;
+
+    #[test]
+    fn test_options_debug_redacts_password() {
+        let opts = SmtpOptions {
+            relay: "relay".to_owned(),
+            username: "user".to_owned(),
+            password: SecretString::new("private-password".to_owned()),
+            max_daily_emails: None,
+        };
+        let debug = format!("{:?}", opts);
+        assert!(debug.contains("password: scrubbed secret"));
+        assert!(!debug.contains("private-password"));
+    }
 
     #[test]
     #[serial(SMTP)]

@@ -32,7 +32,6 @@
 use crate::db;
 use crate::model::{AccessToken, AuthnTask, User};
 use async_trait::async_trait;
-use derivative::Derivative;
 use futures::lock::Mutex;
 use iii_iv_core::clocks::Clock;
 use iii_iv_core::config::Options;
@@ -216,8 +215,7 @@ struct CachedSession {
 /// transaction, so it's incorrect for the caller to use two separate calls.  For this reason,
 /// these operations consume the driver in an attempt to minimize the possibility of executing
 /// two operations.
-#[derive(Derivative)]
-#[derivative(Clone(bound = ""))]
+#[derive(Clone)]
 pub struct AuthnDriver<H: AuthnHooks> {
     /// The database that the driver uses for persistence.
     db: Arc<dyn Db + Send + Sync>,

@@ -17,7 +17,6 @@
 
 use crate::{CountryIsoCode, GeoLocator, GeoResult};
 use async_trait::async_trait;
-use derivative::Derivative;
 use futures::lock::Mutex;
 use iii_iv_core::config::Options;
 use log::warn;
@@ -33,9 +32,8 @@ const DEFAULT_TTL: Duration = Duration::from_secs(60 * 60);
 const DEFAULT_CAPACITY: usize = 10 * 1024;
 
 /// Options to configure an `CachingGeoLocator`.
-#[derive(Derivative, Options)]
-#[derivative(Debug)]
-#[cfg_attr(test, derivative(PartialEq))]
+#[derive(Debug, Options)]
+#[cfg_attr(test, derive(PartialEq))]
 #[options(prefix = "CACHING_GEO_LOCATOR")]
 pub struct CachingGeoLocatorOptions {
     /// The TTL for the entries in the cache.
