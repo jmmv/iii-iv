@@ -19,7 +19,6 @@ use crate::config::Options;
 use crate::db::{Db, DbError, DbResult, Executor, TxExecutor};
 use crate::model::SecretString;
 use async_trait::async_trait;
-use derivative::Derivative;
 use futures::Future;
 use futures::future::BoxFuture;
 use log::warn;
@@ -48,9 +47,8 @@ pub fn map_sqlx_error(e: sqlx::Error) -> DbError {
 }
 
 /// Options to establish a connection to a PostgreSQL database.
-#[derive(Derivative, Options)]
-#[derivative(Debug, Default)]
-#[cfg_attr(test, derivative(PartialEq))]
+#[derive(Debug, Default, Options)]
+#[cfg_attr(test, derive(PartialEq))]
 #[options(prefix = "POSTGRES")]
 pub struct PostgresOptions {
     /// Host to connect to.
@@ -66,7 +64,6 @@ pub struct PostgresOptions {
     pub username: String,
 
     /// Password to establish the connection with.
-    #[derivative(Debug = "ignore")]
     pub password: Option<SecretString>,
 
     /// Minimum number of connections to keep open against the database.
@@ -440,6 +437,18 @@ mod tests {
         #[serial(POSTGRES)],
         #[ignore = "Requires environment configuration and is expensive"]
     );
+
+    #[test]
+    fn test_options_debug_redacts_password() {
+        let opts = PostgresOptions {
+            password: Some(SecretString::new("private-password".to_owned())),
+            ..PostgresOptions::default()
+        };
+        let debug = format!("{:?}", opts);
+        assert!(debug.contains("password: Some(scrubbed secret)"));
+        assert!(!debug.contains("private-password"));
+        assert!(format!("{:?}", PostgresOptions::default()).contains("password: None"));
+    }
 
     #[test]
     #[serial(POSTGRES)]

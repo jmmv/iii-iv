@@ -18,7 +18,6 @@
 use crate::{CountryIsoCode, GeoLocator, GeoResult};
 use async_trait::async_trait;
 use bytes::Buf;
-use derivative::Derivative;
 use iii_iv_core::config::Options;
 use iii_iv_core::model::SecretString;
 use reqwest::{Client, Response, StatusCode};
@@ -100,13 +99,11 @@ struct LocateResponse {
 }
 
 /// Options to configure an `AzureGeoLocator`.
-#[derive(Derivative, Options)]
-#[derivative(Debug)]
-#[cfg_attr(test, derivative(PartialEq))]
+#[derive(Debug, Options)]
+#[cfg_attr(test, derive(PartialEq))]
 #[options(prefix = "AZURE_GEO_LOCATOR")]
 pub struct AzureGeoLocatorOptions {
     /// The API key to use to contact Azure Maps.
-    #[derivative(Debug = "ignore")]
     pub key: SecretString,
 }
 
@@ -186,6 +183,14 @@ mod tests {
     use super::*;
     use serial_test::serial;
     use std::time::Duration;
+
+    #[test]
+    fn test_options_debug_redacts_key() {
+        let opts = AzureGeoLocatorOptions { key: SecretString::new("private-key".to_owned()) };
+        let debug = format!("{:?}", opts);
+        assert!(debug.contains("key: scrubbed secret"));
+        assert!(!debug.contains("private-key"));
+    }
 
     #[test]
     #[serial(AZURE_MAPS)]

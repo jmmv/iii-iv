@@ -18,7 +18,6 @@
 use crate::db;
 use crate::driver::Worker;
 use crate::model::TaskResult;
-use derivative::Derivative;
 use futures::lock::Mutex;
 use iii_iv_core::clocks::Clock;
 use iii_iv_core::db::{Db, DbError, Executor};
@@ -40,8 +39,6 @@ use uuid::Uuid;
 // this must be rethought.  Having a `Client` struct probably makes no sense...  Converting these
 // methods to free functions may work better, and also clarify the "auto-notification" of the
 // worker that we do here sometimes.
-#[derive(Derivative)]
-#[derivative(Clone(bound = ""))]
 pub struct Client<T>
 where
     T: Serialize + Send + Sync,
@@ -52,6 +49,15 @@ where
     /// Worker to notify when a task is enqueued for immediate processing.  This is only useful
     /// when the client and worker live in the same process, and thus is why this is optional.
     worker: Option<Arc<Mutex<Worker<T>>>>,
+}
+
+impl<T> Clone for Client<T>
+where
+    T: Serialize + Send + Sync,
+{
+    fn clone(&self) -> Self {
+        Self { clock: self.clock.clone(), worker: self.worker.clone() }
+    }
 }
 
 impl<T> Client<T>
@@ -235,5 +241,22 @@ where
             self.clock.sleep(period).await;
         }
         Ok(results)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use iii_iv_core::clocks::SystemClock;
+
+    #[test]
+    fn test_clone_with_non_clone_task() {
+        #[derive(Serialize)]
+        struct NonClone;
+
+        let client = Client::<NonClone>::new(Arc::new(SystemClock::default()));
+        let cloned = client.clone();
+        assert!(Arc::ptr_eq(&client.clock, &cloned.clock));
+        assert!(cloned.worker.is_none());
     }
 }

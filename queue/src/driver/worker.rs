@@ -17,7 +17,6 @@
 
 use crate::db;
 use crate::model::{ExecError, ExecResult, RunnableTask, TaskResult};
-use derivative::Derivative;
 use futures::channel::mpsc::{self, Sender};
 use futures::future::join_all;
 use futures::stream::StreamExt;
@@ -279,8 +278,6 @@ where
 ///
 /// This worker is clonable to support having multiple call sites interacting with the single
 /// worker at once.
-#[derive(Derivative)]
-#[derivative(Clone(bound = ""))]
 pub struct Worker<T>
 where
     T: Send + Sync,
@@ -293,6 +290,19 @@ where
 
     /// The type of the tasks handled by this worker.
     _data: PhantomData<T>,
+}
+
+impl<T> Clone for Worker<T>
+where
+    T: Send + Sync,
+{
+    fn clone(&self) -> Self {
+        Self {
+            _worker: self._worker.clone(),
+            control_tx: self.control_tx.clone(),
+            _data: PhantomData,
+        }
+    }
 }
 
 impl<T> Worker<T>
@@ -348,6 +358,20 @@ where
 mod tests {
     use super::*;
     use serial_test::serial;
+
+    #[tokio::test]
+    async fn test_clone_with_non_clone_task() {
+        struct NonClone;
+
+        let (control_tx, _control_rx) = mpsc::channel(1);
+        let worker = Worker::<NonClone> {
+            _worker: Arc::new(tokio::spawn(async {})),
+            control_tx,
+            _data: PhantomData,
+        };
+        let cloned = worker.clone();
+        assert!(Arc::ptr_eq(&worker._worker, &cloned._worker));
+    }
 
     #[test]
     #[serial(WORKER)]

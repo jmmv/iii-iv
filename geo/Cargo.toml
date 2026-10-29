@@ -16,7 +16,6 @@ testutils = []
 [dependencies]
 async-trait = { workspace = true }
 bytes = { workspace = true }
-derivative = { workspace = true }
 futures = { workspace = true }
 iii-iv-core = { path = "../core" }
 log = { workspace = true }
