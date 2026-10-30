@@ -30,6 +30,9 @@ use sqlx::{AssertSqlSafe, Row};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+mod activation;
+pub use activation::{get_user_activation_code, set_user_activation_code};
+
 mod login_failures;
 pub(crate) use login_failures::{
     clear_login_failures, get_login_failures, lock_login_failures, save_login_failures,
@@ -259,14 +262,13 @@ impl TryFrom<PgRow> for User {
         let password: Option<String> = row.try_get("password").map_err(postgres::map_sqlx_error)?;
         let email: String = row.try_get("email").map_err(postgres::map_sqlx_error)?;
         let coupon: Option<String> = row.try_get("coupon").map_err(postgres::map_sqlx_error)?;
-        let activation_code: Option<i64> =
-            row.try_get("activation_code").map_err(postgres::map_sqlx_error)?;
+        let is_active = row.try_get("is_active").map_err(postgres::map_sqlx_error)?;
         let last_login: Option<OffsetDateTime> =
             row.try_get("last_login").map_err(postgres::map_sqlx_error)?;
 
         let username = username.map(Username::new).transpose()?;
-        let mut user = User::new(id, username, EmailAddress::new(email)?)
-            .with_activation_code(activation_code.map(|i| i as u64));
+        let mut user = User::new(id, username, EmailAddress::new(email)?);
+        user.is_active = is_active;
         if let Some(coupon) = coupon {
             user = user.with_coupon(CouponName::new(coupon)?);
         }
@@ -314,16 +316,15 @@ impl TryFrom<SqliteRow> for User {
         let password: Option<String> = row.try_get("password").map_err(sqlite::map_sqlx_error)?;
         let email: String = row.try_get("email").map_err(sqlite::map_sqlx_error)?;
         let coupon: Option<String> = row.try_get("coupon").map_err(sqlite::map_sqlx_error)?;
-        let activation_code: Option<i64> =
-            row.try_get("activation_code").map_err(sqlite::map_sqlx_error)?;
+        let is_active = row.try_get("is_active").map_err(sqlite::map_sqlx_error)?;
         let last_login_secs: Option<i64> =
             row.try_get("last_login_secs").map_err(sqlite::map_sqlx_error)?;
         let last_login_nsecs: Option<i64> =
             row.try_get("last_login_nsecs").map_err(sqlite::map_sqlx_error)?;
 
         let username = username.map(Username::new).transpose()?;
-        let mut user = User::new(id, username, EmailAddress::new(email)?)
-            .with_activation_code(activation_code.map(|i| i as u64));
+        let mut user = User::new(id, username, EmailAddress::new(email)?);
+        user.is_active = is_active;
         if let Some(coupon) = coupon {
             user = user.with_coupon(CouponName::new(coupon)?);
         }
@@ -343,22 +344,21 @@ impl TryFrom<SqliteRow> for User {
     }
 }
 
-/// Persists a user.
+/// Persists base user fields.  Activation status is managed separately.
 pub async fn put_user(ex: &mut Executor, user: &User) -> DbResult<()> {
     let rows_affected = match ex {
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
             let query_str = "
                 INSERT INTO users (
-                    id, username, password, email, coupon, activation_code, last_login
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7)";
+                    id, username, password, email, coupon, last_login
+                ) VALUES ($1, $2, $3, $4, $5, $6)";
             let done = sqlx::query(AssertSqlSafe(query_str))
                 .bind(user.id)
                 .bind(user.username.as_ref().map(Username::as_str))
                 .bind(user.password.as_ref().map(HashedPassword::as_str))
                 .bind(user.email.as_str())
                 .bind(user.coupon.as_ref().map(CouponName::as_str))
-                .bind(user.activation_code.map(|code| code as i64))
                 .bind(user.last_login)
                 .execute(ex)
                 .await
@@ -371,16 +371,15 @@ pub async fn put_user(ex: &mut Executor, user: &User) -> DbResult<()> {
             let (last_login_secs, last_login_nsecs) = user.last_login.map(unpack_timestamp).unzip();
             let query_str = "
                 INSERT INTO users (
-                    id, username, password, email, coupon, activation_code,
+                    id, username, password, email, coupon,
                     last_login_secs, last_login_nsecs
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)";
             let done = sqlx::query(AssertSqlSafe(query_str))
                 .bind(user.id)
                 .bind(user.username.as_ref().map(Username::as_str))
                 .bind(user.password.as_ref().map(HashedPassword::as_str))
                 .bind(user.email.as_str())
                 .bind(user.coupon.as_ref().map(CouponName::as_str))
-                .bind(user.activation_code.map(|code| code as i64))
                 .bind(last_login_secs)
                 .bind(last_login_nsecs)
                 .execute(ex)
@@ -425,21 +424,29 @@ pub async fn get_user_by_id(ex: &mut Executor, id: Uuid) -> DbResult<User> {
     match ex {
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
-            let raw_user = sqlx::query("SELECT * FROM users WHERE id = $1")
-                .bind(id)
-                .fetch_one(ex)
-                .await
-                .map_err(postgres::map_sqlx_error)?;
+            let raw_user = sqlx::query(
+                "SELECT users.*, activation_state.user_id IS NULL AS is_active
+                FROM users LEFT JOIN activation_state ON users.id = activation_state.user_id
+                WHERE users.id = $1",
+            )
+            .bind(id)
+            .fetch_one(ex)
+            .await
+            .map_err(postgres::map_sqlx_error)?;
             User::try_from(raw_user)
         }
 
         #[cfg(any(feature = "sqlite", test))]
         Executor::Sqlite(ex) => {
-            let raw_user = sqlx::query("SELECT * FROM users WHERE id = ?")
-                .bind(id)
-                .fetch_one(ex)
-                .await
-                .map_err(sqlite::map_sqlx_error)?;
+            let raw_user = sqlx::query(
+                "SELECT users.*, activation_state.user_id IS NULL AS is_active
+                FROM users LEFT JOIN activation_state ON users.id = activation_state.user_id
+                WHERE users.id = ?",
+            )
+            .bind(id)
+            .fetch_one(ex)
+            .await
+            .map_err(sqlite::map_sqlx_error)?;
             User::try_from(raw_user)
         }
 
@@ -453,21 +460,29 @@ pub async fn get_user_by_email(ex: &mut Executor, email: EmailAddress) -> DbResu
     match ex {
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
-            let raw_user = sqlx::query("SELECT * FROM users WHERE email = $1")
-                .bind(email.as_str())
-                .fetch_one(ex)
-                .await
-                .map_err(postgres::map_sqlx_error)?;
+            let raw_user = sqlx::query(
+                "SELECT users.*, activation_state.user_id IS NULL AS is_active
+                FROM users LEFT JOIN activation_state ON users.id = activation_state.user_id
+                WHERE users.email = $1",
+            )
+            .bind(email.as_str())
+            .fetch_one(ex)
+            .await
+            .map_err(postgres::map_sqlx_error)?;
             User::try_from(raw_user)
         }
 
         #[cfg(any(feature = "sqlite", test))]
         Executor::Sqlite(ex) => {
-            let raw_user = sqlx::query("SELECT * FROM users WHERE email = ?")
-                .bind(email.as_str())
-                .fetch_one(ex)
-                .await
-                .map_err(sqlite::map_sqlx_error)?;
+            let raw_user = sqlx::query(
+                "SELECT users.*, activation_state.user_id IS NULL AS is_active
+                FROM users LEFT JOIN activation_state ON users.id = activation_state.user_id
+                WHERE users.email = ?",
+            )
+            .bind(email.as_str())
+            .fetch_one(ex)
+            .await
+            .map_err(sqlite::map_sqlx_error)?;
             User::try_from(raw_user)
         }
 
@@ -481,7 +496,9 @@ pub async fn get_user_by_username(ex: &mut Executor, username: Username) -> DbRe
     match ex {
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
-            let query_str = "SELECT * FROM users WHERE username = $1";
+            let query_str = "SELECT users.*, activation_state.user_id IS NULL AS is_active
+                FROM users LEFT JOIN activation_state ON users.id = activation_state.user_id
+                WHERE users.username = $1";
             let raw_user = sqlx::query(AssertSqlSafe(query_str))
                 .bind(username.as_str())
                 .fetch_one(ex)
@@ -492,7 +509,9 @@ pub async fn get_user_by_username(ex: &mut Executor, username: Username) -> DbRe
 
         #[cfg(any(feature = "sqlite", test))]
         Executor::Sqlite(ex) => {
-            let query_str = "SELECT * FROM users WHERE username = ?";
+            let query_str = "SELECT users.*, activation_state.user_id IS NULL AS is_active
+                FROM users LEFT JOIN activation_state ON users.id = activation_state.user_id
+                WHERE users.username = ?";
             let raw_user = sqlx::query(AssertSqlSafe(query_str))
                 .bind(username.as_str())
                 .fetch_one(ex)
@@ -575,51 +594,6 @@ pub async fn update_user(ex: &mut Executor, id: Uuid, last_login: OffsetDateTime
     match rows_affected {
         0 => Err(DbError::NotFound),
         1 => Ok(()),
-        _ => Err(DbError::BackendError("Update affected more than one row".to_owned())),
-    }
-}
-
-/// Updates the activation code of an existing user, either to a new code or to nothing to
-/// indicate that the user is active.
-pub async fn set_user_activation_code(
-    ex: &mut Executor,
-    user: User,
-    code: Option<u64>,
-) -> DbResult<User> {
-    let i64_code = code.map(|i| i as i64); // Sign is irrelevant for storage purposes.
-
-    let rows_affected = match ex {
-        #[cfg(feature = "postgres")]
-        Executor::Postgres(ex) => {
-            let query_str = "UPDATE users SET activation_code = $1 WHERE id = $2";
-            let done = sqlx::query(AssertSqlSafe(query_str))
-                .bind(i64_code)
-                .bind(user.id)
-                .execute(ex)
-                .await
-                .map_err(postgres::map_sqlx_error)?;
-            done.rows_affected()
-        }
-
-        #[cfg(any(feature = "sqlite", test))]
-        Executor::Sqlite(ex) => {
-            let query_str = "UPDATE users SET activation_code = ? WHERE id = ?";
-            let done = sqlx::query(AssertSqlSafe(query_str))
-                .bind(i64_code)
-                .bind(user.id)
-                .execute(ex)
-                .await
-                .map_err(sqlite::map_sqlx_error)?;
-            done.rows_affected()
-        }
-
-        #[allow(unused)]
-        _ => unreachable!(),
-    };
-
-    match rows_affected {
-        0 => Err(DbError::NotFound),
-        1 => Ok(user.with_activation_code(code)),
         _ => Err(DbError::BackendError("Update affected more than one row".to_owned())),
     }
 }

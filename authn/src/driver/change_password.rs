@@ -50,7 +50,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
             return Err(DriverError::InvalidInput("Invalid password".to_owned()));
         }
 
-        if session.user.activation_code.is_some() {
+        if !session.user.is_active {
             return Err(DriverError::NotActivated);
         }
 

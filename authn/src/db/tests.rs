@@ -70,7 +70,6 @@ async fn test_put_user_ok(ex: &mut Executor) {
         Some(username!("fixture-user")),
         email_address!("fixture@example.com"),
     )
-    .with_activation_code(Some(u64::MAX))
     .with_last_login(datetime!(2026-05-10 11:12:13.456 UTC))
     .with_password(hashed_password!("fixture-hash"));
 
@@ -217,19 +216,30 @@ async fn test_set_user_activation_code_ok(ex: &mut Executor) {
     )
     .await
     .unwrap();
-    assert!(user.activation_code.is_none());
+    assert!(user.is_active);
 
     user = set_user_activation_code(ex, user, Some(123456)).await.unwrap();
-    assert_eq!(Some(123456), user.activation_code);
+    assert!(!user.is_active);
 
     let read_user = get_user_by_id(ex, user.id).await.unwrap();
-    assert_eq!(Some(123456), read_user.activation_code);
+    assert!(!read_user.is_active);
 
     user = set_user_activation_code(ex, user, None).await.unwrap();
-    assert!(user.activation_code.is_none());
+    assert!(user.is_active);
 
     let read_user = get_user_by_id(ex, user.id).await.unwrap();
-    assert!(read_user.activation_code.is_none());
+    assert!(read_user.is_active);
+}
+
+async fn test_activation_rollback(db: Arc<dyn Db + Send + Sync>) {
+    let user = create_simple_user(&mut db.ex().await.unwrap(), "activation").await;
+    let id = user.id;
+    {
+        let mut tx = db.begin().await.unwrap();
+        set_user_activation_code(tx.ex(), user, Some(7)).await.unwrap();
+        assert!(!get_user_by_id(tx.ex(), id).await.unwrap().is_active);
+    }
+    assert!(get_user_by_id(&mut db.ex().await.unwrap(), id).await.unwrap().is_active);
 }
 
 async fn test_set_user_activation_code_not_found(ex: &mut Executor) {
@@ -491,6 +501,7 @@ mod postgres {
         #[ignore = "Requires environment configuration and is expensive"],
         { let db = Arc::from(setup().await); (db.clone(), db) },
         crate::db::tests,
+        test_activation_rollback,
         test_login_failures_rollback
     );
 
@@ -522,6 +533,7 @@ mod sqlite {
             (db.clone(), db)
         },
         crate::db::tests,
+        test_activation_rollback,
         test_login_failures_rollback
     );
 

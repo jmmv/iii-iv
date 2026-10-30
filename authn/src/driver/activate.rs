@@ -27,7 +27,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         let mut tx = self.db.begin().await?;
 
         let user = db::get_user_by_id(tx.ex(), user_id).await?;
-        match user.activation_code {
+        match db::get_user_activation_code(tx.ex(), user.id).await? {
             Some(exp_code) => {
                 if exp_code != code {
                     return Err(DriverError::InvalidInput("Invalid activation code".to_owned()));
@@ -77,7 +77,7 @@ mod tests {
         context.driver().activate(user_id, 42).await.unwrap();
 
         let user = db::get_user_by_id(&mut context.ex().await, user_id).await.unwrap();
-        assert!(user.activation_code.is_none());
+        assert!(user.is_active);
     }
 
     #[tokio::test]
@@ -89,7 +89,7 @@ mod tests {
         context.driver().activate(user_id, 42).await.unwrap();
 
         let user = db::get_user_by_id(&mut context.ex().await, user_id).await.unwrap();
-        assert!(user.activation_code.is_none());
+        assert!(user.is_active);
     }
 
     #[tokio::test]
@@ -104,7 +104,7 @@ mod tests {
         }
 
         let user = db::get_user_by_id(&mut context.ex().await, user_id).await.unwrap();
-        assert!(user.activation_code.is_some());
+        assert!(!user.is_active);
     }
 
     #[tokio::test]
@@ -119,7 +119,7 @@ mod tests {
         }
 
         let user = db::get_user_by_id(&mut context.ex().await, user_id).await.unwrap();
-        assert!(user.activation_code.is_none());
+        assert!(user.is_active);
     }
 
     #[tokio::test]

@@ -88,7 +88,7 @@ impl AuthnTaskRunner {
             Err(e) => return Err(e.into()),
         };
 
-        if user.activation_code != Some(activation_code) {
+        if db::get_user_activation_code(tx.ex(), user.id).await? != Some(activation_code) {
             return Ok(Some("Skipped obsolete activation email".to_owned()));
         }
 

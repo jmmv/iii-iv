@@ -134,7 +134,7 @@ impl TestContext {
     /// as inactive with a pending activation `code`.
     pub(crate) async fn create_inactive_whoami_user(&mut self, code: u64) -> User {
         let user = self.create_whoami_user().await;
-        assert!(user.activation_code.is_none());
+        assert!(user.is_active);
 
         db::set_user_activation_code(&mut self.db.ex().await.unwrap(), user, Some(code))
             .await
@@ -200,7 +200,7 @@ impl TestContext {
         let user = db::get_user_by_username(&mut self.db.ex().await.unwrap(), username.clone())
             .await
             .unwrap();
-        user.activation_code.is_none()
+        user.is_active
     }
 
     /// Checks if the session with `token` exists by directly querying the backing database.
