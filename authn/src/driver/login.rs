@@ -316,9 +316,17 @@ mod tests {
                         .unwrap();
                     } else {
                         let current = db::get_user_by_id(&mut ex, user.id).await.unwrap();
-                        db::set_user_activation(&mut ex, current, Some(ActivationState::new(42)))
-                            .await
-                            .unwrap();
+                        db::set_user_activation(
+                            &mut ex,
+                            current,
+                            Some(ActivationState::new(
+                                42,
+                                datetime!(2023-12-01 05:50:00 UTC),
+                                Duration::from_secs(86400),
+                            )),
+                        )
+                        .await
+                        .unwrap();
                     }
                 })
             }),
@@ -656,9 +664,17 @@ mod tests {
         )
         .await
         .unwrap();
-        db::set_user_activation(&mut context.ex().await, user, Some(ActivationState::new(50)))
-            .await
-            .unwrap();
+        db::set_user_activation(
+            &mut context.ex().await,
+            user,
+            Some(ActivationState::new(
+                50,
+                datetime!(2023-12-01 05:50:00 UTC),
+                Duration::from_secs(86400),
+            )),
+        )
+        .await
+        .unwrap();
         let user =
             db::get_user_by_username(&mut context.ex().await, username.clone()).await.unwrap();
 

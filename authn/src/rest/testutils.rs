@@ -15,6 +15,9 @@
 
 //! Utilities to help testing services that integrate with the `authn` features.
 
+#[cfg(test)]
+use std::time::Duration;
+
 use crate::db;
 #[cfg(test)]
 use crate::driver::AuthnHooks;
@@ -137,7 +140,11 @@ impl TestContext {
         db::set_user_activation(
             &mut self.db.ex().await.unwrap(),
             user,
-            Some(ActivationState::new(code)),
+            Some(ActivationState::new(
+                code,
+                datetime!(2023-12-01 05:50:00 UTC),
+                Duration::from_secs(86400),
+            )),
         )
         .await
         .unwrap()
@@ -245,7 +252,7 @@ impl TestContext {
         let tasks = iii_iv_queue::db::get_runnable_tasks::<AuthnTask>(
             &mut self.db.ex().await.unwrap(),
             u16::MAX,
-            std::time::Duration::ZERO,
+            Duration::ZERO,
             self.clock.now_utc(),
         )
         .await

@@ -125,6 +125,7 @@ mod tests {
     use iii_iv_queue::model::ExecError;
     use iii_iv_smtp::model::testutils::parse_message;
     use std::time::Duration;
+    use time::macros::datetime;
 
     /// Creates a test context with a non-default email retry delay.
     async fn setup() -> TestContext<AuthnNoHooks> {
@@ -146,7 +147,17 @@ mod tests {
         .await
         .unwrap();
         let user_id = user.id;
-        db::set_user_activation(&mut ex, user, Some(ActivationState::new(9876))).await.unwrap();
+        db::set_user_activation(
+            &mut ex,
+            user,
+            Some(ActivationState::new(
+                9876,
+                datetime!(2023-12-01 05:50:00 UTC),
+                Duration::from_secs(86400),
+            )),
+        )
+        .await
+        .unwrap();
         AuthnTask::SendActivationEmail { activation_code: 9876, user_id }
     }
 
