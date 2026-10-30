@@ -60,11 +60,13 @@ CREATE TABLE IF NOT EXISTS activation_state (
     expires_at TIMESTAMPTZ NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS login_failures (
-    user_id UUID PRIMARY KEY NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS authn_failures (
+    user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    operation TEXT NOT NULL CHECK (operation IN ('activation', 'login')),
     failure_count BIGINT NOT NULL CHECK (failure_count BETWEEN 0 AND 4294967295),
     last_failure TIMESTAMPTZ NOT NULL,
-    blocked_until TIMESTAMPTZ
+    blocked_until TIMESTAMPTZ,
+    PRIMARY KEY (user_id, operation)
 );
 
 CREATE TABLE IF NOT EXISTS sessions (

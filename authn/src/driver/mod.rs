@@ -49,6 +49,7 @@ use tokio::sync::Semaphore;
 mod activate;
 mod change_password;
 pub(crate) mod email;
+mod failures;
 mod hooks;
 mod login;
 mod logout;

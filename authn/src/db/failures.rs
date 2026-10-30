@@ -15,7 +15,7 @@
 
 //! Abuse protection.
 
-use crate::model::LoginFailures;
+use crate::model::{FailureHistory, FailureOperation};
 #[cfg(feature = "postgres")]
 use iii_iv_core::db::postgres;
 #[cfg(any(feature = "sqlite", test))]
@@ -30,7 +30,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 #[cfg(feature = "postgres")]
-impl TryFrom<PgRow> for LoginFailures {
+impl TryFrom<PgRow> for FailureHistory {
     type Error = DbError;
 
     fn try_from(row: PgRow) -> DbResult<Self> {
@@ -44,7 +44,7 @@ impl TryFrom<PgRow> for LoginFailures {
 }
 
 #[cfg(any(feature = "sqlite", test))]
-impl TryFrom<SqliteRow> for LoginFailures {
+impl TryFrom<SqliteRow> for FailureHistory {
     type Error = DbError;
 
     fn try_from(row: SqliteRow) -> DbResult<Self> {
@@ -69,29 +69,34 @@ impl TryFrom<SqliteRow> for LoginFailures {
 }
 
 /// Reads backoff without acquiring a write lock.
-pub(crate) async fn get_login_failures(
+pub(crate) async fn get_failures(
     ex: &mut Executor,
     user_id: Uuid,
-) -> DbResult<Option<LoginFailures>> {
+    operation: FailureOperation,
+) -> DbResult<Option<FailureHistory>> {
     match ex {
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
-            let row = sqlx::query("SELECT * FROM login_failures WHERE user_id = $1")
-                .bind(user_id)
-                .fetch_optional(ex)
-                .await
-                .map_err(postgres::map_sqlx_error)?;
-            row.map(LoginFailures::try_from).transpose()
+            let row =
+                sqlx::query("SELECT * FROM authn_failures WHERE user_id = $1 AND operation = $2")
+                    .bind(user_id)
+                    .bind(operation.as_str())
+                    .fetch_optional(ex)
+                    .await
+                    .map_err(postgres::map_sqlx_error)?;
+            row.map(FailureHistory::try_from).transpose()
         }
 
         #[cfg(any(feature = "sqlite", test))]
         Executor::Sqlite(ex) => {
-            let row = sqlx::query("SELECT * FROM login_failures WHERE user_id = ?")
-                .bind(user_id)
-                .fetch_optional(ex)
-                .await
-                .map_err(sqlite::map_sqlx_error)?;
-            row.map(LoginFailures::try_from).transpose()
+            let row =
+                sqlx::query("SELECT * FROM authn_failures WHERE user_id = ? AND operation = ?")
+                    .bind(user_id)
+                    .bind(operation.as_str())
+                    .fetch_optional(ex)
+                    .await
+                    .map_err(sqlite::map_sqlx_error)?;
+            row.map(FailureHistory::try_from).transpose()
         }
 
         #[allow(unused)]
@@ -104,18 +109,21 @@ pub(crate) async fn get_login_failures(
 /// This must be the first statement in the transaction, before any reads.  The upsert locks
 /// the row on PostgreSQL and acquires SQLite's writer lock without upgrading a read snapshot.
 /// A new zero-count row must be updated, deleted, or rolled back before leaving the transaction.
-pub(crate) async fn lock_login_failures(
+pub(crate) async fn lock_failures(
     ex: &mut Executor,
     user_id: Uuid,
+    operation: FailureOperation,
     now: OffsetDateTime,
-) -> DbResult<LoginFailures> {
+) -> DbResult<FailureHistory> {
     let affected = match ex {
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => sqlx::query(
-            "INSERT INTO login_failures (user_id, failure_count, last_failure)
-                VALUES ($1, 0, $2) ON CONFLICT (user_id) DO UPDATE SET user_id = EXCLUDED.user_id",
+            "INSERT INTO authn_failures (user_id, operation, failure_count, last_failure)
+                SELECT id, $2, 0, $3 FROM users WHERE id = $1
+                ON CONFLICT (user_id, operation) DO UPDATE SET user_id = EXCLUDED.user_id",
         )
         .bind(user_id)
+        .bind(operation.as_str())
         .bind(now)
         .execute(ex)
         .await
@@ -126,13 +134,15 @@ pub(crate) async fn lock_login_failures(
         Executor::Sqlite(ex) => {
             let (secs, nsecs) = unpack_timestamp(now);
             sqlx::query(
-                "INSERT INTO login_failures
-                (user_id, failure_count, last_failure_secs, last_failure_nsecs)
-                VALUES (?, 0, ?, ?) ON CONFLICT (user_id) DO UPDATE SET user_id = EXCLUDED.user_id",
+                "INSERT INTO authn_failures
+                (user_id, operation, failure_count, last_failure_secs, last_failure_nsecs)
+                SELECT id, ?, 0, ?, ? FROM users WHERE id = ?
+                ON CONFLICT (user_id, operation) DO UPDATE SET user_id = EXCLUDED.user_id",
             )
-            .bind(user_id)
+            .bind(operation.as_str())
             .bind(secs)
             .bind(nsecs)
+            .bind(user_id)
             .execute(ex)
             .await
             .map_err(sqlite::map_sqlx_error)?
@@ -142,26 +152,31 @@ pub(crate) async fn lock_login_failures(
         #[allow(unused)]
         _ => unreachable!(),
     };
+    if affected == 0 {
+        return Err(DbError::NotFound);
+    }
     ensure_one_upsert(affected)?;
-    get_login_failures(ex, user_id).await?.ok_or(DbError::NotFound)
+    get_failures(ex, user_id, operation).await?.ok_or(DbError::NotFound)
 }
 
 /// Stores a history while the transaction holds its account lock.
-pub(crate) async fn save_login_failures(
+pub(crate) async fn save_failures(
     ex: &mut Executor,
     user_id: Uuid,
-    state: &LoginFailures,
+    operation: FailureOperation,
+    state: &FailureHistory,
 ) -> DbResult<()> {
     let affected = match ex {
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => sqlx::query(
-            "UPDATE login_failures SET failure_count = $1,
-                last_failure = $2, blocked_until = $3 WHERE user_id = $4",
+            "UPDATE authn_failures SET failure_count = $1,
+                last_failure = $2, blocked_until = $3 WHERE user_id = $4 AND operation = $5",
         )
         .bind(i64::from(state.count))
         .bind(state.last_failure)
         .bind(state.blocked_until)
         .bind(user_id)
+        .bind(operation.as_str())
         .execute(ex)
         .await
         .map_err(postgres::map_sqlx_error)?
@@ -172,9 +187,9 @@ pub(crate) async fn save_login_failures(
             let (secs, nsecs) = unpack_timestamp(state.last_failure);
             let (blocked_secs, blocked_nsecs) = state.blocked_until.map(unpack_timestamp).unzip();
             sqlx::query(
-                "UPDATE login_failures SET failure_count = ?,
+                "UPDATE authn_failures SET failure_count = ?,
                 last_failure_secs = ?, last_failure_nsecs = ?, blocked_until_secs = ?,
-                blocked_until_nsecs = ? WHERE user_id = ?",
+                blocked_until_nsecs = ? WHERE user_id = ? AND operation = ?",
             )
             .bind(i64::from(state.count))
             .bind(secs)
@@ -182,6 +197,7 @@ pub(crate) async fn save_login_failures(
             .bind(blocked_secs)
             .bind(blocked_nsecs)
             .bind(user_id)
+            .bind(operation.as_str())
             .execute(ex)
             .await
             .map_err(sqlite::map_sqlx_error)?
@@ -194,13 +210,18 @@ pub(crate) async fn save_login_failures(
     ensure_one_upsert(affected)
 }
 
-/// Removes history as part of a successful login transaction.
-pub(crate) async fn clear_login_failures(ex: &mut Executor, user_id: Uuid) -> DbResult<()> {
+/// Removes history for one operation while holding its transaction lock.
+pub(crate) async fn clear_failures(
+    ex: &mut Executor,
+    user_id: Uuid,
+    operation: FailureOperation,
+) -> DbResult<()> {
     match ex {
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
-            sqlx::query("DELETE FROM login_failures WHERE user_id = $1")
+            sqlx::query("DELETE FROM authn_failures WHERE user_id = $1 AND operation = $2")
                 .bind(user_id)
+                .bind(operation.as_str())
                 .execute(ex)
                 .await
                 .map_err(postgres::map_sqlx_error)?;
@@ -208,8 +229,9 @@ pub(crate) async fn clear_login_failures(ex: &mut Executor, user_id: Uuid) -> Db
 
         #[cfg(any(feature = "sqlite", test))]
         Executor::Sqlite(ex) => {
-            sqlx::query("DELETE FROM login_failures WHERE user_id = ?")
+            sqlx::query("DELETE FROM authn_failures WHERE user_id = ? AND operation = ?")
                 .bind(user_id)
+                .bind(operation.as_str())
                 .execute(ex)
                 .await
                 .map_err(sqlite::map_sqlx_error)?;
