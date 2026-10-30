@@ -18,11 +18,9 @@
 use crate::db;
 #[cfg(test)]
 use crate::driver::AuthnHooks;
-#[cfg(test)]
-use crate::model::AuthnTask;
 use crate::model::{AccessToken, Password, User};
 #[cfg(test)]
-use crate::model::{Coupon, CouponName};
+use crate::model::{ActivationState, AuthnTask, Coupon, CouponName};
 use crate::rest::LoginResponse;
 #[cfg(test)]
 use async_trait::async_trait;
@@ -136,9 +134,13 @@ impl TestContext {
         let user = self.create_whoami_user().await;
         assert!(user.is_active);
 
-        db::set_user_activation_code(&mut self.db.ex().await.unwrap(), user, Some(code))
-            .await
-            .unwrap()
+        db::set_user_activation(
+            &mut self.db.ex().await.unwrap(),
+            user,
+            Some(ActivationState::new(code)),
+        )
+        .await
+        .unwrap()
     }
 
     /// Creates the `whoami` user without a password.

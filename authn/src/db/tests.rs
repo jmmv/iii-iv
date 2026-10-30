@@ -16,7 +16,9 @@
 //! Common tests for any database implementation.
 
 use crate::db::*;
-use crate::model::{AccessToken, Coupon, Session, User, coupon_name, hashed_password};
+use crate::model::{
+    AccessToken, ActivationState, Coupon, Session, User, coupon_name, hashed_password,
+};
 use iii_iv_core::db::{Db, DbError, Executor};
 use iii_iv_core::model::{EmailAddress, Username, email_address, username};
 use std::sync::Arc;
@@ -206,7 +208,7 @@ async fn test_users_update_not_found(ex: &mut Executor) {
     }
 }
 
-async fn test_set_user_activation_code_ok(ex: &mut Executor) {
+async fn test_set_user_activation_ok(ex: &mut Executor) {
     let mut user = create_user(
         ex,
         Some(username!("some-username")),
@@ -218,13 +220,13 @@ async fn test_set_user_activation_code_ok(ex: &mut Executor) {
     .unwrap();
     assert!(user.is_active);
 
-    user = set_user_activation_code(ex, user, Some(123456)).await.unwrap();
+    user = set_user_activation(ex, user, Some(ActivationState::new(123456))).await.unwrap();
     assert!(!user.is_active);
 
     let read_user = get_user_by_id(ex, user.id).await.unwrap();
     assert!(!read_user.is_active);
 
-    user = set_user_activation_code(ex, user, None).await.unwrap();
+    user = set_user_activation(ex, user, None).await.unwrap();
     assert!(user.is_active);
 
     let read_user = get_user_by_id(ex, user.id).await.unwrap();
@@ -236,16 +238,16 @@ async fn test_activation_rollback(db: Arc<dyn Db + Send + Sync>) {
     let id = user.id;
     {
         let mut tx = db.begin().await.unwrap();
-        set_user_activation_code(tx.ex(), user, Some(7)).await.unwrap();
+        set_user_activation(tx.ex(), user, Some(ActivationState::new(7))).await.unwrap();
         assert!(!get_user_by_id(tx.ex(), id).await.unwrap().is_active);
     }
     assert!(get_user_by_id(&mut db.ex().await.unwrap(), id).await.unwrap().is_active);
 }
 
-async fn test_set_user_activation_code_not_found(ex: &mut Executor) {
+async fn test_set_user_activation_not_found(ex: &mut Executor) {
     let user = User::new(Uuid::new_v4(), Some(username!("foo")), email_address!("a@example.com"));
 
-    match set_user_activation_code(ex, user, Some(1)).await.unwrap_err() {
+    match set_user_activation(ex, user, Some(ActivationState::new(1))).await.unwrap_err() {
         DbError::NotFound => (),
         e => panic!("{}", e),
     }
@@ -472,8 +474,8 @@ macro_rules! generate_db_tests [
             test_users_delete_not_found,
             test_users_update_ok,
             test_users_update_not_found,
-            test_set_user_activation_code_ok,
-            test_set_user_activation_code_not_found,
+            test_set_user_activation_ok,
+            test_set_user_activation_not_found,
             test_update_user_password_ok,
             test_update_user_password_not_found,
             test_update_user_password_wrong_old_password,

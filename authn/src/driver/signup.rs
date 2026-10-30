@@ -17,7 +17,7 @@
 
 use crate::db;
 use crate::driver::{AuthnDriver, AuthnHooks};
-use crate::model::{AuthnTask, CouponName, Password};
+use crate::model::{ActivationState, AuthnTask, CouponName, Password};
 use iii_iv_core::db::DbError;
 use iii_iv_core::driver::{DriverError, DriverResult};
 use iii_iv_core::model::{EmailAddress, Username};
@@ -112,7 +112,9 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         };
 
         let activation_code = rand::random::<u64>();
-        let user = db::set_user_activation_code(tx.ex(), user, Some(activation_code)).await?;
+        let user =
+            db::set_user_activation(tx.ex(), user, Some(ActivationState::new(activation_code)))
+                .await?;
 
         self.hooks.signup_hook(&mut tx, now, &user, input).await?;
 
@@ -161,7 +163,10 @@ mod tests {
             db::get_user_by_username(&mut context.ex().await, username.clone()).await.unwrap();
         assert!(!user.is_active);
         assert_eq!(
-            db::get_user_activation_code(&mut context.ex().await, user.id).await.unwrap(),
+            db::get_user_activation(&mut context.ex().await, user.id)
+                .await
+                .unwrap()
+                .map(|activation| activation.code),
             context.get_latest_activation_code(&user.email, Some(user.id)).await
         );
     }
@@ -349,7 +354,10 @@ mod tests {
         assert!(user.username.is_none());
         assert!(!user.is_active);
         assert_eq!(
-            db::get_user_activation_code(&mut context.ex().await, user.id).await.unwrap(),
+            db::get_user_activation(&mut context.ex().await, user.id)
+                .await
+                .unwrap()
+                .map(|activation| activation.code),
             context.get_latest_activation_code(&email, Some(user.id)).await
         );
     }

@@ -16,53 +16,82 @@
 //! Persistence of pending account activation.
 
 use crate::db::get_user_by_id;
-use crate::model::User;
+use crate::model::{ActivationState, User};
 #[cfg(feature = "postgres")]
 use iii_iv_core::db::postgres;
 #[cfg(any(feature = "sqlite", test))]
 use iii_iv_core::db::sqlite;
-use iii_iv_core::db::{DbResult, Executor};
+use iii_iv_core::db::{DbError, DbResult, Executor};
+use sqlx::Row;
+#[cfg(feature = "postgres")]
+use sqlx::postgres::PgRow;
+#[cfg(any(feature = "sqlite", test))]
+use sqlx::sqlite::SqliteRow;
 use uuid::Uuid;
 
-/// Reads the code for a pending activation.
-pub async fn get_user_activation_code(ex: &mut Executor, user_id: Uuid) -> DbResult<Option<u64>> {
-    let code: Option<i64> = match ex {
+#[cfg(feature = "postgres")]
+impl TryFrom<PgRow> for ActivationState {
+    type Error = DbError;
+
+    fn try_from(row: PgRow) -> DbResult<Self> {
+        let code: i64 = row.try_get("code").map_err(postgres::map_sqlx_error)?;
+        Ok(Self { code: code as u64 })
+    }
+}
+
+#[cfg(any(feature = "sqlite", test))]
+impl TryFrom<SqliteRow> for ActivationState {
+    type Error = DbError;
+
+    fn try_from(row: SqliteRow) -> DbResult<Self> {
+        let code: i64 = row.try_get("code").map_err(sqlite::map_sqlx_error)?;
+        Ok(Self { code: code as u64 })
+    }
+}
+
+/// Reads pending activation state.
+pub async fn get_user_activation(
+    ex: &mut Executor,
+    user_id: Uuid,
+) -> DbResult<Option<ActivationState>> {
+    match ex {
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
-            sqlx::query_scalar("SELECT code FROM activation_state WHERE user_id = $1")
+            let row = sqlx::query("SELECT * FROM activation_state WHERE user_id = $1")
                 .bind(user_id)
                 .fetch_optional(ex)
                 .await
-                .map_err(postgres::map_sqlx_error)?
+                .map_err(postgres::map_sqlx_error)?;
+            row.map(ActivationState::try_from).transpose()
         }
 
         #[cfg(any(feature = "sqlite", test))]
         Executor::Sqlite(ex) => {
-            sqlx::query_scalar("SELECT code FROM activation_state WHERE user_id = ?")
+            let row = sqlx::query("SELECT * FROM activation_state WHERE user_id = ?")
                 .bind(user_id)
                 .fetch_optional(ex)
                 .await
-                .map_err(sqlite::map_sqlx_error)?
+                .map_err(sqlite::map_sqlx_error)?;
+            row.map(ActivationState::try_from).transpose()
         }
 
         #[allow(unused)]
         _ => unreachable!(),
-    };
-    Ok(code.map(|code| code as u64))
+    }
 }
 
 /// Inserts pending activation, or removes it to mark a user active.
 ///
 /// Returns `DbError::AlreadyExists` if the user already has pending activation.
-pub async fn set_user_activation_code(
+pub async fn set_user_activation(
     ex: &mut Executor,
     user: User,
-    code: Option<u64>,
+    activation: Option<ActivationState>,
 ) -> DbResult<User> {
     get_user_by_id(ex, user.id).await?;
     match ex {
         #[cfg(feature = "postgres")]
-        Executor::Postgres(ex) => match code {
+        Executor::Postgres(ex) => match activation {
             None => {
                 sqlx::query("DELETE FROM activation_state WHERE user_id = $1")
                     .bind(user.id)
@@ -71,10 +100,10 @@ pub async fn set_user_activation_code(
                     .map_err(postgres::map_sqlx_error)?;
             }
 
-            Some(code) => {
+            Some(activation) => {
                 sqlx::query("INSERT INTO activation_state (user_id, code) VALUES ($1, $2)")
                     .bind(user.id)
-                    .bind(code as i64)
+                    .bind(activation.code as i64)
                     .execute(ex)
                     .await
                     .map_err(postgres::map_sqlx_error)?;
@@ -82,7 +111,7 @@ pub async fn set_user_activation_code(
         },
 
         #[cfg(any(feature = "sqlite", test))]
-        Executor::Sqlite(ex) => match code {
+        Executor::Sqlite(ex) => match activation {
             None => {
                 sqlx::query("DELETE FROM activation_state WHERE user_id = ?")
                     .bind(user.id)
@@ -91,10 +120,10 @@ pub async fn set_user_activation_code(
                     .map_err(sqlite::map_sqlx_error)?;
             }
 
-            Some(code) => {
+            Some(activation) => {
                 sqlx::query("INSERT INTO activation_state (user_id, code) VALUES (?, ?)")
                     .bind(user.id)
-                    .bind(code as i64)
+                    .bind(activation.code as i64)
                     .execute(ex)
                     .await
                     .map_err(sqlite::map_sqlx_error)?;

@@ -27,7 +27,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         let mut tx = self.db.begin().await?;
 
         let user = db::get_user_by_id(tx.ex(), user_id).await?;
-        match db::get_user_activation_code(tx.ex(), user.id).await? {
+        match db::get_user_activation(tx.ex(), user.id).await?.map(|activation| activation.code) {
             Some(exp_code) => {
                 if exp_code != code {
                     return Err(DriverError::InvalidInput("Invalid activation code".to_owned()));
@@ -36,7 +36,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
             None => return Err(DriverError::InvalidInput("User is already active".to_owned())),
         }
 
-        let user = db::set_user_activation_code(tx.ex(), user, None).await?;
+        let user = db::set_user_activation(tx.ex(), user, None).await?;
         tx.commit().await?;
 
         Ok(user)
@@ -48,6 +48,7 @@ mod tests {
     use super::*;
     use crate::driver::AuthnOptions;
     use crate::driver::testutils::*;
+    use crate::model::ActivationState;
     use iii_iv_core::db::Executor;
     use iii_iv_core::model::{email_address, username};
 
@@ -63,7 +64,7 @@ mod tests {
         .await
         .unwrap();
         let user_id = user.id;
-        db::set_user_activation_code(ex, user, code).await.unwrap();
+        db::set_user_activation(ex, user, code.map(ActivationState::new)).await.unwrap();
 
         user_id
     }
