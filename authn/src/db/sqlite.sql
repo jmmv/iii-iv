@@ -57,6 +57,8 @@ CREATE TABLE IF NOT EXISTS authn_failures (
     user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     operation TEXT NOT NULL CHECK (operation IN ('activation', 'login')),
     failure_count INTEGER NOT NULL CHECK (failure_count BETWEEN 0 AND 4294967295),
+    window_start_secs INTEGER NOT NULL,
+    window_start_nsecs INTEGER NOT NULL,
     last_failure_secs INTEGER NOT NULL,
     last_failure_nsecs INTEGER NOT NULL,
     blocked_until_secs INTEGER,

@@ -16,19 +16,67 @@
 //! Extends the driver with the `activate` method.
 
 use crate::db;
+use crate::driver::failures::FixedWindow;
 use crate::driver::{AuthnDriver, AuthnHooks};
-use crate::model::User;
+use crate::model::{FailureHistory, FailureOperation, User};
+use iii_iv_core::db::DbError;
 use iii_iv_core::driver::{DriverError, DriverResult};
+use time::OffsetDateTime;
 use uuid::Uuid;
 
+/// Builds the common public error for unsuccessful activation.
+fn invalid_activation() -> DriverError {
+    DriverError::InvalidInput("Invalid activation code".to_owned())
+}
+
 impl<H: AuthnHooks> AuthnDriver<H> {
+    /// Records a rejected code using the configured activation policy.
+    fn record_activation_failure(&self, state: &mut FailureHistory, now: OffsetDateTime) {
+        FixedWindow {
+            limit: self.opts.activation_failure_limit,
+            window: self.opts.activation_failure_window,
+            block_duration: self.opts.activation_block_duration,
+        }
+        .record(state, now);
+    }
+
     /// Marks a user as active based on a confirmation code.
     pub(crate) async fn activate(self, user_id: Uuid, code: u64) -> DriverResult<User> {
         let mut tx = self.db.begin().await?;
 
-        if !db::consume_user_activation(tx.ex(), user_id, code, self.clock.now_utc()).await? {
-            return Err(DriverError::InvalidInput("Invalid activation code".to_owned()));
+        let mut failures = match db::lock_failures(
+            tx.ex(),
+            user_id,
+            FailureOperation::Activation,
+            self.clock.now_utc(),
+        )
+        .await
+        {
+            Ok(failures) => failures,
+            Err(DbError::NotFound) => return Err(invalid_activation()),
+            Err(error) => return Err(error.into()),
+        };
+        let now = self.clock.now_utc();
+        if failures.is_blocked(now) {
+            return Err(invalid_activation());
         }
+
+        let activation =
+            db::get_user_activation(tx.ex(), user_id).await?.ok_or_else(invalid_activation)?;
+        if now >= activation.expires_at {
+            return Err(invalid_activation());
+        }
+        if code != activation.code {
+            self.record_activation_failure(&mut failures, now);
+            db::save_failures(tx.ex(), user_id, FailureOperation::Activation, &failures).await?;
+            tx.commit().await?;
+            return Err(invalid_activation());
+        }
+
+        if !db::consume_user_activation(tx.ex(), user_id, code, now).await? {
+            return Err(invalid_activation());
+        }
+        db::clear_failures(tx.ex(), user_id, FailureOperation::Activation).await?;
         let user = db::get_user_by_id(tx.ex(), user_id).await?;
         tx.commit().await?;
 
@@ -39,11 +87,13 @@ impl<H: AuthnHooks> AuthnDriver<H> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::driver::AuthnOptions;
     use crate::driver::testutils::*;
+    use crate::driver::{AuthnNoHooks, AuthnOptions};
     use crate::model::ActivationState;
+    use futures::future::join_all;
     use iii_iv_core::clocks::testutils::SettableClock;
-    use iii_iv_core::db::Executor;
+    use iii_iv_core::db::sqlite::connect;
+    use iii_iv_core::db::{Db, Executor};
     use iii_iv_core::model::{email_address, username};
     use std::sync::Arc;
     use std::time::Duration;
@@ -76,6 +126,219 @@ mod tests {
         .unwrap();
 
         user_id
+    }
+
+    /// Creates independent driver contexts sharing the default test database and clock.
+    async fn protection_context(
+        opts: AuthnOptions,
+    ) -> (TestContext<AuthnNoHooks>, TestContext<AuthnNoHooks>, Uuid) {
+        let first = TestContext::setup(opts.clone()).await;
+        let second = TestContext::setup_with(
+            opts,
+            first.driver().db.clone(),
+            first.clock.clone(),
+            "the-realm",
+            true,
+        )
+        .await;
+        let id = create_test_user(&mut first.ex().await, Some(42)).await;
+        (first, second, id)
+    }
+
+    /// Reads persistent activation failure history.
+    async fn history(context: &TestContext<AuthnNoHooks>, id: Uuid) -> Option<FailureHistory> {
+        db::get_failures(&mut context.ex().await, id, FailureOperation::Activation).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_activation_custom_policy() {
+        let opts = AuthnOptions {
+            activation_failure_limit: 3,
+            activation_failure_window: Duration::from_secs(10),
+            activation_block_duration: Duration::from_secs(3),
+            ..Default::default()
+        };
+        let (first, second, id) = protection_context(opts).await;
+        assert_eq!(Err(invalid_activation()), first.driver().activate(id, 0).await);
+
+        first.clock.sleep(Duration::from_secs(9)).await;
+        assert_eq!(Err(invalid_activation()), second.driver().activate(id, 0).await);
+        let state = history(&first, id).await.unwrap();
+        assert_eq!(2, state.count);
+        assert_eq!(None, state.blocked_until);
+
+        first.clock.sleep(Duration::from_secs(1)).await;
+        assert_eq!(Err(invalid_activation()), second.driver().activate(id, 0).await);
+        let state = history(&first, id).await.unwrap();
+        assert_eq!(1, state.count);
+        assert_eq!(first.driver().now_utc(), state.window_start);
+        assert_eq!(None, state.blocked_until);
+
+        assert_eq!(Err(invalid_activation()), first.driver().activate(id, 0).await);
+        assert_eq!(Err(invalid_activation()), second.driver().activate(id, 0).await);
+        let before = history(&second, id).await;
+        assert_eq!(3, before.as_ref().unwrap().count);
+        assert_eq!(
+            Some(first.driver().now_utc() + Duration::from_secs(3)),
+            before.as_ref().unwrap().blocked_until
+        );
+
+        first.clock.sleep(Duration::from_secs(2)).await;
+        assert_eq!(Err(invalid_activation()), second.driver().activate(id, 42).await);
+        assert_eq!(before, history(&first, id).await);
+        first.clock.sleep(Duration::from_secs(1)).await;
+        assert!(second.driver().activate(id, 42).await.unwrap().is_active);
+        assert_eq!(None, history(&first, id).await);
+    }
+
+    #[tokio::test]
+    async fn test_activation_zero_options() {
+        for (limit, window, block_duration) in [(0, 10, 3), (2, 0, 3), (2, 10, 0)] {
+            let opts = AuthnOptions {
+                activation_failure_limit: limit,
+                activation_failure_window: Duration::from_secs(window),
+                activation_block_duration: Duration::from_secs(block_duration),
+                ..Default::default()
+            };
+            let (first, second, id) = protection_context(opts).await;
+            assert_eq!(Err(invalid_activation()), first.driver().activate(id, 0).await);
+            if limit == 0 {
+                assert_eq!(1, history(&first, id).await.unwrap().count);
+                assert_eq!(Err(invalid_activation()), second.driver().activate(id, 42).await);
+            } else {
+                for _ in 0..3 {
+                    assert_eq!(Err(invalid_activation()), second.driver().activate(id, 0).await);
+                }
+                let state = history(&first, id).await.unwrap();
+                if window == 0 {
+                    assert_eq!(1, state.count);
+                    assert_eq!(None, state.blocked_until);
+                } else {
+                    assert_eq!(4, state.count);
+                    assert_eq!(Some(first.driver().now_utc()), state.blocked_until);
+                }
+                assert!(first.driver().activate(id, 42).await.unwrap().is_active);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_activation_limits() {
+        let (first, second, id) = protection_context(AuthnOptions::default()).await;
+        for attempt in 1..=10 {
+            assert_eq!(Err(invalid_activation()), first.driver().activate(id, 0).await);
+            assert_eq!(attempt, history(&second, id).await.unwrap().count);
+        }
+        let before = history(&second, id).await;
+        first.clock.sleep(Duration::from_secs(3599)).await;
+        assert_eq!(Err(invalid_activation()), second.driver().activate(id, 42).await);
+        assert_eq!(Err(invalid_activation()), second.driver().activate(id, 0).await);
+        assert_eq!(before, history(&first, id).await);
+
+        first.clock.sleep(Duration::from_secs(1)).await;
+        assert!(second.driver().activate(id, 42).await.unwrap().is_active);
+        assert_eq!(None, history(&first, id).await);
+        assert_eq!(Err(invalid_activation()), first.driver().activate(id, 42).await);
+        let missing = Uuid::new_v4();
+        assert_eq!(Err(invalid_activation()), first.driver().activate(missing, 42).await);
+        assert_eq!(None, history(&first, id).await);
+        assert_eq!(None, history(&first, missing).await);
+    }
+
+    #[tokio::test]
+    async fn test_activation_windows() {
+        let (first, second, id) = protection_context(AuthnOptions::default()).await;
+        for _ in 0..9 {
+            assert_eq!(Err(invalid_activation()), first.driver().activate(id, 0).await);
+        }
+        first.clock.sleep(Duration::from_secs(3600)).await;
+        assert_eq!(Err(invalid_activation()), second.driver().activate(id, 0).await);
+        let state = history(&first, id).await.unwrap();
+        assert_eq!(1, state.count);
+        assert_eq!(first.driver().now_utc(), state.window_start);
+        assert_eq!(None, state.blocked_until);
+
+        first.clock.sleep(Duration::from_secs(3599)).await;
+        for _ in 0..9 {
+            assert_eq!(Err(invalid_activation()), first.driver().activate(id, 0).await);
+        }
+        let before = history(&first, id).await;
+        first.clock.sleep(Duration::from_secs(1)).await;
+        assert_eq!(Err(invalid_activation()), second.driver().activate(id, 42).await);
+        assert_eq!(before, history(&second, id).await);
+
+        first.clock.sleep(Duration::from_secs(86400)).await;
+        assert_eq!(Err(invalid_activation()), second.driver().activate(id, 42).await);
+        assert_eq!(before, history(&second, id).await);
+        assert!(!db::get_user_by_id(&mut first.ex().await, id).await.unwrap().is_active);
+    }
+
+    #[tokio::test]
+    async fn test_activation_concurrency() {
+        let (first, second, id) = protection_context(AuthnOptions::default()).await;
+        let attempts = (0..20).map(|index| {
+            let driver = if index % 2 == 0 { first.driver() } else { second.driver() };
+            async move { driver.activate(id, 0).await }
+        });
+        for result in join_all(attempts).await {
+            assert_eq!(Err(invalid_activation()), result);
+        }
+        let failures = history(&first, id).await.unwrap();
+        assert_eq!(10, failures.count);
+        assert_eq!(Err(invalid_activation()), second.driver().activate(id, 42).await);
+
+        first.clock.sleep(Duration::from_secs(3600)).await;
+        let (left, right) =
+            tokio::join!(first.driver().activate(id, 42), second.driver().activate(id, 42));
+        assert_ne!(left.is_ok(), right.is_ok());
+        assert_eq!(None, history(&first, id).await);
+    }
+
+    #[tokio::test]
+    async fn test_activation_survives_database_reopen() {
+        let path =
+            std::env::temp_dir().join(format!("iii-iv-activation-{}.sqlite", Uuid::new_v4()));
+        let connection = format!("sqlite://{}?mode=rwc", path.display());
+        let id;
+        let before;
+        {
+            let db = Arc::new(connect(&connection).await.unwrap());
+            let clock = Arc::new(SettableClock::new(datetime!(2023-12-01 05:50:00 UTC)));
+            let context = TestContext::setup_with(
+                AuthnOptions::default(),
+                db.clone(),
+                clock,
+                "the-realm",
+                true,
+            )
+            .await;
+            id = create_test_user(&mut context.ex().await, Some(42)).await;
+            for _ in 0..10 {
+                assert_eq!(Err(invalid_activation()), context.driver().activate(id, 0).await);
+            }
+            before = history(&context, id).await;
+            drop(context);
+            db.close().await;
+        }
+        {
+            let db = Arc::new(connect(&connection).await.unwrap());
+            let clock = Arc::new(SettableClock::new(datetime!(2023-12-01 05:50:00 UTC)));
+            let context = TestContext::setup_with(
+                AuthnOptions::default(),
+                db.clone(),
+                clock.clone(),
+                "realm",
+                true,
+            )
+            .await;
+            assert_eq!(Err(invalid_activation()), context.driver().activate(id, 42).await);
+            assert_eq!(before, history(&context, id).await);
+            clock.advance(Duration::from_secs(3600));
+            context.driver().activate(id, 42).await.unwrap();
+            drop(context);
+            db.close().await;
+        }
+        std::fs::remove_file(path).unwrap();
     }
 
     #[tokio::test]

@@ -20,6 +20,9 @@ use time::OffsetDateTime;
 /// Authentication operation with independent failure history.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum FailureOperation {
+    /// Account activation.
+    Activation,
+
     /// Password login.
     Login,
 }
@@ -28,6 +31,7 @@ impl FailureOperation {
     /// Returns the stable database key for this operation.
     pub(crate) fn as_str(self) -> &'static str {
         match self {
+            Self::Activation => "activation",
             Self::Login => "login",
         }
     }
@@ -38,6 +42,9 @@ impl FailureOperation {
 pub(crate) struct FailureHistory {
     /// Number of verified rejections since the most recent reset.
     pub(crate) count: u32,
+
+    /// Start of the current counting window.
+    pub(crate) window_start: OffsetDateTime,
 
     /// Time of the most recent verified rejection.
     pub(crate) last_failure: OffsetDateTime,
