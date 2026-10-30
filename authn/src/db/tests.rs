@@ -17,7 +17,8 @@
 
 use crate::db::*;
 use crate::model::{
-    AccessToken, ActivationState, Coupon, Session, User, coupon_name, hashed_password,
+    AccessToken, ActivationState, Coupon, FailureOperation, Session, User, coupon_name,
+    hashed_password,
 };
 use iii_iv_core::db::{Db, DbError, Executor};
 use iii_iv_core::model::{EmailAddress, Username, email_address, username};
@@ -520,40 +521,44 @@ async fn test_sessions_missing(ex: &mut Executor) {
     }
 }
 
-async fn test_login_failures_persistence(ex: &mut Executor) {
+async fn test_failures_persistence(ex: &mut Executor) {
     let user = create_simple_user(ex, "backoff").await;
     let now = datetime!(2026-01-01 0:00:00.123456 UTC);
 
-    assert_eq!(None, get_login_failures(ex, user.id).await.unwrap());
+    assert_eq!(None, get_failures(ex, user.id, FailureOperation::Login).await.unwrap());
 
-    let mut state = lock_login_failures(ex, user.id, now).await.unwrap();
+    let mut state = lock_failures(ex, user.id, FailureOperation::Login, now).await.unwrap();
     assert_eq!(0, state.count);
     for _ in 0..3 {
         state.count += 1;
         state.last_failure = now;
     }
-    save_login_failures(ex, user.id, &state).await.unwrap();
-    assert_eq!(Some(state), get_login_failures(ex, user.id).await.unwrap());
+    save_failures(ex, user.id, FailureOperation::Login, &state).await.unwrap();
+    assert_eq!(Some(state), get_failures(ex, user.id, FailureOperation::Login).await.unwrap());
 
-    clear_login_failures(ex, user.id).await.unwrap();
-    assert_eq!(None, get_login_failures(ex, user.id).await.unwrap());
-    lock_login_failures(ex, user.id, now).await.unwrap();
+    clear_failures(ex, user.id, FailureOperation::Login).await.unwrap();
+    assert_eq!(None, get_failures(ex, user.id, FailureOperation::Login).await.unwrap());
+    lock_failures(ex, user.id, FailureOperation::Login, now).await.unwrap();
 
     delete_user(ex, user.id).await.unwrap();
-    assert_eq!(None, get_login_failures(ex, user.id).await.unwrap());
+    assert_eq!(None, get_failures(ex, user.id, FailureOperation::Login).await.unwrap());
 }
 
-async fn test_login_failures_rollback(db: Arc<dyn Db + Send + Sync>) {
+async fn test_failures_rollback(db: Arc<dyn Db + Send + Sync>) {
     let user = create_simple_user(&mut db.ex().await.unwrap(), "backoff").await;
     let now = datetime!(2026-01-01 0:00 UTC);
     {
         let mut tx = db.begin().await.unwrap();
-        let mut state = lock_login_failures(tx.ex(), user.id, now).await.unwrap();
+        let mut state =
+            lock_failures(tx.ex(), user.id, FailureOperation::Login, now).await.unwrap();
         state.count = 3;
-        save_login_failures(tx.ex(), user.id, &state).await.unwrap();
-        clear_login_failures(tx.ex(), user.id).await.unwrap();
+        save_failures(tx.ex(), user.id, FailureOperation::Login, &state).await.unwrap();
+        clear_failures(tx.ex(), user.id, FailureOperation::Login).await.unwrap();
     }
-    assert_eq!(None, get_login_failures(&mut db.ex().await.unwrap(), user.id).await.unwrap());
+    assert_eq!(
+        None,
+        get_failures(&mut db.ex().await.unwrap(), user.id, FailureOperation::Login).await.unwrap()
+    );
 }
 
 macro_rules! generate_db_tests [
@@ -563,7 +568,7 @@ macro_rules! generate_db_tests [
             $setup,
             $crate::db::tests,
             test_activation_expiry,
-            test_login_failures_persistence,
+            test_failures_persistence,
             test_users_ok,
             test_users_not_found,
             test_coupons_ok,
@@ -608,7 +613,7 @@ mod postgres {
         crate::db::tests,
         test_activation_consume_race,
         test_activation_rollback,
-        test_login_failures_rollback
+        test_failures_rollback
     );
 
     generate_db_tests!(
@@ -641,7 +646,7 @@ mod sqlite {
         crate::db::tests,
         test_activation_consume_race,
         test_activation_rollback,
-        test_login_failures_rollback
+        test_failures_rollback
     );
 
     generate_db_tests!({

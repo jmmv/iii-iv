@@ -33,10 +33,8 @@ use uuid::Uuid;
 mod activation;
 pub use activation::{consume_user_activation, get_user_activation, set_user_activation};
 
-mod login_failures;
-pub(crate) use login_failures::{
-    clear_login_failures, get_login_failures, lock_login_failures, save_login_failures,
-};
+mod failures;
+pub(crate) use failures::{clear_failures, get_failures, lock_failures, save_failures};
 
 #[cfg(test)]
 mod tests;

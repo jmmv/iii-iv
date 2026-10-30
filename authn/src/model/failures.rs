@@ -13,13 +13,29 @@
 // License for the specific language governing permissions and limitations
 // under the License.
 
-//! The `LoginFailures` data type.
+//! Persistent authentication failure history.
 
 use time::OffsetDateTime;
 
-/// Persisted history of verified login rejections for one account.
+/// Authentication operation with independent failure history.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum FailureOperation {
+    /// Password login.
+    Login,
+}
+
+impl FailureOperation {
+    /// Returns the stable database key for this operation.
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Login => "login",
+        }
+    }
+}
+
+/// Persisted history of rejections for one account and operation.
 #[derive(Debug, PartialEq)]
-pub(crate) struct LoginFailures {
+pub(crate) struct FailureHistory {
     /// Number of verified rejections since the most recent reset.
     pub(crate) count: u32,
 
@@ -28,4 +44,11 @@ pub(crate) struct LoginFailures {
 
     /// Exclusive end of the current lock, if any.
     pub(crate) blocked_until: Option<OffsetDateTime>,
+}
+
+impl FailureHistory {
+    /// Tests whether the persisted block is still active.
+    pub(crate) fn is_blocked(&self, now: OffsetDateTime) -> bool {
+        self.blocked_until.is_some_and(|until| now < until)
+    }
 }

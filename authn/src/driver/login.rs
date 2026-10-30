@@ -16,8 +16,11 @@
 //! Extends the driver with the `login` method.
 
 use crate::db;
+use crate::driver::failures::ProgressiveBackoff;
 use crate::driver::{AuthnDriver, AuthnHooks, CachedSession};
-use crate::model::{AccessToken, HashedPassword, LoginFailures, Password, Session, User};
+use crate::model::{
+    AccessToken, FailureHistory, FailureOperation, HashedPassword, Password, Session, User,
+};
 use iii_iv_core::db::{DbError, Executor, TxExecutor};
 use iii_iv_core::driver::{DriverError, DriverResult};
 use iii_iv_core::model::{EmailAddress, Username};
@@ -30,35 +33,15 @@ static DUMMY_PASSWORD_HASH: HashedPassword =
     HashedPassword::from_static("$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy");
 
 impl<H: AuthnHooks> AuthnDriver<H> {
-    /// Tests whether the persisted lock is still active.
-    fn is_login_blocked(&self, state: &LoginFailures, now: OffsetDateTime) -> bool {
-        state.blocked_until.is_some_and(|until| now < until)
-    }
-
     /// Records a verified rejection using the configured backoff policy.
-    fn record_login_failure(&self, state: &mut LoginFailures, now: OffsetDateTime) {
-        if now - state.last_failure >= self.opts.login_backoff_quiet_window {
-            state.count = 0;
+    fn record_login_failure(&self, state: &mut FailureHistory, now: OffsetDateTime) {
+        ProgressiveBackoff {
+            threshold: self.opts.login_backoff_threshold,
+            quiet_window: self.opts.login_backoff_quiet_window,
+            initial_delay: self.opts.login_backoff_initial_delay,
+            max_delay: self.opts.login_backoff_max_delay,
         }
-        state.count = state.count.saturating_add(1);
-        state.last_failure = now;
-
-        let threshold = self.opts.login_backoff_threshold.max(1);
-        if state.count >= threshold {
-            let cap = self.opts.login_backoff_max_delay;
-            let mut delay = self.opts.login_backoff_initial_delay.min(cap);
-            if !delay.is_zero() {
-                for _ in 0..state.count - threshold {
-                    delay = delay.saturating_mul(2).min(cap);
-                    if delay == cap {
-                        break;
-                    }
-                }
-            }
-            state.blocked_until = Some(now + delay);
-        } else {
-            state.blocked_until = None;
-        }
+        .record(state, now);
     }
 
     /// Resolves `login` to an account without exposing expected lookup failures.
@@ -99,9 +82,9 @@ impl<H: AuthnHooks> AuthnDriver<H> {
             let mut ex = self.db.ex().await?;
             let user = self.find_login_user(&mut ex, login).await?;
             if let Some(user) = &user {
-                if db::get_login_failures(&mut ex, user.id)
+                if db::get_failures(&mut ex, user.id, FailureOperation::Login)
                     .await?
-                    .is_some_and(|state| self.is_login_blocked(&state, self.clock.now_utc()))
+                    .is_some_and(|state| state.is_blocked(self.clock.now_utc()))
                 {
                     return Err(DriverError::Unauthenticated);
                 }
@@ -146,14 +129,20 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         verified: bool,
     ) -> DriverResult<(TxExecutor, User, OffsetDateTime)> {
         let mut tx = self.db.begin().await?;
-        let mut failures =
-            match db::lock_login_failures(tx.ex(), admitted_user.id, self.clock.now_utc()).await {
-                Ok(state) => state,
-                Err(DbError::NotFound) => return Err(DriverError::Unauthenticated),
-                Err(error) => return Err(error.into()),
-            };
+        let mut failures = match db::lock_failures(
+            tx.ex(),
+            admitted_user.id,
+            FailureOperation::Login,
+            self.clock.now_utc(),
+        )
+        .await
+        {
+            Ok(state) => state,
+            Err(DbError::NotFound) => return Err(DriverError::Unauthenticated),
+            Err(error) => return Err(error.into()),
+        };
         let now = self.clock.now_utc();
-        if self.is_login_blocked(&failures, now) {
+        if failures.is_blocked(now) {
             return Err(DriverError::Unauthenticated);
         }
 
@@ -168,7 +157,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
             || !user.is_active
         {
             self.record_login_failure(&mut failures, now);
-            db::save_login_failures(tx.ex(), user.id, &failures).await?;
+            db::save_failures(tx.ex(), user.id, FailureOperation::Login, &failures).await?;
             tx.commit().await?;
             return Err(DriverError::Unauthenticated);
         }
@@ -184,7 +173,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         max_age: Duration,
     ) -> DriverResult<(Session, H::LoginOutput)> {
         let (mut tx, user, now) = self.authorize_user(admitted_user, verified).await?;
-        db::clear_login_failures(tx.ex(), user.id).await?;
+        db::clear_failures(tx.ex(), user.id, FailureOperation::Login).await?;
         let access_token = AccessToken::generate();
         let expiration_time = now + max_age;
         let session = Session::new(access_token.clone(), user.id, now, expiration_time);
@@ -384,7 +373,9 @@ mod tests {
                     driver.clone().login(login.to_owned(), password!("bad"), None).await
                 );
                 let before =
-                    db::get_login_failures(&mut context.ex().await, user.id).await.unwrap();
+                    db::get_failures(&mut context.ex().await, user.id, FailureOperation::Login)
+                        .await
+                        .unwrap();
                 if delay > 0 {
                     let calls = hashes.lock().unwrap().len();
                     clock.advance(Duration::from_secs(delay - 1));
@@ -397,7 +388,9 @@ mod tests {
                     assert_eq!(calls, hashes.lock().unwrap().len());
                     assert_eq!(
                         before,
-                        db::get_login_failures(&mut context.ex().await, user.id).await.unwrap()
+                        db::get_failures(&mut context.ex().await, user.id, FailureOperation::Login)
+                            .await
+                            .unwrap()
                     );
                     clock.advance(Duration::from_secs(1));
                 }
@@ -407,8 +400,10 @@ mod tests {
                 driver.clone().login(login.to_owned(), password!("bad"), None).await
             );
 
-            let state =
-                db::get_login_failures(&mut context.ex().await, user.id).await.unwrap().unwrap();
+            let state = db::get_failures(&mut context.ex().await, user.id, FailureOperation::Login)
+                .await
+                .unwrap()
+                .unwrap();
             assert_eq!(1, state.count);
             assert_eq!(None, state.blocked_until);
             clock.advance(Duration::from_secs(900));
@@ -418,7 +413,7 @@ mod tests {
             );
             assert_eq!(
                 1,
-                db::get_login_failures(&mut context.ex().await, user.id)
+                db::get_failures(&mut context.ex().await, user.id, FailureOperation::Login)
                     .await
                     .unwrap()
                     .unwrap()
@@ -429,7 +424,9 @@ mod tests {
             correct.login(login.to_owned(), password!("correct"), None).await.unwrap();
             assert_eq!(
                 None,
-                db::get_login_failures(&mut context.ex().await, user.id).await.unwrap()
+                db::get_failures(&mut context.ex().await, user.id, FailureOperation::Login)
+                    .await
+                    .unwrap()
             );
         }
     }
@@ -644,7 +641,11 @@ mod tests {
             db::get_user_by_username(&mut context.ex().await, username!("hello")).await.unwrap();
         assert_eq!(
             1,
-            db::get_login_failures(&mut context.ex().await, user.id).await.unwrap().unwrap().count
+            db::get_failures(&mut context.ex().await, user.id, FailureOperation::Login)
+                .await
+                .unwrap()
+                .unwrap()
+                .count
         );
     }
 
@@ -689,7 +690,11 @@ mod tests {
             db::get_user_by_username(&mut context.ex().await, username!("hello")).await.unwrap();
         assert_eq!(
             1,
-            db::get_login_failures(&mut context.ex().await, user.id).await.unwrap().unwrap().count
+            db::get_failures(&mut context.ex().await, user.id, FailureOperation::Login)
+                .await
+                .unwrap()
+                .unwrap()
+                .count
         );
     }
 
@@ -777,12 +782,18 @@ mod tests {
             db::get_user_by_username(&mut context.ex().await, username.clone()).await.unwrap();
         let last_login_before = user_before.last_login;
         let mut tx = context.db().begin().await.unwrap();
-        let mut failures =
-            db::lock_login_failures(tx.ex(), user_before.id, context.driver().now_utc())
-                .await
-                .unwrap();
+        let mut failures = db::lock_failures(
+            tx.ex(),
+            user_before.id,
+            FailureOperation::Login,
+            context.driver().now_utc(),
+        )
+        .await
+        .unwrap();
         context.driver().record_login_failure(&mut failures, context.driver().now_utc());
-        db::save_login_failures(tx.ex(), user_before.id, &failures).await.unwrap();
+        db::save_failures(tx.ex(), user_before.id, FailureOperation::Login, &failures)
+            .await
+            .unwrap();
         tx.commit().await.unwrap();
 
         match context
@@ -802,7 +813,9 @@ mod tests {
         assert_eq!(last_login_before, user_after.last_login);
         assert_eq!(
             Some(failures),
-            db::get_login_failures(&mut context.ex().await, user_before.id).await.unwrap()
+            db::get_failures(&mut context.ex().await, user_before.id, FailureOperation::Login)
+                .await
+                .unwrap()
         );
 
         assert_eq!(0, context.driver().sessions_cache.lock().await.len());
@@ -813,7 +826,7 @@ mod tests {
         let driver = TestContext::setup(AuthnOptions::default()).await.driver();
         let now = datetime!(2026-01-01 0:00 UTC);
         for (count, minutes) in [(2, 1), (3, 2), (4, 4), (5, 8), (6, 16), (7, 32), (8, 60)] {
-            let mut state = LoginFailures { count, last_failure: now, blocked_until: None };
+            let mut state = FailureHistory { count, last_failure: now, blocked_until: None };
             driver.record_login_failure(&mut state, now);
             assert_eq!(count.saturating_add(1), state.count);
             assert_eq!(
@@ -827,18 +840,18 @@ mod tests {
     async fn test_lock_and_quiet_boundaries() {
         let driver = TestContext::setup(AuthnOptions::default()).await.driver();
         let now = datetime!(2026-01-01 0:00 UTC);
-        let mut state = LoginFailures { count: 6, last_failure: now, blocked_until: None };
+        let mut state = FailureHistory { count: 6, last_failure: now, blocked_until: None };
         driver.record_login_failure(&mut state, now);
         let until = now + Duration::from_secs(16 * 60);
-        assert!(driver.is_login_blocked(&state, now + Duration::from_secs(15 * 60)));
-        assert!(driver.is_login_blocked(&state, until - Duration::from_micros(1)));
-        assert!(!driver.is_login_blocked(&state, until));
+        assert!(state.is_blocked(now + Duration::from_secs(15 * 60)));
+        assert!(state.is_blocked(until - Duration::from_micros(1)));
+        assert!(!state.is_blocked(until));
         driver.record_login_failure(&mut state, until);
         assert_eq!(1, state.count);
         assert_eq!(None, state.blocked_until);
 
         for (elapsed, expected) in [(899, 2), (900, 1)] {
-            let mut state = LoginFailures { count: 1, last_failure: now, blocked_until: None };
+            let mut state = FailureHistory { count: 1, last_failure: now, blocked_until: None };
             driver.record_login_failure(&mut state, now + Duration::from_secs(elapsed));
             assert_eq!(expected, state.count);
         }
@@ -859,9 +872,9 @@ mod tests {
             let context = TestContext::setup(opts).await;
             let driver = context.driver();
             let now = datetime!(2026-01-01 0:00 UTC);
-            let mut state = LoginFailures { count: 0, last_failure: now, blocked_until: None };
+            let mut state = FailureHistory { count: 0, last_failure: now, blocked_until: None };
             driver.record_login_failure(&mut state, now);
-            assert_eq!(expected > 0, driver.is_login_blocked(&state, now));
+            assert_eq!(expected > 0, state.is_blocked(now));
             if expected > 0 {
                 assert_eq!(Some(now + Duration::from_secs(expected)), state.blocked_until);
             }
@@ -897,11 +910,12 @@ mod tests {
 
         let mut tx = first.db().begin().await.unwrap();
         let now = first.driver().now_utc();
-        let mut state = db::lock_login_failures(tx.ex(), user.id, now).await.unwrap();
+        let mut state =
+            db::lock_failures(tx.ex(), user.id, FailureOperation::Login, now).await.unwrap();
         for _ in 0..2 {
             first.driver().record_login_failure(&mut state, now);
         }
-        db::save_login_failures(tx.ex(), user.id, &state).await.unwrap();
+        db::save_failures(tx.ex(), user.id, FailureOperation::Login, &state).await.unwrap();
         tx.commit().await.unwrap();
 
         let entered = Arc::new(Notify::new());
@@ -924,11 +938,16 @@ mod tests {
         let result = driver.login(username.as_str().to_owned(), password!("test"), None).await;
         assert!(matches!(result, Err(DriverError::Unauthenticated)));
 
-        let state_before = db::get_login_failures(&mut first.ex().await, user.id).await.unwrap();
+        let state_before =
+            db::get_failures(&mut first.ex().await, user.id, FailureOperation::Login)
+                .await
+                .unwrap();
         release.send(()).unwrap();
         assert_eq!(Err(DriverError::Unauthenticated), pending.await.unwrap());
 
-        let state_after = db::get_login_failures(&mut first.ex().await, user.id).await.unwrap();
+        let state_after = db::get_failures(&mut first.ex().await, user.id, FailureOperation::Login)
+            .await
+            .unwrap();
         assert_eq!(Some(3), state_after.as_ref().map(|state| state.count));
         assert_eq!(state_before, state_after);
     }
@@ -1002,7 +1021,7 @@ mod tests {
             assert!(hashes.lock().unwrap().is_empty());
             assert_eq!(
                 3,
-                db::get_login_failures(&mut context.ex().await, user_id)
+                db::get_failures(&mut context.ex().await, user_id, FailureOperation::Login)
                     .await
                     .unwrap()
                     .unwrap()
@@ -1014,7 +1033,9 @@ mod tests {
             driver.login("hello".to_owned(), password!("correct"), None).await.unwrap();
             assert_eq!(
                 None,
-                db::get_login_failures(&mut context.ex().await, user_id).await.unwrap()
+                db::get_failures(&mut context.ex().await, user_id, FailureOperation::Login)
+                    .await
+                    .unwrap()
             );
 
             drop(context);
@@ -1045,7 +1066,9 @@ mod tests {
             driver.clone().login("hello".to_owned(), password!("bad"), None).await
         );
 
-        let before = db::get_login_failures(&mut context.ex().await, user.id).await.unwrap();
+        let before = db::get_failures(&mut context.ex().await, user.id, FailureOperation::Login)
+            .await
+            .unwrap();
         let permit = driver.acquire_password_hash_capacity().unwrap();
         assert_eq!(
             Err(DriverError::Unavailable),
@@ -1061,6 +1084,11 @@ mod tests {
             driver.login("hello".to_owned(), password!("bad"), None).await,
             Err(DriverError::BackendError(_))
         ));
-        assert_eq!(before, db::get_login_failures(&mut context.ex().await, user.id).await.unwrap());
+        assert_eq!(
+            before,
+            db::get_failures(&mut context.ex().await, user.id, FailureOperation::Login)
+                .await
+                .unwrap()
+        );
     }
 }
