@@ -15,9 +15,6 @@
 
 //! Utilities to help testing services that integrate with the `authn` features.
 
-#[cfg(test)]
-use std::time::Duration;
-
 use crate::db;
 #[cfg(test)]
 use crate::driver::AuthnHooks;
@@ -56,6 +53,7 @@ use {
     iii_iv_queue::driver::Client,
     iii_iv_smtp::driver::testutils::RecorderSmtpMailer,
     std::sync::Arc,
+    std::time::Duration,
     time::macros::datetime,
 };
 
@@ -109,6 +107,11 @@ pub(crate) struct TestContext {
 
 #[cfg(test)]
 impl TestContext {
+    /// Advances the shared authentication clock.
+    pub(crate) fn advance_clock(&self, elapsed: Duration) {
+        self.clock.advance(elapsed);
+    }
+
     /// Creates the `whoami` user by directly modifying the backing database. The user is marked
     /// as active.
     pub(crate) async fn create_whoami_user(&mut self) -> User {

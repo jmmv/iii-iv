@@ -826,7 +826,8 @@ mod tests {
         let driver = TestContext::setup(AuthnOptions::default()).await.driver();
         let now = datetime!(2026-01-01 0:00 UTC);
         for (count, minutes) in [(2, 1), (3, 2), (4, 4), (5, 8), (6, 16), (7, 32), (8, 60)] {
-            let mut state = FailureHistory { count, last_failure: now, blocked_until: None };
+            let mut state =
+                FailureHistory { window_start: now, count, last_failure: now, blocked_until: None };
             driver.record_login_failure(&mut state, now);
             assert_eq!(count.saturating_add(1), state.count);
             assert_eq!(
@@ -840,7 +841,8 @@ mod tests {
     async fn test_lock_and_quiet_boundaries() {
         let driver = TestContext::setup(AuthnOptions::default()).await.driver();
         let now = datetime!(2026-01-01 0:00 UTC);
-        let mut state = FailureHistory { count: 6, last_failure: now, blocked_until: None };
+        let mut state =
+            FailureHistory { window_start: now, count: 6, last_failure: now, blocked_until: None };
         driver.record_login_failure(&mut state, now);
         let until = now + Duration::from_secs(16 * 60);
         assert!(state.is_blocked(now + Duration::from_secs(15 * 60)));
@@ -851,7 +853,12 @@ mod tests {
         assert_eq!(None, state.blocked_until);
 
         for (elapsed, expected) in [(899, 2), (900, 1)] {
-            let mut state = FailureHistory { count: 1, last_failure: now, blocked_until: None };
+            let mut state = FailureHistory {
+                window_start: now,
+                count: 1,
+                last_failure: now,
+                blocked_until: None,
+            };
             driver.record_login_failure(&mut state, now + Duration::from_secs(elapsed));
             assert_eq!(expected, state.count);
         }
@@ -872,7 +879,12 @@ mod tests {
             let context = TestContext::setup(opts).await;
             let driver = context.driver();
             let now = datetime!(2026-01-01 0:00 UTC);
-            let mut state = FailureHistory { count: 0, last_failure: now, blocked_until: None };
+            let mut state = FailureHistory {
+                window_start: now,
+                count: 0,
+                last_failure: now,
+                blocked_until: None,
+            };
             driver.record_login_failure(&mut state, now);
             assert_eq!(expected > 0, state.is_blocked(now));
             if expected > 0 {

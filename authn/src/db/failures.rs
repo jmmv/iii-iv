@@ -37,6 +37,7 @@ impl TryFrom<PgRow> for FailureHistory {
         let count: i64 = row.try_get("failure_count").map_err(postgres::map_sqlx_error)?;
         Ok(Self {
             count: u32::try_from(count).map_err(|e| DbError::DataIntegrityError(e.to_string()))?,
+            window_start: row.try_get("window_start").map_err(postgres::map_sqlx_error)?,
             last_failure: row.try_get("last_failure").map_err(postgres::map_sqlx_error)?,
             blocked_until: row.try_get("blocked_until").map_err(postgres::map_sqlx_error)?,
         })
@@ -62,6 +63,10 @@ impl TryFrom<SqliteRow> for FailureHistory {
         };
         Ok(Self {
             count: u32::try_from(count).map_err(|e| DbError::DataIntegrityError(e.to_string()))?,
+            window_start: build_timestamp(
+                row.try_get("window_start_secs").map_err(sqlite::map_sqlx_error)?,
+                row.try_get("window_start_nsecs").map_err(sqlite::map_sqlx_error)?,
+            )?,
             last_failure: build_timestamp(secs, nsecs)?,
             blocked_until,
         })
@@ -106,7 +111,7 @@ pub(crate) async fn get_failures(
 
 /// Serializes outcomes for an account, including when its history does not exist yet.
 ///
-/// This must be the first statement in the transaction, before any reads.  The upsert locks
+/// Call before any reads unless the transaction already holds a write lock.  The upsert locks
 /// the row on PostgreSQL and acquires SQLite's writer lock without upgrading a read snapshot.
 /// A new zero-count row must be updated, deleted, or rolled back before leaving the transaction.
 pub(crate) async fn lock_failures(
@@ -118,8 +123,8 @@ pub(crate) async fn lock_failures(
     let affected = match ex {
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => sqlx::query(
-            "INSERT INTO authn_failures (user_id, operation, failure_count, last_failure)
-                SELECT id, $2, 0, $3 FROM users WHERE id = $1
+            "INSERT INTO authn_failures (user_id, operation, failure_count, window_start, last_failure)
+                SELECT id, $2, 0, $3, $3 FROM users WHERE id = $1
                 ON CONFLICT (user_id, operation) DO UPDATE SET user_id = EXCLUDED.user_id",
         )
         .bind(user_id)
@@ -135,11 +140,14 @@ pub(crate) async fn lock_failures(
             let (secs, nsecs) = unpack_timestamp(now);
             sqlx::query(
                 "INSERT INTO authn_failures
-                (user_id, operation, failure_count, last_failure_secs, last_failure_nsecs)
-                SELECT id, ?, 0, ?, ? FROM users WHERE id = ?
+                (user_id, operation, failure_count, window_start_secs, window_start_nsecs,
+                 last_failure_secs, last_failure_nsecs)
+                SELECT id, ?, 0, ?, ?, ?, ? FROM users WHERE id = ?
                 ON CONFLICT (user_id, operation) DO UPDATE SET user_id = EXCLUDED.user_id",
             )
             .bind(operation.as_str())
+            .bind(secs)
+            .bind(nsecs)
             .bind(secs)
             .bind(nsecs)
             .bind(user_id)
@@ -170,9 +178,10 @@ pub(crate) async fn save_failures(
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => sqlx::query(
             "UPDATE authn_failures SET failure_count = $1,
-                last_failure = $2, blocked_until = $3 WHERE user_id = $4 AND operation = $5",
+                window_start = $2, last_failure = $3, blocked_until = $4 WHERE user_id = $5 AND operation = $6",
         )
         .bind(i64::from(state.count))
+        .bind(state.window_start)
         .bind(state.last_failure)
         .bind(state.blocked_until)
         .bind(user_id)
@@ -185,13 +194,17 @@ pub(crate) async fn save_failures(
         #[cfg(any(feature = "sqlite", test))]
         Executor::Sqlite(ex) => {
             let (secs, nsecs) = unpack_timestamp(state.last_failure);
+            let (window_secs, window_nsecs) = unpack_timestamp(state.window_start);
             let (blocked_secs, blocked_nsecs) = state.blocked_until.map(unpack_timestamp).unzip();
             sqlx::query(
                 "UPDATE authn_failures SET failure_count = ?,
+                window_start_secs = ?, window_start_nsecs = ?,
                 last_failure_secs = ?, last_failure_nsecs = ?, blocked_until_secs = ?,
                 blocked_until_nsecs = ? WHERE user_id = ? AND operation = ?",
             )
             .bind(i64::from(state.count))
+            .bind(window_secs)
+            .bind(window_nsecs)
             .bind(secs)
             .bind(nsecs)
             .bind(blocked_secs)

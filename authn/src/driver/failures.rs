@@ -19,6 +19,32 @@ use crate::model::FailureHistory;
 use std::time::Duration;
 use time::OffsetDateTime;
 
+/// Fixed counting window followed by a fixed block.
+pub(super) struct FixedWindow {
+    /// Failures required to start blocking.
+    pub(super) limit: u32,
+
+    /// Length of the counting window.
+    pub(super) window: Duration,
+
+    /// Length of the block once the limit is reached.
+    pub(super) block_duration: Duration,
+}
+
+impl FixedWindow {
+    /// Records a failure admitted after checking the current block.
+    pub(super) fn record(&self, state: &mut FailureHistory, now: OffsetDateTime) {
+        if state.count == 0 || now - state.window_start >= self.window {
+            state.count = 0;
+            state.window_start = now;
+        }
+        state.count = state.count.saturating_add(1);
+        state.last_failure = now;
+        state.blocked_until =
+            if state.count >= self.limit { Some(now + self.block_duration) } else { None };
+    }
+}
+
 /// Progressive delay after repeated failures, reset after a quiet interval.
 pub(super) struct ProgressiveBackoff {
     /// Failures required to start blocking.
@@ -39,6 +65,7 @@ impl ProgressiveBackoff {
     pub(super) fn record(&self, state: &mut FailureHistory, now: OffsetDateTime) {
         if now - state.last_failure >= self.quiet_window {
             state.count = 0;
+            state.window_start = now;
         }
         state.count = state.count.saturating_add(1);
         state.last_failure = now;

@@ -113,6 +113,7 @@ mod tests {
     use crate::rest::testutils::*;
     use axum::http;
     use iii_iv_core::{rest::testutils::OneShotBuilder, test_payload_must_be_empty};
+    use std::time::Duration;
 
     fn route(user_id: Uuid, query: ActivateRequest) -> (http::Method, String) {
         (
@@ -215,6 +216,68 @@ mod tests {
             .await;
 
         assert!(!context.user_is_active(user.username.as_ref().unwrap()).await);
+    }
+
+    #[tokio::test]
+    async fn test_activation_rejections_are_identical() {
+        let mut context = TestContextBuilder::new().build().await;
+        let user = context.create_inactive_whoami_user(42).await;
+        let incorrect =
+            OneShotBuilder::new(context.app(), route(user.id, ActivateRequest { code: 0 }))
+                .send_empty()
+                .await
+                .expect_status(http::StatusCode::BAD_REQUEST)
+                .take_response_snapshot()
+                .await;
+        let missing =
+            OneShotBuilder::new(context.app(), route(Uuid::new_v4(), ActivateRequest { code: 42 }))
+                .send_empty()
+                .await
+                .expect_status(http::StatusCode::BAD_REQUEST)
+                .take_response_snapshot()
+                .await;
+        assert_eq!(incorrect, missing);
+
+        for _ in 0..9 {
+            OneShotBuilder::new(context.app(), route(user.id, ActivateRequest { code: 0 }))
+                .send_empty()
+                .await
+                .expect_status(http::StatusCode::BAD_REQUEST)
+                .expect_error("^Invalid activation code$")
+                .await;
+        }
+        let blocked =
+            OneShotBuilder::new(context.app(), route(user.id, ActivateRequest { code: 42 }))
+                .send_empty()
+                .await
+                .expect_status(http::StatusCode::BAD_REQUEST)
+                .take_response_snapshot()
+                .await;
+        assert_eq!(incorrect, blocked);
+
+        context.advance_clock(Duration::from_secs(86400));
+        let expired =
+            OneShotBuilder::new(context.app(), route(user.id, ActivateRequest { code: 42 }))
+                .send_empty()
+                .await
+                .expect_status(http::StatusCode::BAD_REQUEST)
+                .take_response_snapshot()
+                .await;
+        assert_eq!(incorrect, expired);
+
+        let mut context = TestContextBuilder::new().build().await;
+        let user = context.create_inactive_whoami_user(42).await;
+        OneShotBuilder::new(context.app(), route(user.id, ActivateRequest { code: 42 }))
+            .send_empty()
+            .await
+            .verify();
+        let used = OneShotBuilder::new(context.app(), route(user.id, ActivateRequest { code: 42 }))
+            .send_empty()
+            .await
+            .expect_status(http::StatusCode::BAD_REQUEST)
+            .take_response_snapshot()
+            .await;
+        assert_eq!(incorrect, used);
     }
 
     #[tokio::test]

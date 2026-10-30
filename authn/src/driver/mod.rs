@@ -61,6 +61,15 @@ pub use tasks::AuthnTaskRunner;
 #[cfg(any(test, feature = "testutils"))]
 pub mod testutils;
 
+/// Default duration of activation retry blocks.
+const DEFAULT_ACTIVATION_BLOCK_DURATION: Duration = Duration::from_secs(60 * 60);
+
+/// Default number of activation failures before blocking.
+const DEFAULT_ACTIVATION_FAILURE_LIMIT: u32 = 10;
+
+/// Default activation failure counting window.
+const DEFAULT_ACTIVATION_FAILURE_WINDOW: Duration = Duration::from_secs(60 * 60);
+
 /// Default maximum age of activation codes.
 const DEFAULT_ACTIVATION_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 
@@ -99,6 +108,18 @@ const DEFAULT_SESSION_MAX_SKEW: Duration = Duration::from_secs(60 * 60);
 #[cfg_attr(test, derive(PartialEq))]
 #[options(prefix = "AUTHN")]
 pub struct AuthnOptions {
+    /// Duration of activation retry blocks.  Zero imposes no delay.
+    #[option(default = DEFAULT_ACTIVATION_BLOCK_DURATION)]
+    pub activation_block_duration: Duration,
+
+    /// Number of activation failures before blocking.  Zero blocks after the first failure.
+    #[option(default = DEFAULT_ACTIVATION_FAILURE_LIMIT)]
+    pub activation_failure_limit: u32,
+
+    /// Activation failure counting window.  Zero resets counting on every failure.
+    #[option(default = DEFAULT_ACTIVATION_FAILURE_WINDOW)]
+    pub activation_failure_window: Duration,
+
     /// Maximum lifetime of activation codes.  Zero makes codes expire immediately.
     #[option(default = DEFAULT_ACTIVATION_MAX_AGE)]
     pub activation_max_age: Duration,
@@ -155,6 +176,9 @@ pub struct AuthnOptions {
 impl Default for AuthnOptions {
     fn default() -> Self {
         Self {
+            activation_block_duration: DEFAULT_ACTIVATION_BLOCK_DURATION,
+            activation_failure_limit: DEFAULT_ACTIVATION_FAILURE_LIMIT,
+            activation_failure_window: DEFAULT_ACTIVATION_FAILURE_WINDOW,
             activation_max_age: DEFAULT_ACTIVATION_MAX_AGE,
             email_retry_delay: DEFAULT_EMAIL_RETRY_DELAY,
             login_backoff_threshold: DEFAULT_LOGIN_BACKOFF_THRESHOLD,
@@ -412,6 +436,10 @@ mod tests {
     pub fn test_options_from_env_all_all_missing() {
         temp_env::with_vars_unset(
             [
+                "TEST_AUTHN_ACTIVATION_BLOCK_DURATION",
+                "TEST_AUTHN_ACTIVATION_FAILURE_LIMIT",
+                "TEST_AUTHN_ACTIVATION_FAILURE_WINDOW",
+                "TEST_AUTHN_ACTIVATION_MAX_AGE",
                 "TEST_AUTHN_EMAIL_RETRY_DELAY",
                 "TEST_AUTHN_LOGIN_BACKOFF_THRESHOLD",
                 "TEST_AUTHN_LOGIN_BACKOFF_QUIET_WINDOW",
@@ -427,6 +455,9 @@ mod tests {
             || {
                 let opts = AuthnOptions::from_env("TEST").unwrap();
                 assert_eq!(AuthnOptions::default(), opts);
+                assert_eq!(Duration::from_secs(3600), opts.activation_block_duration);
+                assert_eq!(10, opts.activation_failure_limit);
+                assert_eq!(Duration::from_secs(3600), opts.activation_failure_window);
                 assert_eq!(4, opts.password_hash_concurrency);
                 assert_eq!(Duration::ZERO, opts.sessions_cache_ttl);
             },
@@ -438,6 +469,9 @@ mod tests {
     pub fn test_options_from_env_all_optional_present() {
         temp_env::with_vars(
             [
+                ("TEST_AUTHN_ACTIVATION_BLOCK_DURATION", Some("3m")),
+                ("TEST_AUTHN_ACTIVATION_FAILURE_LIMIT", Some("7")),
+                ("TEST_AUTHN_ACTIVATION_FAILURE_WINDOW", Some("5m")),
                 ("TEST_AUTHN_ACTIVATION_MAX_AGE", Some("2h")),
                 ("TEST_AUTHN_EMAIL_RETRY_DELAY", Some("50m")),
                 ("TEST_AUTHN_LOGIN_BACKOFF_THRESHOLD", Some("5")),
@@ -455,6 +489,9 @@ mod tests {
                 let opts = AuthnOptions::from_env("TEST").unwrap();
                 assert_eq!(
                     AuthnOptions {
+                        activation_block_duration: Duration::from_secs(3 * 60),
+                        activation_failure_limit: 7,
+                        activation_failure_window: Duration::from_secs(5 * 60),
                         activation_max_age: Duration::from_secs(2 * 60 * 60),
                         email_retry_delay: Duration::from_secs(50 * 60),
                         login_backoff_threshold: 5,
@@ -470,6 +507,24 @@ mod tests {
                     },
                     opts
                 );
+            },
+        );
+    }
+
+    #[test]
+    #[serial(AUTHN)]
+    fn test_activation_policy_options_from_env_zero() {
+        temp_env::with_vars(
+            [
+                ("TEST_AUTHN_ACTIVATION_BLOCK_DURATION", Some("0s")),
+                ("TEST_AUTHN_ACTIVATION_FAILURE_LIMIT", Some("0")),
+                ("TEST_AUTHN_ACTIVATION_FAILURE_WINDOW", Some("0s")),
+            ],
+            || {
+                let opts = AuthnOptions::from_env("TEST").unwrap();
+                assert_eq!(Duration::ZERO, opts.activation_block_duration);
+                assert_eq!(0, opts.activation_failure_limit);
+                assert_eq!(Duration::ZERO, opts.activation_failure_window);
             },
         );
     }

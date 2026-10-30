@@ -15,8 +15,8 @@
 
 //! Persistence of pending account activation.
 
-use crate::db::get_user_by_id;
-use crate::model::{ActivationState, User};
+use crate::db::{clear_failures, get_user_by_id, lock_failures};
+use crate::model::{ActivationState, FailureOperation, User};
 #[cfg(feature = "postgres")]
 use iii_iv_core::db::postgres;
 #[cfg(any(feature = "sqlite", test))]
@@ -95,15 +95,18 @@ pub async fn get_user_activation(
     }
 }
 
-/// Inserts pending activation, or removes it to mark a user active.
+/// Inserts or clears activation state and resets activation failures atomically.
 ///
 /// Returns `DbError::AlreadyExists` if the user already has pending activation.
+///
+/// Call within a transaction, before reads unless a write lock is already held.
 pub async fn set_user_activation(
     ex: &mut Executor,
     user: User,
     activation: Option<ActivationState>,
 ) -> DbResult<User> {
-    get_user_by_id(ex, user.id).await?;
+    let now = activation.as_ref().map_or(OffsetDateTime::UNIX_EPOCH, |state| state.issued_at);
+    lock_failures(ex, user.id, FailureOperation::Activation, now).await?;
     match ex {
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => match activation {
@@ -162,6 +165,7 @@ pub async fn set_user_activation(
         #[allow(unused)]
         _ => unreachable!(),
     }
+    clear_failures(ex, user.id, FailureOperation::Activation).await?;
     get_user_by_id(ex, user.id).await
 }
 

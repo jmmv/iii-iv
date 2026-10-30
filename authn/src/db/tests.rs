@@ -544,6 +544,35 @@ async fn test_failures_persistence(ex: &mut Executor) {
     assert_eq!(None, get_failures(ex, user.id, FailureOperation::Login).await.unwrap());
 }
 
+async fn test_failure_operation_isolation(ex: &mut Executor) {
+    let user = create_simple_user(ex, "isolation").await;
+    let now = datetime!(2026-01-01 0:00 UTC);
+
+    let mut activation =
+        lock_failures(ex, user.id, FailureOperation::Activation, now).await.unwrap();
+    activation.count = 7;
+    activation.blocked_until = Some(now + Duration::from_secs(3600));
+    save_failures(ex, user.id, FailureOperation::Activation, &activation).await.unwrap();
+
+    let mut login = lock_failures(ex, user.id, FailureOperation::Login, now).await.unwrap();
+    login.count = 2;
+    save_failures(ex, user.id, FailureOperation::Login, &login).await.unwrap();
+
+    clear_failures(ex, user.id, FailureOperation::Login).await.unwrap();
+    assert_eq!(None, get_failures(ex, user.id, FailureOperation::Login).await.unwrap());
+    assert_eq!(
+        Some(activation),
+        get_failures(ex, user.id, FailureOperation::Activation).await.unwrap()
+    );
+
+    delete_user(ex, user.id).await.unwrap();
+    assert_eq!(None, get_failures(ex, user.id, FailureOperation::Activation).await.unwrap());
+    assert_eq!(
+        DbError::NotFound,
+        lock_failures(ex, user.id, FailureOperation::Activation, now).await.unwrap_err()
+    );
+}
+
 async fn test_failures_rollback(db: Arc<dyn Db + Send + Sync>) {
     let user = create_simple_user(&mut db.ex().await.unwrap(), "backoff").await;
     let now = datetime!(2026-01-01 0:00 UTC);
@@ -568,6 +597,7 @@ macro_rules! generate_db_tests [
             $setup,
             $crate::db::tests,
             test_activation_expiry,
+            test_failure_operation_isolation,
             test_failures_persistence,
             test_users_ok,
             test_users_not_found,
