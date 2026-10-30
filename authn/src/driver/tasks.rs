@@ -88,7 +88,9 @@ impl AuthnTaskRunner {
             Err(e) => return Err(e.into()),
         };
 
-        if db::get_user_activation_code(tx.ex(), user.id).await? != Some(activation_code) {
+        if db::get_user_activation(tx.ex(), user.id).await?.map(|activation| activation.code)
+            != Some(activation_code)
+        {
             return Ok(Some("Skipped obsolete activation email".to_owned()));
         }
 
@@ -117,6 +119,7 @@ mod tests {
     use super::*;
     use crate::driver::testutils::TestContext;
     use crate::driver::{AuthnNoHooks, AuthnOptions};
+    use crate::model::ActivationState;
     use iii_iv_core::db::Db;
     use iii_iv_core::model::{email_address, username};
     use iii_iv_queue::model::ExecError;
@@ -143,7 +146,7 @@ mod tests {
         .await
         .unwrap();
         let user_id = user.id;
-        db::set_user_activation_code(&mut ex, user, Some(9876)).await.unwrap();
+        db::set_user_activation(&mut ex, user, Some(ActivationState::new(9876))).await.unwrap();
         AuthnTask::SendActivationEmail { activation_code: 9876, user_id }
     }
 
@@ -170,7 +173,7 @@ mod tests {
         let user = db::get_user_by_username(&mut context.ex().await, username!("some-user"))
             .await
             .unwrap();
-        db::set_user_activation_code(&mut context.ex().await, user, None).await.unwrap();
+        db::set_user_activation(&mut context.ex().await, user, None).await.unwrap();
 
         let result = context.task_runner.run(task).await.ok().unwrap().unwrap();
         assert!(result.contains("obsolete"));

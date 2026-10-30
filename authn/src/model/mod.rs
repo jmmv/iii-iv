@@ -17,6 +17,8 @@
 
 mod accesstoken;
 pub use accesstoken::AccessToken;
+mod activation;
+pub use activation::ActivationState;
 mod coupon;
 #[cfg(any(test, feature = "testutils"))]
 pub use coupon::coupon_name;

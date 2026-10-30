@@ -222,7 +222,7 @@ mod tests {
     use crate::driver::passwords::PasswordHasher;
     use crate::driver::testutils::*;
     use crate::driver::{AuthnOptions, NO_EXTENSIONS};
-    use crate::model::{hashed_password, password};
+    use crate::model::{ActivationState, hashed_password, password};
     use iii_iv_core::clocks::testutils::SettableClock;
     use iii_iv_core::db::Db;
     use iii_iv_core::driver::DriverError;
@@ -316,7 +316,9 @@ mod tests {
                         .unwrap();
                     } else {
                         let current = db::get_user_by_id(&mut ex, user.id).await.unwrap();
-                        db::set_user_activation_code(&mut ex, current, Some(42)).await.unwrap();
+                        db::set_user_activation(&mut ex, current, Some(ActivationState::new(42)))
+                            .await
+                            .unwrap();
                     }
                 })
             }),
@@ -654,7 +656,9 @@ mod tests {
         )
         .await
         .unwrap();
-        db::set_user_activation_code(&mut context.ex().await, user, Some(50)).await.unwrap();
+        db::set_user_activation(&mut context.ex().await, user, Some(ActivationState::new(50)))
+            .await
+            .unwrap();
         let user =
             db::get_user_by_username(&mut context.ex().await, username.clone()).await.unwrap();
 

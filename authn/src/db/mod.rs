@@ -31,7 +31,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 mod activation;
-pub use activation::{get_user_activation_code, set_user_activation_code};
+pub use activation::{get_user_activation, set_user_activation};
 
 mod login_failures;
 pub(crate) use login_failures::{
