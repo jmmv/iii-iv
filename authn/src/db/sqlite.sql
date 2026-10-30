@@ -46,7 +46,11 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS activation_state (
     user_id UUID PRIMARY KEY NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    code INTEGER NOT NULL
+    code INTEGER NOT NULL,
+    issued_at_secs INTEGER NOT NULL,
+    issued_at_nsecs INTEGER NOT NULL,
+    expires_at_secs INTEGER NOT NULL,
+    expires_at_nsecs INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS login_failures (

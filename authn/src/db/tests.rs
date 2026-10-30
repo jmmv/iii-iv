@@ -22,6 +22,7 @@ use crate::model::{
 use iii_iv_core::db::{Db, DbError, Executor};
 use iii_iv_core::model::{EmailAddress, Username, email_address, username};
 use std::sync::Arc;
+use std::time::Duration;
 use time::macros::datetime;
 use uuid::Uuid;
 
@@ -220,7 +221,17 @@ async fn test_set_user_activation_ok(ex: &mut Executor) {
     .unwrap();
     assert!(user.is_active);
 
-    user = set_user_activation(ex, user, Some(ActivationState::new(123456))).await.unwrap();
+    user = set_user_activation(
+        ex,
+        user,
+        Some(ActivationState::new(
+            123456,
+            datetime!(2023-12-01 05:50:00 UTC),
+            Duration::from_secs(86400),
+        )),
+    )
+    .await
+    .unwrap();
     assert!(!user.is_active);
 
     let read_user = get_user_by_id(ex, user.id).await.unwrap();
@@ -233,12 +244,92 @@ async fn test_set_user_activation_ok(ex: &mut Executor) {
     assert!(read_user.is_active);
 }
 
+async fn test_activation_expiry(ex: &mut Executor) {
+    let user = create_simple_user(ex, "expiry").await;
+    let id = user.id;
+    let issued = datetime!(2026-01-01 0:00:00.123456 UTC);
+    let age = Duration::from_secs(10);
+    let activation = ActivationState::new(u64::MAX, issued, age);
+    let expires = activation.expires_at;
+    let user = set_user_activation(ex, user, Some(activation)).await.unwrap();
+    assert_eq!(
+        Some(ActivationState::new(u64::MAX, issued, age)),
+        get_user_activation(ex, id).await.unwrap()
+    );
+
+    assert!(!consume_user_activation(ex, id, 1, issued).await.unwrap());
+    assert!(!consume_user_activation(ex, id, u64::MAX, expires).await.unwrap());
+    assert!(
+        !consume_user_activation(ex, id, u64::MAX, expires + Duration::from_secs(1)).await.unwrap()
+    );
+    assert!(!get_user_by_id(ex, id).await.unwrap().is_active);
+    assert!(
+        consume_user_activation(ex, id, u64::MAX, expires - Duration::from_nanos(1000))
+            .await
+            .unwrap()
+    );
+    assert!(!consume_user_activation(ex, id, u64::MAX, issued).await.unwrap());
+    assert!(get_user_by_id(ex, id).await.unwrap().is_active);
+
+    set_user_activation(ex, user, Some(ActivationState::new(7, issued, Duration::ZERO)))
+        .await
+        .unwrap();
+    assert!(!consume_user_activation(ex, id, 7, issued).await.unwrap());
+    assert!(!consume_user_activation(ex, Uuid::new_v4(), 7, issued).await.unwrap());
+}
+
+async fn test_activation_consume_race(db: Arc<dyn Db + Send + Sync>) {
+    let user = create_simple_user(&mut db.ex().await.unwrap(), "race").await;
+    let id = user.id;
+    let now = datetime!(2026-01-01 0:00 UTC);
+    set_user_activation(
+        &mut db.ex().await.unwrap(),
+        user,
+        Some(ActivationState::new(7, now, Duration::from_secs(10))),
+    )
+    .await
+    .unwrap();
+
+    let attempt = || async {
+        let mut tx = db.begin().await.unwrap();
+        let result = consume_user_activation(tx.ex(), id, 7, now).await.unwrap();
+        tx.commit().await.unwrap();
+        result
+    };
+    let (first, second) = tokio::join!(attempt(), attempt());
+    assert_ne!(first, second);
+
+    let user = get_user_by_id(&mut db.ex().await.unwrap(), id).await.unwrap();
+    set_user_activation(
+        &mut db.ex().await.unwrap(),
+        user,
+        Some(ActivationState::new(8, now, Duration::from_secs(10))),
+    )
+    .await
+    .unwrap();
+    {
+        let mut tx = db.begin().await.unwrap();
+        assert!(consume_user_activation(tx.ex(), id, 8, now).await.unwrap());
+    }
+    assert!(get_user_activation(&mut db.ex().await.unwrap(), id).await.unwrap().is_some());
+}
+
 async fn test_activation_rollback(db: Arc<dyn Db + Send + Sync>) {
     let user = create_simple_user(&mut db.ex().await.unwrap(), "activation").await;
     let id = user.id;
     {
         let mut tx = db.begin().await.unwrap();
-        set_user_activation(tx.ex(), user, Some(ActivationState::new(7))).await.unwrap();
+        set_user_activation(
+            tx.ex(),
+            user,
+            Some(ActivationState::new(
+                7,
+                datetime!(2023-12-01 05:50:00 UTC),
+                Duration::from_secs(86400),
+            )),
+        )
+        .await
+        .unwrap();
         assert!(!get_user_by_id(tx.ex(), id).await.unwrap().is_active);
     }
     assert!(get_user_by_id(&mut db.ex().await.unwrap(), id).await.unwrap().is_active);
@@ -247,7 +338,18 @@ async fn test_activation_rollback(db: Arc<dyn Db + Send + Sync>) {
 async fn test_set_user_activation_not_found(ex: &mut Executor) {
     let user = User::new(Uuid::new_v4(), Some(username!("foo")), email_address!("a@example.com"));
 
-    match set_user_activation(ex, user, Some(ActivationState::new(1))).await.unwrap_err() {
+    match set_user_activation(
+        ex,
+        user,
+        Some(ActivationState::new(
+            1,
+            datetime!(2023-12-01 05:50:00 UTC),
+            Duration::from_secs(86400),
+        )),
+    )
+    .await
+    .unwrap_err()
+    {
         DbError::NotFound => (),
         e => panic!("{}", e),
     }
@@ -460,6 +562,7 @@ macro_rules! generate_db_tests [
             $(#[$extra],)?
             $setup,
             $crate::db::tests,
+            test_activation_expiry,
             test_login_failures_persistence,
             test_users_ok,
             test_users_not_found,
@@ -503,6 +606,7 @@ mod postgres {
         #[ignore = "Requires environment configuration and is expensive"],
         { let db = Arc::from(setup().await); (db.clone(), db) },
         crate::db::tests,
+        test_activation_consume_race,
         test_activation_rollback,
         test_login_failures_rollback
     );
@@ -535,6 +639,7 @@ mod sqlite {
             (db.clone(), db)
         },
         crate::db::tests,
+        test_activation_consume_race,
         test_activation_rollback,
         test_login_failures_rollback
     );

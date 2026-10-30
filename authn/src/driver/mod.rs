@@ -60,6 +60,9 @@ pub use tasks::AuthnTaskRunner;
 #[cfg(any(test, feature = "testutils"))]
 pub mod testutils;
 
+/// Default maximum age of activation codes.
+const DEFAULT_ACTIVATION_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+
 /// Default delay before retrying email deliveries.
 const DEFAULT_EMAIL_RETRY_DELAY: Duration = Duration::from_secs(24 * 60 * 60);
 
@@ -95,6 +98,10 @@ const DEFAULT_SESSION_MAX_SKEW: Duration = Duration::from_secs(60 * 60);
 #[cfg_attr(test, derive(PartialEq))]
 #[options(prefix = "AUTHN")]
 pub struct AuthnOptions {
+    /// Maximum lifetime of activation codes.  Zero makes codes expire immediately.
+    #[option(default = DEFAULT_ACTIVATION_MAX_AGE)]
+    pub activation_max_age: Duration,
+
     /// Delay before retrying email deliveries.
     #[option(default = DEFAULT_EMAIL_RETRY_DELAY)]
     pub email_retry_delay: Duration,
@@ -147,6 +154,7 @@ pub struct AuthnOptions {
 impl Default for AuthnOptions {
     fn default() -> Self {
         Self {
+            activation_max_age: DEFAULT_ACTIVATION_MAX_AGE,
             email_retry_delay: DEFAULT_EMAIL_RETRY_DELAY,
             login_backoff_threshold: DEFAULT_LOGIN_BACKOFF_THRESHOLD,
             login_backoff_quiet_window: DEFAULT_LOGIN_BACKOFF_QUIET_WINDOW,
@@ -429,6 +437,7 @@ mod tests {
     pub fn test_options_from_env_all_optional_present() {
         temp_env::with_vars(
             [
+                ("TEST_AUTHN_ACTIVATION_MAX_AGE", Some("2h")),
                 ("TEST_AUTHN_EMAIL_RETRY_DELAY", Some("50m")),
                 ("TEST_AUTHN_LOGIN_BACKOFF_THRESHOLD", Some("5")),
                 ("TEST_AUTHN_LOGIN_BACKOFF_INITIAL_DELAY", Some("2s")),
@@ -445,6 +454,7 @@ mod tests {
                 let opts = AuthnOptions::from_env("TEST").unwrap();
                 assert_eq!(
                     AuthnOptions {
+                        activation_max_age: Duration::from_secs(2 * 60 * 60),
                         email_retry_delay: Duration::from_secs(50 * 60),
                         login_backoff_threshold: 5,
                         login_backoff_quiet_window: Duration::from_secs(30),

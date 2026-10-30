@@ -112,9 +112,16 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         };
 
         let activation_code = rand::random::<u64>();
-        let user =
-            db::set_user_activation(tx.ex(), user, Some(ActivationState::new(activation_code)))
-                .await?;
+        let user = db::set_user_activation(
+            tx.ex(),
+            user,
+            Some(ActivationState::new(
+                activation_code,
+                self.clock.now_utc(),
+                self.opts.activation_max_age,
+            )),
+        )
+        .await?;
 
         self.hooks.signup_hook(&mut tx, now, &user, input).await?;
 
@@ -138,6 +145,7 @@ mod tests {
     use iii_iv_core::driver::DriverError;
     use iii_iv_core::model::{email_address, username};
     use std::sync::Arc;
+    use std::time::Duration;
     use time::macros::datetime;
 
     #[tokio::test]
@@ -169,6 +177,34 @@ mod tests {
                 .map(|activation| activation.code),
             context.get_latest_activation_code(&user.email, Some(user.id)).await
         );
+    }
+
+    #[tokio::test]
+    async fn test_signup_activation_age() {
+        for max_age in [Duration::ZERO, Duration::from_secs(42)] {
+            let context = TestContext::setup(AuthnOptions {
+                activation_max_age: max_age,
+                ..Default::default()
+            })
+            .await;
+            let email = email_address!("age@example.com");
+            context
+                .driver()
+                .signup(
+                    Some(username!("age")),
+                    password!("sufficiently0complex"),
+                    email.clone(),
+                    None,
+                    NO_EXTENSIONS,
+                )
+                .await
+                .unwrap();
+            let user = db::get_user_by_email(&mut context.ex().await, email).await.unwrap();
+            let activation =
+                db::get_user_activation(&mut context.ex().await, user.id).await.unwrap().unwrap();
+            assert_eq!(context.driver().now_utc(), activation.issued_at);
+            assert_eq!(activation.issued_at + max_age, activation.expires_at);
+        }
     }
 
     #[tokio::test]

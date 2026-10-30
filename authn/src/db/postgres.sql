@@ -55,7 +55,9 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS activation_state (
     user_id UUID PRIMARY KEY NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    code BIGINT NOT NULL
+    code BIGINT NOT NULL,
+    issued_at TIMESTAMPTZ NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS login_failures (

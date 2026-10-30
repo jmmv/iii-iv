@@ -22,21 +22,14 @@ use iii_iv_core::driver::{DriverError, DriverResult};
 use uuid::Uuid;
 
 impl<H: AuthnHooks> AuthnDriver<H> {
-    /// Marks a used as active based on a confirmation code.
+    /// Marks a user as active based on a confirmation code.
     pub(crate) async fn activate(self, user_id: Uuid, code: u64) -> DriverResult<User> {
         let mut tx = self.db.begin().await?;
 
-        let user = db::get_user_by_id(tx.ex(), user_id).await?;
-        match db::get_user_activation(tx.ex(), user.id).await?.map(|activation| activation.code) {
-            Some(exp_code) => {
-                if exp_code != code {
-                    return Err(DriverError::InvalidInput("Invalid activation code".to_owned()));
-                }
-            }
-            None => return Err(DriverError::InvalidInput("User is already active".to_owned())),
+        if !db::consume_user_activation(tx.ex(), user_id, code, self.clock.now_utc()).await? {
+            return Err(DriverError::InvalidInput("Invalid activation code".to_owned()));
         }
-
-        let user = db::set_user_activation(tx.ex(), user, None).await?;
+        let user = db::get_user_by_id(tx.ex(), user_id).await?;
         tx.commit().await?;
 
         Ok(user)
@@ -49,8 +42,12 @@ mod tests {
     use crate::driver::AuthnOptions;
     use crate::driver::testutils::*;
     use crate::model::ActivationState;
+    use iii_iv_core::clocks::testutils::SettableClock;
     use iii_iv_core::db::Executor;
     use iii_iv_core::model::{email_address, username};
+    use std::sync::Arc;
+    use std::time::Duration;
+    use time::macros::datetime;
 
     /// Creates a test user with an optional activation `code` and returns its ID.
     async fn create_test_user(ex: &mut Executor, code: Option<u64>) -> Uuid {
@@ -64,7 +61,19 @@ mod tests {
         .await
         .unwrap();
         let user_id = user.id;
-        db::set_user_activation(ex, user, code.map(ActivationState::new)).await.unwrap();
+        db::set_user_activation(
+            ex,
+            user,
+            code.map(|code| {
+                ActivationState::new(
+                    code,
+                    datetime!(2023-12-01 05:50:00 UTC),
+                    Duration::from_secs(86400),
+                )
+            }),
+        )
+        .await
+        .unwrap();
 
         user_id
     }
@@ -94,6 +103,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_activate_expired() {
+        let context = TestContext::setup(AuthnOptions::default()).await;
+        let id = create_test_user(&mut context.ex().await, Some(42)).await;
+        let activation =
+            db::get_user_activation(&mut context.ex().await, id).await.unwrap().unwrap();
+        assert_eq!(context.driver().now_utc() + Duration::from_secs(86400), activation.expires_at);
+        let clock = Arc::new(SettableClock::new(activation.expires_at));
+        let later = TestContext::setup_with(
+            AuthnOptions::default(),
+            context.driver().db.clone(),
+            clock,
+            "the-realm",
+            true,
+        )
+        .await;
+        assert_eq!(
+            Err(DriverError::InvalidInput("Invalid activation code".to_owned())),
+            later.driver().activate(id, 42).await
+        );
+        assert!(!db::get_user_by_id(&mut later.ex().await, id).await.unwrap().is_active);
+    }
+
+    #[tokio::test]
     async fn test_activate_bad_code() {
         let context = TestContext::setup(AuthnOptions::default()).await;
 
@@ -115,7 +147,7 @@ mod tests {
         let user_id = create_test_user(&mut context.ex().await, None).await;
 
         match context.driver().activate(user_id, 1234).await {
-            Err(DriverError::InvalidInput(e)) => assert!(e.contains("already active")),
+            Err(DriverError::InvalidInput(e)) => assert!(e == "Invalid activation code"),
             e => panic!("{:?}", e),
         }
 
@@ -130,7 +162,7 @@ mod tests {
         let user_id = Uuid::new_v4();
 
         match context.driver().activate(user_id, 1234).await {
-            Err(DriverError::NotFound(_)) => (),
+            Err(DriverError::InvalidInput(e)) => assert_eq!("Invalid activation code", e),
             e => panic!("{:?}", e),
         }
 

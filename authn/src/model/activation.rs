@@ -15,16 +15,25 @@
 
 //! Pending account activation.
 
-/// A pending account activation.
+use std::time::Duration;
+use time::OffsetDateTime;
+
+/// A pending account activation and its validity interval.
 #[derive(Debug, PartialEq)]
 pub struct ActivationState {
     /// Code required to activate the account.
     pub code: u64,
+
+    /// Time at which the code was issued.
+    pub issued_at: OffsetDateTime,
+
+    /// Exclusive end of the code's validity.
+    pub expires_at: OffsetDateTime,
 }
 
 impl ActivationState {
-    /// Creates a pending activation with the given code.
-    pub fn new(code: u64) -> Self {
-        Self { code }
+    /// Creates a code valid for the configured maximum age after issuance.
+    pub fn new(code: u64, issued_at: OffsetDateTime, max_age: Duration) -> Self {
+        Self { code, issued_at, expires_at: issued_at + max_age }
     }
 }

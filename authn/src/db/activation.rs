@@ -20,13 +20,14 @@ use crate::model::{ActivationState, User};
 #[cfg(feature = "postgres")]
 use iii_iv_core::db::postgres;
 #[cfg(any(feature = "sqlite", test))]
-use iii_iv_core::db::sqlite;
+use iii_iv_core::db::sqlite::{self, build_timestamp, unpack_timestamp};
 use iii_iv_core::db::{DbError, DbResult, Executor};
 use sqlx::Row;
 #[cfg(feature = "postgres")]
 use sqlx::postgres::PgRow;
 #[cfg(any(feature = "sqlite", test))]
 use sqlx::sqlite::SqliteRow;
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 #[cfg(feature = "postgres")]
@@ -35,7 +36,11 @@ impl TryFrom<PgRow> for ActivationState {
 
     fn try_from(row: PgRow) -> DbResult<Self> {
         let code: i64 = row.try_get("code").map_err(postgres::map_sqlx_error)?;
-        Ok(Self { code: code as u64 })
+        Ok(Self {
+            code: code as u64,
+            issued_at: row.try_get("issued_at").map_err(postgres::map_sqlx_error)?,
+            expires_at: row.try_get("expires_at").map_err(postgres::map_sqlx_error)?,
+        })
     }
 }
 
@@ -45,7 +50,17 @@ impl TryFrom<SqliteRow> for ActivationState {
 
     fn try_from(row: SqliteRow) -> DbResult<Self> {
         let code: i64 = row.try_get("code").map_err(sqlite::map_sqlx_error)?;
-        Ok(Self { code: code as u64 })
+        Ok(Self {
+            code: code as u64,
+            issued_at: build_timestamp(
+                row.try_get("issued_at_secs").map_err(sqlite::map_sqlx_error)?,
+                row.try_get("issued_at_nsecs").map_err(sqlite::map_sqlx_error)?,
+            )?,
+            expires_at: build_timestamp(
+                row.try_get("expires_at_secs").map_err(sqlite::map_sqlx_error)?,
+                row.try_get("expires_at_nsecs").map_err(sqlite::map_sqlx_error)?,
+            )?,
+        })
     }
 }
 
@@ -101,12 +116,17 @@ pub async fn set_user_activation(
             }
 
             Some(activation) => {
-                sqlx::query("INSERT INTO activation_state (user_id, code) VALUES ($1, $2)")
-                    .bind(user.id)
-                    .bind(activation.code as i64)
-                    .execute(ex)
-                    .await
-                    .map_err(postgres::map_sqlx_error)?;
+                sqlx::query(
+                    "INSERT INTO activation_state (user_id, code, issued_at, expires_at)
+                        VALUES ($1, $2, $3, $4)",
+                )
+                .bind(user.id)
+                .bind(activation.code as i64)
+                .bind(activation.issued_at)
+                .bind(activation.expires_at)
+                .execute(ex)
+                .await
+                .map_err(postgres::map_sqlx_error)?;
             }
         },
 
@@ -121,12 +141,21 @@ pub async fn set_user_activation(
             }
 
             Some(activation) => {
-                sqlx::query("INSERT INTO activation_state (user_id, code) VALUES (?, ?)")
-                    .bind(user.id)
-                    .bind(activation.code as i64)
-                    .execute(ex)
-                    .await
-                    .map_err(sqlite::map_sqlx_error)?;
+                let (issued_secs, issued_nsecs) = unpack_timestamp(activation.issued_at);
+                let (expires_secs, expires_nsecs) = unpack_timestamp(activation.expires_at);
+                sqlx::query(
+                    "INSERT INTO activation_state (user_id, code, issued_at_secs, issued_at_nsecs,
+                        expires_at_secs, expires_at_nsecs) VALUES (?, ?, ?, ?, ?, ?)",
+                )
+                .bind(user.id)
+                .bind(activation.code as i64)
+                .bind(issued_secs)
+                .bind(issued_nsecs)
+                .bind(expires_secs)
+                .bind(expires_nsecs)
+                .execute(ex)
+                .await
+                .map_err(sqlite::map_sqlx_error)?;
             }
         },
 
@@ -134,4 +163,48 @@ pub async fn set_user_activation(
         _ => unreachable!(),
     }
     get_user_by_id(ex, user.id).await
+}
+
+/// Atomically consumes a matching, unexpired code.  Returns whether activation succeeded.
+pub async fn consume_user_activation(
+    ex: &mut Executor,
+    user_id: Uuid,
+    code: u64,
+    now: OffsetDateTime,
+) -> DbResult<bool> {
+    let affected = match ex {
+        #[cfg(feature = "postgres")]
+        Executor::Postgres(ex) => sqlx::query(
+            "DELETE FROM activation_state WHERE user_id = $1 AND code = $2 AND expires_at > $3",
+        )
+        .bind(user_id)
+        .bind(code as i64)
+        .bind(now)
+        .execute(ex)
+        .await
+        .map_err(postgres::map_sqlx_error)?
+        .rows_affected(),
+
+        #[cfg(any(feature = "sqlite", test))]
+        Executor::Sqlite(ex) => {
+            let (secs, nsecs) = unpack_timestamp(now);
+            sqlx::query(
+                "DELETE FROM activation_state WHERE user_id = ? AND code = ?
+                AND (expires_at_secs > ? OR (expires_at_secs = ? AND expires_at_nsecs > ?))",
+            )
+            .bind(user_id)
+            .bind(code as i64)
+            .bind(secs)
+            .bind(secs)
+            .bind(nsecs)
+            .execute(ex)
+            .await
+            .map_err(sqlite::map_sqlx_error)?
+            .rows_affected()
+        }
+
+        #[allow(unused)]
+        _ => unreachable!(),
+    };
+    Ok(affected == 1)
 }
