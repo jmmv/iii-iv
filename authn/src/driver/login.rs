@@ -165,7 +165,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         if !verified
             || user.password.is_none()
             || user.password != admitted_user.password
-            || user.activation_code.is_some()
+            || !user.is_active
         {
             self.record_login_failure(&mut failures, now);
             db::save_login_failures(tx.ex(), user.id, &failures).await?;

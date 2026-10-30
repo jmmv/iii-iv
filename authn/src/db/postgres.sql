@@ -49,14 +49,13 @@ CREATE TABLE IF NOT EXISTS users (
     -- Coupon used during signup, if any.
     coupon VARCHAR(16) REFERENCES coupons (name),
 
-    -- Activation code.  If present, the account has not been activated yet.
-    --
-    -- Note that this is supposed to be an u64 so it can show up as negative when persisted
-    -- in the database.
-    activation_code BIGINT,
-
     -- The user's last successful login timestamp.
     last_login TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS activation_state (
+    user_id UUID PRIMARY KEY NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    code BIGINT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS login_failures (

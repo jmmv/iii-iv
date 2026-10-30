@@ -38,8 +38,8 @@ pub struct User {
     /// Coupon used to sign up this user, if any.
     pub coupon: Option<CouponName>,
 
-    /// Token required to activate the user if not active yet.
-    pub activation_code: Option<u64>,
+    /// Whether the user has no pending activation.  Derived from activation state.
+    pub is_active: bool,
 
     /// Time of last login of the user.  None if the user has never logged in.
     pub last_login: Option<OffsetDateTime>,
@@ -54,15 +54,9 @@ impl User {
             password: None,
             email,
             coupon: None,
-            activation_code: None,
+            is_active: true,
             last_login: None,
         }
-    }
-
-    /// Modifies a user to set or clear its activation code.
-    pub fn with_activation_code(mut self, code: Option<u64>) -> Self {
-        self.activation_code = code;
-        self
     }
 
     /// Modifies a user to record the coupon used during signup.
@@ -100,15 +94,13 @@ mod tests {
         assert!(user.password.is_none());
         assert_eq!(&email_address!("a@example.com"), &user.email);
         assert!(user.coupon.is_none());
-        assert!(user.activation_code.is_none());
+        assert!(user.is_active);
         assert!(user.last_login.is_none());
 
         let user = user
-            .with_activation_code(Some(123))
             .with_coupon(coupon_name!("BETA100"))
             .with_last_login(datetime!(2022-04-02 05:38:00 UTC))
             .with_password(hashed_password!("password-hash"));
-        assert_eq!(Some(123), user.activation_code);
         assert_eq!(Some(&coupon_name!("BETA100")), user.coupon.as_ref());
         assert_eq!(Some(&hashed_password!("password-hash")), user.password.as_ref());
         assert_eq!(Some(datetime!(2022-04-02 05:38:00 UTC)), user.last_login);

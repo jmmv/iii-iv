@@ -38,11 +38,15 @@ CREATE TABLE IF NOT EXISTS users (
     password TEXT,
     email TEXT UNIQUE NOT NULL,
     coupon TEXT REFERENCES coupons (name),
-    activation_code INTEGER,
     last_login_secs INTEGER,
     last_login_nsecs INTEGER,
     CHECK ((last_login_secs IS NULL AND last_login_nsecs IS NULL)
            OR (last_login_secs IS NOT NULL AND last_login_nsecs IS NOT NULL))
+);
+
+CREATE TABLE IF NOT EXISTS activation_state (
+    user_id UUID PRIMARY KEY NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    code INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS login_failures (

@@ -159,9 +159,9 @@ mod tests {
 
         let user =
             db::get_user_by_username(&mut context.ex().await, username.clone()).await.unwrap();
-        assert!(user.activation_code.is_some());
+        assert!(!user.is_active);
         assert_eq!(
-            user.activation_code,
+            db::get_user_activation_code(&mut context.ex().await, user.id).await.unwrap(),
             context.get_latest_activation_code(&user.email, Some(user.id)).await
         );
     }
@@ -347,9 +347,9 @@ mod tests {
 
         let user = db::get_user_by_email(&mut context.ex().await, email.clone()).await.unwrap();
         assert!(user.username.is_none());
-        assert!(user.activation_code.is_some());
+        assert!(!user.is_active);
         assert_eq!(
-            user.activation_code,
+            db::get_user_activation_code(&mut context.ex().await, user.id).await.unwrap(),
             context.get_latest_activation_code(&email, Some(user.id)).await
         );
     }
