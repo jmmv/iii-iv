@@ -10,7 +10,6 @@ publish = false
 workspace = true
 
 [dependencies]
-async-session = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true }
 axum-server = { workspace = true }

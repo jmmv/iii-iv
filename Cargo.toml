@@ -25,7 +25,6 @@ collapsible_if = "allow"
 missing_docs_in_private_items = "warn"
 
 [workspace.dependencies]
-async-session = "3"
 async-trait = "0.1"
 axum = "0.8"
 axum-server = "0.8"
