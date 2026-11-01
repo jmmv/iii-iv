@@ -17,14 +17,10 @@ testutils = ["dep:futures", "dep:env_logger", "dep:quoted_printable", "iii-iv-co
 
 [dependencies]
 async-trait = { workspace = true }
-axum = { workspace = true }
 env_logger = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
-http = { workspace = true }
 iii-iv-core = { path = "../core" }
 quoted_printable = { workspace = true, optional = true }
-serde_json = { workspace = true }
-thiserror = { workspace = true }
 time = { workspace = true }
 
 [dependencies.lettre]
