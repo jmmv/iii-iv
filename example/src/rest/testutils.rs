@@ -49,12 +49,12 @@ impl TestContext {
         &mut self,
         key: K,
         value: V,
-        version: u32,
+        version: i32,
     ) {
         db::set_key(
             &mut self.db.ex().await.unwrap(),
             &Key::new(key.into()),
-            &Entry::new(value.into(), Version::from_u32(version).unwrap()),
+            &Entry::new(value.into(), Version::from_i32(version).unwrap()),
         )
         .await
         .unwrap();

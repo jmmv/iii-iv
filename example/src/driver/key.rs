@@ -36,10 +36,10 @@ impl Driver {
     /// Sets `key` to `value`, incrementing its version.
     pub(crate) async fn set_key(self, key: &Key, value: String) -> DriverResult<Entry> {
         let mut tx = self.db.begin().await?;
-        let version = db::get_key_version(tx.ex(), key)
-            .await?
-            .map(Version::next)
-            .unwrap_or_else(Version::initial);
+        let version = match db::get_key_version(tx.ex(), key).await? {
+            Some(version) => version.next()?,
+            None => Version::initial(),
+        };
         let entry = Entry::new(value, version);
         db::set_key(tx.ex(), key, &entry).await?;
         tx.commit().await?;
@@ -131,6 +131,9 @@ mod tests {
         context.driver().set_key(&key, "second value".to_owned()).await.unwrap();
 
         let entry = db::get_key(&mut context.ex().await, &key).await.unwrap();
-        assert_eq!(Entry::new("second value".to_owned(), Version::initial().next()), entry);
+        assert_eq!(
+            Entry::new("second value".to_owned(), Version::initial().next().unwrap()),
+            entry
+        );
     }
 }

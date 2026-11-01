@@ -37,8 +37,11 @@ impl Version {
     }
 
     /// Returns the next version to assign to an existing key.
-    pub(crate) fn next(self) -> Version {
-        Version(self.0 + 1)
+    pub(crate) fn next(self) -> ModelResult<Version> {
+        let next = self.as_i32().checked_add(1).ok_or_else(|| {
+            ModelError("Version cannot be represented: exceeds i32::MAX".to_owned())
+        })?;
+        Self::from_i32(next)
     }
 
     /// Creates a version from an `i32` with range validation.
@@ -49,24 +52,23 @@ impl Version {
         }
     }
 
-    /// Creates a version from a `u32` with range validation.
-    #[cfg(test)]
-    pub(crate) fn from_u32(version: u32) -> ModelResult<Version> {
-        match i32::try_from(version) {
-            Ok(_) => Ok(Version(version)),
-            Err(e) => Err(ModelError(format!("Version cannot be represented: {}", e))),
-        }
-    }
-
     /// Returns the version as an `i32`.
     pub(crate) fn as_i32(&self) -> i32 {
         i32::try_from(self.0).expect("i32 compatibility validated at construction time")
     }
+}
 
-    /// Returns the version as a `u32`.
-    #[cfg(test)]
-    pub(crate) fn as_u32(&self) -> u32 {
-        self.0
+#[cfg(test)]
+mod tests {
+    use super::Version;
+
+    #[test]
+    fn test_version_bounds() {
+        assert!(Version::from_i32(-1).is_err());
+        assert_eq!(0, Version::from_i32(0).unwrap().as_i32());
+        assert_eq!(i32::MAX, Version::from_i32(i32::MAX).unwrap().as_i32());
+        assert_eq!(i32::MAX, Version::from_i32(i32::MAX - 1).unwrap().next().unwrap().as_i32());
+        assert!(Version::from_i32(i32::MAX).unwrap().next().is_err());
     }
 }
 

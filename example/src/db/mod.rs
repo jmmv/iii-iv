@@ -136,8 +136,8 @@ pub(crate) async fn get_key_version(e: &mut Executor, key: &Key) -> DbResult<Opt
             match maybe_row {
                 None => Ok(None),
                 Some(row) => {
-                    let version: u32 = row.try_get("version").map_err(sqlite::map_sqlx_error)?;
-                    Ok(Some(Version::from_u32(version)?))
+                    let version: i32 = row.try_get("version").map_err(sqlite::map_sqlx_error)?;
+                    Ok(Some(Version::from_i32(version)?))
                 }
             }
         }
@@ -176,9 +176,9 @@ pub(crate) async fn set_key(e: &mut Executor, key: &Key, entry: &Entry) -> DbRes
             let done = sqlx::query(AssertSqlSafe(query_str))
                 .bind(key.as_ref())
                 .bind(&entry.value)
-                .bind(entry.version.as_u32())
+                .bind(entry.version.as_i32())
                 .bind(&entry.value)
-                .bind(entry.version.as_u32())
+                .bind(entry.version.as_i32())
                 .bind(key.as_ref())
                 .execute(e)
                 .await
