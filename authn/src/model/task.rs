@@ -48,5 +48,9 @@ mod tests {
             json
         );
         assert_eq!(task, serde_json::from_str(&json).unwrap());
+
+        let task = AuthnTask::SendActivationEmail { activation_code: u64::MAX, user_id };
+        let json = serde_json::to_string(&task).unwrap();
+        assert_eq!(task, serde_json::from_str(&json).unwrap());
     }
 }

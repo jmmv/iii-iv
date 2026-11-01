@@ -30,6 +30,16 @@ use sqlx::sqlite::SqliteRow;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+/// Reinterprets the database integer's bits as an unsigned activation code.
+fn activation_code_from_db(code: i64) -> u64 {
+    code as u64
+}
+
+/// Stores an activation code's bits in the signed database integer.
+fn activation_code_to_db(code: u64) -> i64 {
+    code as i64
+}
+
 #[cfg(feature = "postgres")]
 impl TryFrom<PgRow> for ActivationState {
     type Error = DbError;
@@ -37,7 +47,7 @@ impl TryFrom<PgRow> for ActivationState {
     fn try_from(row: PgRow) -> DbResult<Self> {
         let code: i64 = row.try_get("code").map_err(postgres::map_sqlx_error)?;
         Ok(Self {
-            code: code as u64,
+            code: activation_code_from_db(code),
             issued_at: row.try_get("issued_at").map_err(postgres::map_sqlx_error)?,
             expires_at: row.try_get("expires_at").map_err(postgres::map_sqlx_error)?,
         })
@@ -51,7 +61,7 @@ impl TryFrom<SqliteRow> for ActivationState {
     fn try_from(row: SqliteRow) -> DbResult<Self> {
         let code: i64 = row.try_get("code").map_err(sqlite::map_sqlx_error)?;
         Ok(Self {
-            code: code as u64,
+            code: activation_code_from_db(code),
             issued_at: build_timestamp(
                 row.try_get("issued_at_secs").map_err(sqlite::map_sqlx_error)?,
                 row.try_get("issued_at_nsecs").map_err(sqlite::map_sqlx_error)?,
@@ -124,7 +134,7 @@ pub async fn set_user_activation(
                         VALUES ($1, $2, $3, $4)",
                 )
                 .bind(user.id)
-                .bind(activation.code as i64)
+                .bind(activation_code_to_db(activation.code))
                 .bind(activation.issued_at)
                 .bind(activation.expires_at)
                 .execute(ex)
@@ -151,7 +161,7 @@ pub async fn set_user_activation(
                         expires_at_secs, expires_at_nsecs) VALUES (?, ?, ?, ?, ?, ?)",
                 )
                 .bind(user.id)
-                .bind(activation.code as i64)
+                .bind(activation_code_to_db(activation.code))
                 .bind(issued_secs)
                 .bind(issued_nsecs)
                 .bind(expires_secs)
@@ -182,7 +192,7 @@ pub async fn consume_user_activation(
             "DELETE FROM activation_state WHERE user_id = $1 AND code = $2 AND expires_at > $3",
         )
         .bind(user_id)
-        .bind(code as i64)
+        .bind(activation_code_to_db(code))
         .bind(now)
         .execute(ex)
         .await
@@ -197,7 +207,7 @@ pub async fn consume_user_activation(
                 AND (expires_at_secs > ? OR (expires_at_secs = ? AND expires_at_nsecs > ?))",
             )
             .bind(user_id)
-            .bind(code as i64)
+            .bind(activation_code_to_db(code))
             .bind(secs)
             .bind(secs)
             .bind(nsecs)

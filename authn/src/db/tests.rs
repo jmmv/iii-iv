@@ -279,6 +279,58 @@ async fn test_activation_expiry(ex: &mut Executor) {
     assert!(!consume_user_activation(ex, Uuid::new_v4(), 7, issued).await.unwrap());
 }
 
+async fn test_activation_code_roundtrip(ex: &mut Executor) {
+    let mut user = create_simple_user(ex, "activation-code").await;
+    let user_id = user.id;
+    let issued = datetime!(2026-01-01 0:00 UTC);
+    let now = issued + Duration::from_secs(1);
+
+    for code in [0, i64::MAX as u64, i64::MAX as u64 + 1, u64::MAX] {
+        user = set_user_activation(
+            ex,
+            user,
+            Some(ActivationState::new(code, issued, Duration::from_secs(10))),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            Some(ActivationState::new(code, issued, Duration::from_secs(10))),
+            get_user_activation(ex, user_id).await.unwrap()
+        );
+
+        let stored: i64 = match ex {
+            #[cfg(feature = "postgres")]
+            Executor::Postgres(ex) => {
+                sqlx::query_scalar("SELECT code FROM activation_state WHERE user_id = $1")
+                    .bind(user_id)
+                    .fetch_one(ex)
+                    .await
+                    .unwrap()
+            }
+
+            #[cfg(any(feature = "sqlite", test))]
+            Executor::Sqlite(ex) => {
+                sqlx::query_scalar("SELECT code FROM activation_state WHERE user_id = ?")
+                    .bind(user_id)
+                    .fetch_one(ex)
+                    .await
+                    .unwrap()
+            }
+
+            #[allow(unused)]
+            _ => unreachable!(),
+        };
+        assert_eq!(code as i64, stored);
+        if code > i64::MAX as u64 {
+            assert!(stored < 0);
+        }
+
+        assert!(!consume_user_activation(ex, user_id, code.wrapping_add(1), now).await.unwrap());
+        assert!(consume_user_activation(ex, user_id, code, now).await.unwrap());
+    }
+}
+
 async fn test_activation_consume_race(db: Arc<dyn Db + Send + Sync>) {
     let user = create_simple_user(&mut db.ex().await.unwrap(), "race").await;
     let id = user.id;
@@ -597,6 +649,7 @@ macro_rules! generate_db_tests [
             $setup,
             $crate::db::tests,
             test_activation_expiry,
+            test_activation_code_roundtrip,
             test_failure_operation_isolation,
             test_failures_persistence,
             test_users_ok,
