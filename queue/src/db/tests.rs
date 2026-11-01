@@ -366,6 +366,38 @@ async fn test_set_task_running_fails_if_already_completed(ex: &mut Executor) {
     }
 }
 
+async fn test_set_task_running_retry_count_range(ex: &mut Executor) {
+    let max_runtime = Duration::from_secs(60);
+    let now = datetime!(2026-11-01 06:50 UTC);
+
+    for runs in [127, 128, 255] {
+        let id = put_new_mock_task(ex, u32::from(runs), now, None).await;
+        let started = set_task_running(
+            ex,
+            RunnableTask::new(id, Ok(MockTask { i: u32::from(runs) }), runs - 1),
+            max_runtime,
+            now,
+        )
+        .await
+        .unwrap();
+        assert_eq!(runs, started.runs);
+
+        let runnable = get_runnable_tasks::<MockTask>(
+            ex,
+            10,
+            max_runtime,
+            now + max_runtime + Duration::from_millis(1),
+        )
+        .await
+        .unwrap();
+        assert!(runnable.contains(&RunnableTask::new(
+            id,
+            Ok(MockTask { i: u32::from(runs) }),
+            runs,
+        )));
+    }
+}
+
 async fn test_get_runnable_propagates_de_error(ex: &mut Executor) {
     let max_runtime = Duration::from_secs(60);
     let now = datetime!(2023-05-17 5:47 UTC);
@@ -472,6 +504,7 @@ macro_rules! generate_db_tests [
             test_put_ser_error_aborts_put,
             test_set_task_running_fails_if_already_running,
             test_set_task_running_fails_if_already_completed,
+            test_set_task_running_retry_count_range,
             test_get_runnable_propagates_de_error,
             test_get_result_new,
             test_get_result_still_running,

@@ -540,7 +540,7 @@ where
                 .bind(TaskStatus::Runnable as i8)
                 .bind(updated_sec)
                 .bind(updated_nsec)
-                .bind(task.runs as i8)
+                .bind(i16::from(task.runs))
                 .bind(task.id)
                 .bind(TaskStatus::Runnable as i8)
                 .bind(max_runtime_msec)
