@@ -490,7 +490,7 @@ pub(crate) async fn set_task_running<T>(
 where
     T: Send + Sync,
 {
-    let task = task.try_run();
+    let task = task.try_run()?;
 
     let rows_affected = match ex {
         #[cfg(feature = "postgres")]

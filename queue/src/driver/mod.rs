@@ -224,7 +224,7 @@ mod testutils {
 mod tests {
     use super::*;
     use crate::driver::testutils::*;
-    use crate::model::TaskResult;
+    use crate::model::{RunnableTask, TaskResult};
     use iii_iv_core::clocks::Clock;
     use std::time::Duration;
 
@@ -313,6 +313,45 @@ mod tests {
             TaskResult::Abandoned(_) => (),
             _ => panic!("Unexpected result {:?}", result),
         }
+    }
+
+    #[tokio::test]
+    async fn test_lost_task_with_exhausted_counter_is_not_executed() {
+        let max_runtime = Duration::from_millis(1);
+        let mut context = TestContext::setup_many_disconnected(
+            WorkerOptions { max_runtime, max_runs: u8::MAX, ..Default::default() },
+            1,
+        )
+        .await;
+
+        let task = MockTask { id: 123, ..Default::default() };
+        let id = context.client.enqueue(&mut context.ex().await, &task).await.unwrap();
+        let started = context.clock.now_utc();
+        crate::db::set_task_running(
+            &mut context.ex().await,
+            RunnableTask::new(id, Ok(task), 254),
+            max_runtime,
+            started,
+        )
+        .await
+        .unwrap();
+
+        context.clock.advance(max_runtime + Duration::from_millis(1));
+        context.notify_workers(1).await;
+        context.clock.sleep(Duration::from_millis(10)).await;
+
+        assert!(context.state.lock().await.is_empty());
+        let tasks = crate::db::get_runnable_tasks::<MockTask>(
+            &mut context.ex().await,
+            10,
+            max_runtime,
+            context.clock.now_utc(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(1, tasks.len());
+        assert_eq!(id, tasks[0].id);
+        assert_eq!(u8::MAX, tasks[0].runs);
     }
 
     #[tokio::test]
