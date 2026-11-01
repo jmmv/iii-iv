@@ -147,7 +147,7 @@ pub(crate) async fn put_email_log(
     ex: &mut Executor,
     message: &Message,
     now: OffsetDateTime,
-) -> DbResult<i64> {
+) -> DbResult<i32> {
     match ex {
         Executor::Postgres(ex) => {
             let query_str = "INSERT INTO email_log (sent, message) VALUES ($1, $2) RETURNING id";
@@ -157,8 +157,7 @@ pub(crate) async fn put_email_log(
                 .fetch_one(ex)
                 .await
                 .map_err(postgres::map_sqlx_error)?;
-            let last_insert_id: i32 = row.try_get("id").map_err(postgres::map_sqlx_error)?;
-            Ok(i64::from(last_insert_id))
+            row.try_get("id").map_err(postgres::map_sqlx_error)
         }
 
         #[cfg(any(test, feature = "sqlite"))]
@@ -173,7 +172,7 @@ pub(crate) async fn put_email_log(
                 .execute(ex)
                 .await
                 .map_err(sqlite::map_sqlx_error)?;
-            Ok(done.last_insert_rowid())
+            Ok(i32::try_from(done.last_insert_rowid()).expect("email id is constrained to INT4"))
         }
 
         #[allow(unused)]
@@ -182,7 +181,7 @@ pub(crate) async fn put_email_log(
 }
 
 /// Records the result of sending an email.
-pub(crate) async fn update_email_log(ex: &mut Executor, id: i64, result: &str) -> DbResult<()> {
+pub(crate) async fn update_email_log(ex: &mut Executor, id: i32, result: &str) -> DbResult<()> {
     match ex {
         Executor::Postgres(ex) => {
             let query_str = "UPDATE email_log SET result = $1 WHERE id = $2";
