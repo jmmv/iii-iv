@@ -45,6 +45,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     only_after_sec INTEGER,
     only_after_nsec INTEGER,
 
+    CONSTRAINT tasks_runs_range CHECK (runs BETWEEN 0 AND 255),
+    CONSTRAINT tasks_status_code_valid CHECK (status_code IN (1, 2, 3, 4)),
     CONSTRAINT only_after CHECK (
         (only_after_sec IS NULL AND only_after_nsec IS NULL)
         OR (only_after_sec IS NOT NULL AND only_after_nsec IS NOT NULL))

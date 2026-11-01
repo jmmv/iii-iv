@@ -38,7 +38,10 @@ CREATE TABLE IF NOT EXISTS tasks (
     updated TIMESTAMPTZ NOT NULL,
 
     -- The earliest time the task is allowed to run.
-    only_after TIMESTAMPTZ
+    only_after TIMESTAMPTZ,
+
+    CONSTRAINT tasks_runs_range CHECK (runs BETWEEN 0 AND 255),
+    CONSTRAINT tasks_status_code_valid CHECK (status_code IN (1, 2, 3, 4))
 );
 
 CREATE INDEX IF NOT EXISTS tasks_by_runnable_state

@@ -522,6 +522,51 @@ async fn test_get_results_since(ex: &mut Executor) {
     assert_eq!(exp_results, results);
 }
 
+async fn test_task_integer_domains(ex: &mut Executor) {
+    async fn insert_task(ex: &mut Executor, runs: i16, status_code: i16) -> bool {
+        let id = Uuid::new_v4();
+        match ex {
+            Executor::Postgres(ex) => sqlx::query(
+                "INSERT INTO tasks (id, json, status_code, runs, created, updated) \
+                 VALUES ($1, '{}', $2, $3, '2026-11-01 07:42:00+00', \
+                         '2026-11-01 07:42:00+00')",
+            )
+            .bind(id)
+            .bind(status_code)
+            .bind(runs)
+            .execute(ex)
+            .await
+            .is_ok(),
+
+            #[cfg(any(feature = "sqlite", test))]
+            Executor::Sqlite(ex) => sqlx::query(
+                "INSERT INTO tasks (id, json, status_code, runs, created_sec, \
+                 created_nsec, updated_sec, updated_nsec) \
+                 VALUES (?, '{}', ?, ?, 0, 0, 0, 0)",
+            )
+            .bind(id)
+            .bind(status_code)
+            .bind(runs)
+            .execute(ex)
+            .await
+            .is_ok(),
+
+            #[allow(unreachable_patterns)]
+            _ => unreachable!(),
+        }
+    }
+
+    for (runs, accepted) in [(-1, false), (0, true), (255, true), (256, false)] {
+        assert_eq!(accepted, insert_task(ex, runs, 1).await, "runs={runs}");
+    }
+
+    for (status_code, accepted) in
+        [(0, false), (1, true), (2, true), (3, true), (4, true), (5, false)]
+    {
+        assert_eq!(accepted, insert_task(ex, 0, status_code).await, "status_code={status_code}");
+    }
+}
+
 macro_rules! generate_db_tests [
     ( $setup:expr $(, #[$extra:meta] )? ) => {
         iii_iv_core::db::testutils::generate_tests!(
@@ -537,6 +582,7 @@ macro_rules! generate_db_tests [
             test_set_task_running_fails_if_already_completed,
             test_set_task_running_retry_count_range,
             test_set_task_running_rejects_exhausted_counter,
+            test_task_integer_domains,
             test_get_runnable_propagates_de_error,
             test_get_result_new,
             test_get_result_still_running,
