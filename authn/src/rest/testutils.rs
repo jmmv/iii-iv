@@ -285,7 +285,7 @@ impl TestContextBuilder {
             whoami: "whoami".to_owned(),
             activation_success: ActivationSuccess::DefaultHtml,
             usernames: true,
-            opts: AuthnOptions::default(),
+            opts: AuthnOptions { open_signups: true, ..Default::default() },
         }
     }
 

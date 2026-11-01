@@ -162,7 +162,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_change_password_not_activated() {
-        let context = TestContext::setup(AuthnOptions::default()).await;
+        let context =
+            TestContext::setup(AuthnOptions { open_signups: true, ..Default::default() }).await;
         let username = username!("test");
 
         let password = password!("old0password");

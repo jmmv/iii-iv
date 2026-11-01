@@ -133,8 +133,9 @@ impl<H: AuthnHooks> TestContext<H> {
         let password = password!("test0password");
 
         let email = EmailAddress::new(format!("{}@example.com", username.as_str())).unwrap();
-        self.driver
-            .clone()
+        let mut driver = self.driver.clone();
+        driver.opts.open_signups = true;
+        driver
             .signup(
                 Some(username.clone()),
                 password.clone(),
