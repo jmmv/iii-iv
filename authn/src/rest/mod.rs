@@ -81,6 +81,7 @@ mod tests {
         OneShotBuilder::new(context.app(), (Method::POST, "/api/test/signup"))
             .send_json(request)
             .await
+            .expect_status(StatusCode::ACCEPTED)
             .expect_empty()
             .await;
 
@@ -174,6 +175,7 @@ mod tests {
         OneShotBuilder::new(context.app(), (Method::POST, "/api/test/signup"))
             .send_json(request)
             .await
+            .expect_status(StatusCode::ACCEPTED)
             .expect_empty()
             .await;
 
