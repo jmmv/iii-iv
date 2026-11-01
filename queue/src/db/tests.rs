@@ -567,6 +567,34 @@ async fn test_task_integer_domains(ex: &mut Executor) {
     }
 }
 
+async fn test_retry_timestamp_pre_epoch_round_trip(ex: &mut Executor) {
+    // PostgreSQL timestamps have microsecond resolution, so cross-backend comparisons use an
+    // instant aligned to that precision.  SQLite retains and separately tests nanosecond precision.
+    let retry_at = datetime!(1969-12-31 23:59:59.123456 UTC);
+    let id = put_new_mock_task(ex, 1, datetime!(1969-12-31 23:00 UTC), None).await;
+    set_task_running(
+        ex,
+        RunnableTask::new(id, Ok(MockTask { i: 1 }), 0),
+        Duration::from_secs(60),
+        datetime!(1970-01-01 00:00 UTC),
+    )
+    .await
+    .unwrap();
+    set_task_result(
+        ex,
+        id,
+        &TaskResult::Retry(retry_at, "retry later".to_owned()),
+        datetime!(1970-01-01 00:00 UTC),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        Some(TaskResult::Retry(retry_at, "retry later".to_owned())),
+        get_result(ex, id).await.unwrap()
+    );
+}
+
 macro_rules! generate_db_tests [
     ( $setup:expr $(, #[$extra:meta] )? ) => {
         iii_iv_core::db::testutils::generate_tests!(
@@ -583,6 +611,7 @@ macro_rules! generate_db_tests [
             test_set_task_running_retry_count_range,
             test_set_task_running_rejects_exhausted_counter,
             test_task_integer_domains,
+            test_retry_timestamp_pre_epoch_round_trip,
             test_get_runnable_propagates_de_error,
             test_get_result_new,
             test_get_result_still_running,
