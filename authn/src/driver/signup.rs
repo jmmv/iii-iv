@@ -103,11 +103,13 @@ impl<H: AuthnHooks> AuthnDriver<H> {
 
         let user = match db::create_user(tx.ex(), username, Some(password), email, coupon).await {
             Ok(user) => user,
+
             Err(DbError::AlreadyExists) => {
-                return Err(DriverError::AlreadyExists(
-                    "Username or email address is already registered".to_owned(),
-                ));
+                // Dropping the transaction restores any coupon redeemed above.  Hashing has
+                // already run, and hooks and email queuing only run for newly created users.
+                return Ok(());
             }
+
             Err(e) => return Err(e.into()),
         };
 
@@ -347,7 +349,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_signup_failure_restores_coupon_usage() {
+    async fn test_signup_duplicate_restores_coupon_usage() {
         let context =
             TestContext::setup(AuthnOptions { open_signups: true, ..Default::default() }).await;
         let coupon =
@@ -364,19 +366,17 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(
-            context
-                .driver()
-                .signup(
-                    Some(username!("hello")),
-                    password!("sufficiently0complex"),
-                    email_address!("new@example.com"),
-                    Some(coupon.name.clone()),
-                    NO_EXTENSIONS,
-                )
-                .await
-                .is_err()
-        );
+        context
+            .driver()
+            .signup(
+                Some(username!("hello")),
+                password!("sufficiently0complex"),
+                email_address!("new@example.com"),
+                Some(coupon.name.clone()),
+                NO_EXTENSIONS,
+            )
+            .await
+            .unwrap();
         assert_eq!(0, db::get_coupon(&mut context.ex().await, &coupon.name).await.unwrap().usages);
     }
 
@@ -455,22 +455,25 @@ mod tests {
             .await
             .unwrap();
 
-        match context
+        context
             .driver()
             .signup(
                 Some(username.clone()),
                 password!("the1password"),
-                email.clone(),
+                email_address!("new@example.com"),
                 None,
                 NO_EXTENSIONS,
             )
             .await
-        {
-            Err(DriverError::AlreadyExists(msg)) => assert!(msg.contains("already registered")),
-            e => panic!("{:?}", e),
-        }
+            .unwrap();
 
         assert!(context.get_latest_activation_code(&email, None).await.is_none());
+        assert!(
+            context
+                .get_latest_activation_code(&email_address!("new@example.com"), None)
+                .await
+                .is_none()
+        );
     }
 
     #[tokio::test]
@@ -490,7 +493,7 @@ mod tests {
         .await
         .unwrap();
 
-        match context
+        context
             .driver()
             .signup(
                 Some(username!("other")),
@@ -500,12 +503,54 @@ mod tests {
                 NO_EXTENSIONS,
             )
             .await
-        {
-            Err(DriverError::AlreadyExists(msg)) => assert!(msg.contains("already registered")),
-            e => panic!("{:?}", e),
-        }
+            .unwrap();
 
         assert!(context.get_latest_activation_code(&email, None).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_signup_duplicate_skips_hook() {
+        let db = Arc::from(iii_iv_core::db::sqlite::testutils::setup().await);
+        let clock = Arc::from(SettableClock::new(datetime!(2023-12-01 05:50:00 UTC)));
+        let context = TestContext::setup_with_hooks(
+            AuthnOptions { open_signups: true, ..Default::default() },
+            db,
+            clock,
+            "the-realm",
+            true,
+            FailingSignupHook,
+        )
+        .await;
+        let email = email_address!("existing@example.com");
+        let user = db::create_user(
+            &mut context.ex().await,
+            Some(username!("existing")),
+            None,
+            email.clone(),
+            None,
+        )
+        .await
+        .unwrap();
+        context
+            .driver()
+            .signup(
+                Some(username!("new")),
+                password!("sufficiently0complex"),
+                email.clone(),
+                None,
+                NO_EXTENSIONS,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            user,
+            db::get_user_by_email(&mut context.ex().await, email.clone()).await.unwrap()
+        );
+        assert!(context.get_latest_activation_code(&email, None).await.is_none());
+        assert_eq!(
+            DbError::NotFound,
+            db::get_user_by_username(&mut context.ex().await, username!("new"),).await.unwrap_err()
+        );
     }
 
     #[tokio::test]

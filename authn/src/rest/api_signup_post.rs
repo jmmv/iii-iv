@@ -19,6 +19,7 @@ use crate::driver::{AuthnDriver, AuthnHooks};
 use crate::model::{CouponName, Password};
 use crate::rest::httputils::JsonMultipart;
 use axum::extract::State;
+use axum::http;
 use iii_iv_core::model::{EmailAddress, Username};
 use iii_iv_core::rest::RestError;
 use serde::{Deserialize, Serialize};
@@ -44,11 +45,11 @@ pub struct SignupRequest {
 pub(crate) async fn handler<H: AuthnHooks>(
     State(driver): State<AuthnDriver<H>>,
     JsonMultipart(request, extensions): JsonMultipart<SignupRequest, H::SignupInput>,
-) -> Result<(), RestError> {
+) -> Result<http::StatusCode, RestError> {
     driver
         .signup(request.username, request.password, request.email, request.coupon, extensions)
         .await?;
-    Ok(())
+    Ok(http::StatusCode::ACCEPTED)
 }
 
 #[cfg(test)]
@@ -76,7 +77,12 @@ mod tests {
             email: "new@example.com".into(),
             coupon: None,
         };
-        OneShotBuilder::new(context.app(), route()).send_json(request).await.expect_empty().await;
+        OneShotBuilder::new(context.app(), route())
+            .send_json(request)
+            .await
+            .expect_status(http::StatusCode::ACCEPTED)
+            .expect_empty()
+            .await;
 
         assert!(context.user_exists(&username!("new")).await);
         assert!(!context.user_is_active(&username!("new")).await);
@@ -120,7 +126,12 @@ mod tests {
             email: "new@example.com".into(),
             coupon: Some(CouponName::new("beta100").unwrap()),
         };
-        OneShotBuilder::new(context.app(), route()).send_json(request).await.expect_empty().await;
+        OneShotBuilder::new(context.app(), route())
+            .send_json(request)
+            .await
+            .expect_status(http::StatusCode::ACCEPTED)
+            .expect_empty()
+            .await;
 
         assert_eq!(Some(coupon.name.clone()), context.user_coupon(&username!("new")).await);
         assert_eq!(1, context.coupon_usages(&coupon.name).await);
@@ -141,6 +152,7 @@ mod tests {
         OneShotBuilder::new(context.app(), route())
             .send_json_multipart(request, extensions)
             .await
+            .expect_status(http::StatusCode::ACCEPTED)
             .expect_empty()
             .await;
 
@@ -163,6 +175,7 @@ mod tests {
         OneShotBuilder::new(context.app(), route())
             .send_json_multipart(request, extensions)
             .await
+            .expect_status(http::StatusCode::ACCEPTED)
             .expect_empty()
             .await;
 
@@ -186,8 +199,8 @@ mod tests {
         OneShotBuilder::new(context.into_app(), route())
             .send_json(request)
             .await
-            .expect_status(http::StatusCode::BAD_REQUEST)
-            .expect_error("already registered")
+            .expect_status(http::StatusCode::ACCEPTED)
+            .expect_empty()
             .await;
     }
 
