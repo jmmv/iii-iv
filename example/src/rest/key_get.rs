@@ -56,7 +56,7 @@ mod tests {
             .await
             .expect_json::<Entry>()
             .await;
-        let exp_response = Entry::new("value2".to_owned(), Version::from_u32(1).unwrap());
+        let exp_response = Entry::new("value2".to_owned(), Version::from_i32(1).unwrap());
         assert_eq!(exp_response, response);
     }
 
