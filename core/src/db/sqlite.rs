@@ -268,15 +268,12 @@ pub async fn run_schema(e: &mut SqliteExecutor, schema: &str) -> DbResult<()> {
 
 /// Converts a timestamp as extracted from the database into an `OffsetDateTime`.
 ///
-/// The input parameters must both be positive.  The reason why their types are `i64`s instead of
-/// the `u64` you would expect is because the numeric types exposed by sqlx and SQLite are all
-/// signed.  We could simply cast the types and accept negative representations in the database,
-/// but that would pose difficulties when attempting to compare timestamps via relation operators
-/// in SQL queries.
+/// Nanoseconds must be canonical and fall between 0 and 999999999.  Seconds are signed so
+/// timestamps before the Unix epoch can be represented without changing their ordering in SQL.
 pub fn build_timestamp(timestamp_sec: i64, timestamp_nsec: i64) -> DbResult<OffsetDateTime> {
-    if timestamp_sec < 0 || timestamp_nsec < 0 {
+    if !(0..1_000_000_000).contains(&timestamp_nsec) {
         return Err(DbError::DataIntegrityError(format!(
-            "Timestamp cannot have negative quantities: sec={}, nsec={}",
+            "Timestamp nanoseconds must be between 0 and 999999999: sec={}, nsec={}",
             timestamp_sec, timestamp_nsec
         )));
     }
@@ -302,13 +299,11 @@ pub fn unpack_duration(d: Duration) -> (i64, i64) {
 
 /// Converts a timestamp into the seconds and nanoseconds pair needed by the database.
 ///
-/// The timestamp must be positive because `build_timestamp` also expects it to be positive when
-/// recovering its values from the database.
+/// The nanosecond component is nonnegative even for pre-epoch timestamps.
 pub fn unpack_timestamp(ts: OffsetDateTime) -> (i64, i64) {
     let nanos = ts.unix_timestamp_nanos();
-    assert!(nanos >= 0, "Cannot store a negative timestamp into the database");
-    let sec = i64::try_from(nanos / 1_000_000_000).expect("Must have fit");
-    let nsec = i64::try_from(nanos % 1_000_000_000).expect("Must have fit");
+    let sec = i64::try_from(nanos.div_euclid(1_000_000_000)).expect("Must have fit");
+    let nsec = i64::try_from(nanos.rem_euclid(1_000_000_000)).expect("Must have fit");
     (sec, nsec)
 }
 
@@ -409,15 +404,36 @@ mod tests {
     }
 
     #[test]
-    fn test_build_timestamp_negative() {
-        match build_timestamp(-1, 0) {
-            Err(DbError::DataIntegrityError(_)) => (),
-            e => panic!("Must have failed with a DataIntegrityError but got: {:?}", e),
-        }
+    fn test_unpack_timestamp_preserves_submicrosecond_precision() {
+        let timestamp = OffsetDateTime::from_unix_timestamp_nanos(-876_543_211).unwrap();
+        let (secs, nsecs) = unpack_timestamp(timestamp);
+        assert_eq!((-1, 123_456_789), (secs, nsecs));
+        assert_eq!(Ok(timestamp), build_timestamp(secs, nsecs));
+    }
 
-        match build_timestamp(0, -1) {
-            Err(DbError::DataIntegrityError(_)) => (),
-            e => panic!("Must have failed with a DataIntegrityError but got: {:?}", e),
+    #[test]
+    fn test_build_unpack_timestamp_pre_epoch() {
+        for nanos in [-1, -1_000_000_000, -1_123_456_789] {
+            let timestamp = OffsetDateTime::from_unix_timestamp_nanos(nanos).unwrap();
+            let (secs, nsecs) = unpack_timestamp(timestamp);
+            assert_eq!(Ok(timestamp), build_timestamp(secs, nsecs));
+        }
+    }
+
+    #[test]
+    fn test_build_unpack_timestamp_endpoints() {
+        for timestamp in
+            [time::PrimitiveDateTime::MIN.assume_utc(), time::PrimitiveDateTime::MAX.assume_utc()]
+        {
+            let (secs, nsecs) = unpack_timestamp(timestamp);
+            assert_eq!(Ok(timestamp), build_timestamp(secs, nsecs));
+        }
+    }
+
+    #[test]
+    fn test_build_timestamp_rejects_noncanonical_nanoseconds() {
+        for nsecs in [-1, 1_000_000_000] {
+            assert!(matches!(build_timestamp(0, nsecs), Err(DbError::DataIntegrityError(_))));
         }
     }
 
