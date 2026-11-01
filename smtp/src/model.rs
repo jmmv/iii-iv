@@ -119,7 +119,7 @@ mod tests {
                 &[("s", "replaced subject"), ("b", "replaced body")],
             )
             .unwrap();
-        let (headers, body) = parse_message(&message);
+        let (mut headers, body) = parse_message(&message);
 
         let exp_message = Message::builder()
             .from(template.from)
@@ -133,7 +133,10 @@ mod tests {
                 .unwrap(),
             )
             .unwrap();
-        let (exp_headers, exp_body) = parse_message(&exp_message);
+        let (mut exp_headers, exp_body) = parse_message(&exp_message);
+
+        assert!(headers.remove("Date").is_some());
+        assert!(exp_headers.remove("Date").is_some());
 
         assert_eq!(exp_headers, headers);
         assert_eq!(exp_body, body);
