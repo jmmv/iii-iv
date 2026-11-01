@@ -145,7 +145,7 @@ pub struct AuthnOptions {
     pub login_backoff_max_delay: Duration,
 
     /// Whether users can sign up without an invitation.
-    #[option(default = true)]
+    #[option(default = false)]
     pub open_signups: bool,
 
     /// Maximum number of password-hashing jobs that may run concurrently.
@@ -185,7 +185,7 @@ impl Default for AuthnOptions {
             login_backoff_quiet_window: DEFAULT_LOGIN_BACKOFF_QUIET_WINDOW,
             login_backoff_initial_delay: DEFAULT_LOGIN_BACKOFF_INITIAL_DELAY,
             login_backoff_max_delay: DEFAULT_LOGIN_BACKOFF_MAX_DELAY,
-            open_signups: true,
+            open_signups: false,
             password_hash_concurrency: DEFAULT_PASSWORD_HASH_CONCURRENCY,
             sessions_cache_ttl: DEFAULT_SESSIONS_CACHE_TTL,
             sessions_cache_capacity: DEFAULT_SESSIONS_CACHE_CAPACITY,
@@ -478,7 +478,7 @@ mod tests {
                 ("TEST_AUTHN_LOGIN_BACKOFF_INITIAL_DELAY", Some("2s")),
                 ("TEST_AUTHN_LOGIN_BACKOFF_MAX_DELAY", Some("10s")),
                 ("TEST_AUTHN_LOGIN_BACKOFF_QUIET_WINDOW", Some("30s")),
-                ("TEST_AUTHN_OPEN_SIGNUPS", Some("false")),
+                ("TEST_AUTHN_OPEN_SIGNUPS", Some("true")),
                 ("TEST_AUTHN_PASSWORD_HASH_CONCURRENCY", Some("5")),
                 ("TEST_AUTHN_SESSIONS_CACHE_CAPACITY", Some("30")),
                 ("TEST_AUTHN_SESSIONS_CACHE_TTL", Some("40m")),
@@ -498,7 +498,7 @@ mod tests {
                         login_backoff_quiet_window: Duration::from_secs(30),
                         login_backoff_initial_delay: Duration::from_secs(2),
                         login_backoff_max_delay: Duration::from_secs(10),
-                        open_signups: false,
+                        open_signups: true,
                         password_hash_concurrency: 5,
                         sessions_cache_capacity: 30,
                         sessions_cache_ttl: Duration::from_secs(40 * 60),

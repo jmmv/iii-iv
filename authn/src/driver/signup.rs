@@ -150,7 +150,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_signup_ok() {
-        let context = TestContext::setup(AuthnOptions::default()).await;
+        let context =
+            TestContext::setup(AuthnOptions { open_signups: true, ..Default::default() }).await;
 
         let username = username!("hello");
         let password = password!("sufficiently0complex");
@@ -184,6 +185,7 @@ mod tests {
         for max_age in [Duration::ZERO, Duration::from_secs(42)] {
             let context = TestContext::setup(AuthnOptions {
                 activation_max_age: max_age,
+                open_signups: true,
                 ..Default::default()
             })
             .await;
@@ -209,7 +211,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_signup_closed() {
-        let opts = AuthnOptions { open_signups: false, ..Default::default() };
+        let opts = AuthnOptions::default();
         let context = TestContext::setup(opts).await;
 
         let username = username!("hello");
@@ -278,7 +280,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_signup_invalid_coupon() {
-        let context = TestContext::setup(AuthnOptions::default()).await;
+        let context =
+            TestContext::setup(AuthnOptions { open_signups: true, ..Default::default() }).await;
 
         assert_eq!(
             Err(DriverError::InvalidInput("Invalid coupon".to_owned())),
@@ -297,7 +300,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_signup_coupon_validity_window() {
-        let context = TestContext::setup(AuthnOptions::default()).await;
+        let context =
+            TestContext::setup(AuthnOptions { open_signups: true, ..Default::default() }).await;
 
         for coupon in [
             Coupon::new(coupon_name!("NOT-YET"), context.now_delta(1), context.now_delta(2), 1)
@@ -344,7 +348,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_signup_failure_restores_coupon_usage() {
-        let context = TestContext::setup(AuthnOptions::default()).await;
+        let context =
+            TestContext::setup(AuthnOptions { open_signups: true, ..Default::default() }).await;
         let coupon =
             Coupon::new(coupon_name!("BETA100"), context.now_delta(-1), context.now_delta(1), 1)
                 .unwrap();
@@ -377,7 +382,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_signup_without_username_ok() {
-        let context = TestContext::setup_without_usernames(AuthnOptions::default()).await;
+        let context = TestContext::setup_without_usernames(AuthnOptions {
+            open_signups: true,
+            ..Default::default()
+        })
+        .await;
         let email = email_address!("foo@example.com");
 
         context
@@ -400,7 +409,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_signup_username_mode_mismatch() {
-        let context = TestContext::setup(AuthnOptions::default()).await;
+        let context =
+            TestContext::setup(AuthnOptions { open_signups: true, ..Default::default() }).await;
         let result = context
             .driver()
             .signup(
@@ -413,7 +423,11 @@ mod tests {
             .await;
         assert!(matches!(result, Err(DriverError::InvalidInput(msg)) if msg.contains("required")));
 
-        let context = TestContext::setup_without_usernames(AuthnOptions::default()).await;
+        let context = TestContext::setup_without_usernames(AuthnOptions {
+            open_signups: true,
+            ..Default::default()
+        })
+        .await;
         let result = context
             .driver()
             .signup(
@@ -431,7 +445,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_signup_username_already_exists() {
-        let context = TestContext::setup(AuthnOptions::default()).await;
+        let context =
+            TestContext::setup(AuthnOptions { open_signups: true, ..Default::default() }).await;
 
         let username = username!("hello");
         let email = email_address!("other@example.com");
@@ -460,7 +475,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_signup_email_already_exists() {
-        let context = TestContext::setup(AuthnOptions::default()).await;
+        let context =
+            TestContext::setup(AuthnOptions { open_signups: true, ..Default::default() }).await;
 
         let email = email_address!("foo@example.com");
 
@@ -494,7 +510,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_signup_weak_password() {
-        let context = TestContext::setup(AuthnOptions::default()).await;
+        let context =
+            TestContext::setup(AuthnOptions { open_signups: true, ..Default::default() }).await;
 
         let username = username!("hello");
         let email = email_address!("other@example.com");
@@ -532,7 +549,7 @@ mod tests {
         let db = Arc::from(iii_iv_core::db::sqlite::testutils::setup().await);
         let clock = Arc::from(SettableClock::new(datetime!(2023-12-01 05:50:00 UTC)));
         let context = TestContext::setup_with_hooks(
-            AuthnOptions::default(),
+            AuthnOptions { open_signups: true, ..Default::default() },
             db.clone(),
             clock,
             "the-realm",
@@ -577,7 +594,7 @@ mod tests {
         let db = Arc::from(iii_iv_core::db::sqlite::testutils::setup().await);
         let clock = Arc::from(SettableClock::new(datetime!(2023-12-01 05:50:00 UTC)));
         let context = TestContext::setup_with_hooks(
-            AuthnOptions::default(),
+            AuthnOptions { open_signups: true, ..Default::default() },
             db,
             clock,
             "the-realm",

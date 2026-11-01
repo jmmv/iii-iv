@@ -84,7 +84,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_signups_closed() {
-        let opts = crate::driver::AuthnOptions { open_signups: false, ..Default::default() };
+        let opts = crate::driver::AuthnOptions::default();
         let context = TestContextBuilder::new().with_opts(opts).build().await;
 
         let request = SignupRequest {
