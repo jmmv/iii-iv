@@ -398,6 +398,37 @@ async fn test_set_task_running_retry_count_range(ex: &mut Executor) {
     }
 }
 
+async fn test_set_task_running_rejects_exhausted_counter(ex: &mut Executor) {
+    let max_runtime = Duration::from_secs(60);
+    let now = datetime!(2026-11-01 07:20 UTC);
+    let id = put_new_mock_task(ex, 0, now, None).await;
+
+    set_task_running(ex, RunnableTask::new(id, Ok(MockTask { i: 0 }), 254), max_runtime, now)
+        .await
+        .unwrap();
+
+    let lost_at = now + max_runtime + Duration::from_millis(1);
+    let mut runnable = get_runnable_tasks::<MockTask>(ex, 10, max_runtime, lost_at).await.unwrap();
+    let task = runnable.pop().expect("exhausted task should be runnable");
+    assert!(runnable.is_empty());
+    assert_eq!(255, task.runs);
+
+    assert!(matches!(
+        set_task_running(ex, task, max_runtime, lost_at).await,
+        Err(DbError::DataIntegrityError(_))
+    ));
+
+    let tasks = get_runnable_tasks::<MockTask>(
+        ex,
+        10,
+        max_runtime,
+        lost_at + max_runtime + Duration::from_millis(1),
+    )
+    .await
+    .unwrap();
+    assert_eq!(vec![RunnableTask::new(id, Ok(MockTask { i: 0 }), 255)], tasks);
+}
+
 async fn test_get_runnable_propagates_de_error(ex: &mut Executor) {
     let max_runtime = Duration::from_secs(60);
     let now = datetime!(2023-05-17 5:47 UTC);
@@ -412,7 +443,7 @@ async fn test_get_runnable_propagates_de_error(ex: &mut Executor) {
     assert!(runnable.is_empty(), "Must have found exactly one task");
 
     assert_eq!(id, task.id);
-    let task = task.try_run(); // Needed to access the underlying JSON result.
+    let task = task.try_run().unwrap(); // Needed to access the underlying JSON result.
     let error = task.json_task.unwrap_err();
     assert!(format!("{}", error).contains("Custom de error"));
 }
@@ -505,6 +536,7 @@ macro_rules! generate_db_tests [
             test_set_task_running_fails_if_already_running,
             test_set_task_running_fails_if_already_completed,
             test_set_task_running_retry_count_range,
+            test_set_task_running_rejects_exhausted_counter,
             test_get_runnable_propagates_de_error,
             test_get_result_new,
             test_get_result_still_running,

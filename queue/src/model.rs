@@ -159,8 +159,11 @@ impl<T: Send + Sync> RunnableTask<T> {
     ///
     /// This must be called only after the task has been marked as running in the database,
     /// and the `runs` counter in the database must be updated to account for this new run.
-    pub(crate) fn try_run(self) -> RunningTask<T> {
-        RunningTask { id: self.id, json_task: self.json_task, runs: self.runs + 1 }
+    pub(crate) fn try_run(self) -> Result<RunningTask<T>, DbError> {
+        let runs = self.runs.checked_add(1).ok_or_else(|| {
+            DbError::DataIntegrityError("Task attempt counter is exhausted".to_owned())
+        })?;
+        Ok(RunningTask { id: self.id, json_task: self.json_task, runs })
     }
 
     /// Extracts the deserialized task in order to inspect it.
@@ -206,7 +209,7 @@ mod tests {
             let lhs = RunnableTask::new(id, serde_json::from_str::<u32>(task), 0);
             let rhs = RunnableTask::new(id, serde_json::from_str::<u32>(task), 0);
             assert_eq!(lhs, rhs);
-            assert_eq!(lhs.try_run(), rhs.try_run());
+            assert_eq!(lhs.try_run().unwrap(), rhs.try_run().unwrap());
         }
         for (lhs_task, rhs_task, rhs_id, rhs_runs) in [
             ("1", "2", id, 0),
@@ -218,7 +221,16 @@ mod tests {
             let lhs = RunnableTask::new(id, serde_json::from_str::<u32>(lhs_task), 0);
             let rhs = RunnableTask::new(rhs_id, serde_json::from_str::<u32>(rhs_task), rhs_runs);
             assert_ne!(lhs, rhs);
-            assert_ne!(lhs.try_run(), rhs.try_run());
+            assert_ne!(lhs.try_run().unwrap(), rhs.try_run().unwrap());
         }
+    }
+
+    #[test]
+    fn test_try_run_checks_attempt_counter() {
+        let task = RunnableTask::new(Uuid::new_v4(), Ok(1), 254);
+        assert_eq!(255, task.try_run().unwrap().runs);
+
+        let task = RunnableTask::new(Uuid::new_v4(), Ok(1), 255);
+        assert!(matches!(task.try_run(), Err(DbError::DataIntegrityError(_))));
     }
 }
