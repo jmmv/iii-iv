@@ -16,7 +16,6 @@ sqlite = ["iii-iv-core/sqlite", "sqlx/sqlite", "sqlx/time", "sqlx/uuid"]
 testutils = []
 
 [dependencies]
-async-trait = { workspace = true }
 axum = { workspace = true }
 futures = { workspace = true }
 iii-iv-core = { path = "../core" }

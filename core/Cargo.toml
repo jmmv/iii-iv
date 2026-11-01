@@ -29,7 +29,6 @@ testutils = [
     "dep:base64",
     "dep:bytes",
     "dep:env_logger",
-    "dep:http-body",
     "dep:hyper",
     "dep:json_value_merge",
     "dep:mime",
@@ -46,7 +45,6 @@ base64 = { workspace = true, optional = true }
 bytes = { workspace = true, optional = true }
 env_logger = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
-http-body = { workspace = true, optional = true }
 http = { workspace = true }
 hyper = { workspace = true, optional = true }
 iii-iv-options-derive = { path = "../options-derive" }

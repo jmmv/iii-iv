@@ -10,20 +10,13 @@ publish = false
 workspace = true
 
 [dependencies]
-async-trait = { workspace = true }
 axum = { workspace = true }
 axum-server = { workspace = true }
 env_logger = { workspace = true }
 futures = { workspace = true }
-hyper = { workspace = true }
-log = { workspace = true }
-serde_json = { workspace = true }
 serde = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "sqlite"] }
-thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros", "rt-multi-thread"] }
-tower-http = { workspace = true }
-url = { workspace = true, features = ["serde"] }
 
 [dependencies.iii-iv-core]
 path = "../core"
