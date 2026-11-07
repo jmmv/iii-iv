@@ -56,10 +56,59 @@ pub enum ActivationSuccess {
     DefaultHtml,
 
     /// Returns a custom HTML success page.
+    ///
+    /// Substitutions are HTML-escaped for text and quoted ordinary attributes.  Templates are
+    /// trusted markup; substitutions in script, style, or executable URL contexts are unsupported.
     HtmlTemplate(Cow<'static, str>),
 
     /// Redirects to the given URL after applying any template substitutions.
+    ///
+    /// Substitutions are percent-encoded URL components, not complete URLs.  The trusted template
+    /// supplies URL structure, including query separators and fragment routes.
     RedirectTemplate(String),
+}
+
+/// Escapes account values for HTML text and quoted ordinary attributes.
+fn escape_html(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&#39;"),
+            _ => escaped.push(ch),
+        }
+    }
+    escaped
+}
+
+/// Percent-encodes UTF-8 bytes except URL-unreserved characters.
+fn encode_component(value: &str) -> String {
+    const HEX: &[u8] = b"0123456789ABCDEF";
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            encoded.push(char::from(byte));
+        } else {
+            encoded.push('%');
+            encoded.push(char::from(HEX[usize::from(byte >> 4)]));
+            encoded.push(char::from(HEX[usize::from(byte & 15)]));
+        }
+    }
+    encoded
+}
+
+/// Applies substitutions after escaping values for the response context.
+fn apply_template(
+    input: &str,
+    substs: &[(&'static str, &str)],
+    encode: fn(&str) -> String,
+) -> String {
+    let encoded: Vec<_> = substs.iter().map(|(key, value)| (*key, encode(value))).collect();
+    let encoded: Vec<_> = encoded.iter().map(|(key, value)| (*key, value.as_str())).collect();
+    template::apply(input, &encoded)
 }
 
 /// GET handler for this API.
@@ -91,15 +140,15 @@ pub(crate) async fn handler<H: AuthnHooks>(
 
     let response = match activation_success {
         ActivationSuccess::DefaultHtml => {
-            Html(template::apply(DEFAULT_ACTIVATED_TEMPLATE, substs)).into_response()
+            Html(apply_template(DEFAULT_ACTIVATED_TEMPLATE, substs, escape_html)).into_response()
         }
 
         ActivationSuccess::HtmlTemplate(template) => {
-            Html(template::apply(template.as_ref(), substs)).into_response()
+            Html(apply_template(template.as_ref(), substs, escape_html)).into_response()
         }
 
         ActivationSuccess::RedirectTemplate(template) => {
-            let url = template::apply(&template, substs);
+            let url = apply_template(&template, substs, encode_component);
             Redirect::to(&url).into_response()
         }
     };
@@ -124,6 +173,53 @@ mod tests {
                 serde_urlencoded::to_string(query).unwrap()
             ),
         )
+    }
+
+    #[test]
+    fn test_redirect_components() {
+        let value = "alice+tag&%=#\"'<é>@example.com";
+        let substs = [("email", value), ("user", value), ("user_id", "abc-123"), ("username", "")];
+        let rendered = apply_template(
+            "https://example.com/#/activated?email=%email%&user=%user%&id=%user_id%&name=%username%",
+            &substs,
+            encode_component,
+        );
+        assert!(rendered.starts_with("https://example.com/#/activated?email=alice%2Btag%26%25%3D%23%22%27%3C%C3%A9%3E%40example.com&"));
+        let query = rendered.split_once('?').unwrap().1;
+        let decoded: Vec<(String, String)> = serde_urlencoded::from_str(query).unwrap();
+        assert_eq!(
+            decoded,
+            vec![
+                ("email".into(), value.into()),
+                ("user".into(), value.into()),
+                ("id".into(), "abc-123".into()),
+                ("name".into(), "".into()),
+            ]
+        );
+        assert_eq!("AZaz09-._~", encode_component("AZaz09-._~"));
+    }
+
+    #[test]
+    fn test_html_substitutions() {
+        let value = "<img/src=x/onerror=alert(1)>&\"'@example.com";
+        let escaped = "&lt;img/src=x/onerror=alert(1)&gt;&amp;&quot;&#39;@example.com";
+        let substs = [("email", value), ("user", value), ("user_id", "abc-123"), ("username", "")];
+        let body = apply_template(DEFAULT_ACTIVATED_TEMPLATE, &substs, escape_html);
+        assert!(body.contains(&format!("<p>{escaped}, your account")));
+        assert!(!body.contains("<img"));
+        assert_eq!(
+            format!("<p title=\"{escaped}\" data-user='{escaped}'>{escaped}:abc-123:</p>"),
+            apply_template(
+                "<p title=\"%email%\" data-user='%user%'>%user%:%user_id%:%username%</p>",
+                &substs,
+                escape_html
+            ),
+        );
+        assert_eq!("a+b%#é", escape_html("a+b%#é"));
+        assert_eq!(
+            format!("<p>{escaped}</p>"),
+            apply_template("<p>%username%</p>", &[("username", value)], escape_html),
+        );
     }
 
     #[tokio::test]
