@@ -20,6 +20,7 @@ async-trait = { workspace = true }
 env_logger = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
 iii-iv-core = { path = "../core" }
+mailparse = { workspace = true }
 quoted_printable = { workspace = true, optional = true }
 time = { workspace = true }
 
