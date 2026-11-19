@@ -23,7 +23,7 @@ use futures::stream::StreamExt;
 use futures::{Future, SinkExt};
 use iii_iv_core::clocks::Clock;
 use iii_iv_core::config::Options;
-use iii_iv_core::db::Db;
+use iii_iv_core::db::{Db, DbError};
 use iii_iv_core::driver::{DriverError, DriverResult};
 use log::{info, warn};
 use serde::de::DeserializeOwned;
@@ -130,7 +130,11 @@ where
     // This protects against running the same task concurrently more than once if we think it is
     // still running.
     let task =
-        db::set_task_running(&mut db.ex().await?, task, max_runtime, clock.now_utc()).await?;
+        match db::set_task_running(&mut db.ex().await?, task, max_runtime, clock.now_utc()).await {
+            Ok(task) => task,
+            Err(DbError::NotFound) => return Ok(Some(TaskResult::Done(None))),
+            Err(e) => return Err(e.into()),
+        };
 
     let result = if task.runs >= max_runs {
         TaskResult::Abandoned(format!(
@@ -358,6 +362,44 @@ where
 mod tests {
     use super::*;
     use serial_test::serial;
+
+    #[tokio::test]
+    async fn test_deleted_task_is_not_executed() {
+        let db: Arc<dyn Db + Send + Sync> =
+            Arc::new(iii_iv_core::db::sqlite::testutils::setup().await);
+        db::init_schema(&mut db.ex().await.unwrap()).await.unwrap();
+        let clock: Arc<dyn Clock + Send + Sync> =
+            Arc::new(iii_iv_core::clocks::testutils::SettableClock::new(
+                time::macros::datetime!(2026-01-01 00:00 UTC),
+            ));
+        let id = db::put_new_task(&mut db.ex().await.unwrap(), &1u8, clock.now_utc(), None)
+            .await
+            .unwrap();
+        let task = db::get_runnable_tasks::<u8>(
+            &mut db.ex().await.unwrap(),
+            1,
+            Duration::from_secs(300),
+            clock.now_utc(),
+        )
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+        db::delete_task(&mut db.ex().await.unwrap(), id).await.unwrap();
+        let result = run_task(
+            task,
+            |_| async { panic!("Deleted task executed") },
+            16,
+            Duration::from_secs(300),
+            Duration::from_secs(300),
+            db.clone(),
+            clock,
+        )
+        .await
+        .unwrap();
+        assert_eq!(Some(TaskResult::Done(None)), result);
+        assert!(db::get_tasks::<u8>(&mut db.ex().await.unwrap()).await.unwrap().is_empty());
+    }
 
     #[tokio::test]
     async fn test_clone_with_non_clone_task() {

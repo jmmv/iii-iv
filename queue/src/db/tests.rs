@@ -595,12 +595,51 @@ async fn test_retry_timestamp_pre_epoch_round_trip(ex: &mut Executor) {
     );
 }
 
+async fn test_cleanup_all_statuses(ex: &mut Executor) {
+    let now = datetime!(2026-01-01 00:00 UTC);
+    let max_runtime = Duration::from_secs(300);
+    let keep = put_new_mock_task(ex, 99, now, None).await;
+    let mut ids = vec![put_new_mock_task(ex, 1, now, Some(now + max_runtime)).await];
+    ids.push(put_running_task(ex, 2, max_runtime, now, 1).await);
+    for result in [
+        TaskResult::Done(None),
+        TaskResult::Failed("failure".into()),
+        TaskResult::Abandoned("abandoned".into()),
+        TaskResult::Retry(now + max_runtime, "retry".into()),
+    ] {
+        ids.push(put_done_task(ex, 3, &result, max_runtime, now, 1).await);
+    }
+    let tasks = get_tasks::<MockTask>(ex).await.unwrap();
+    assert_eq!(ids.len() + 1, tasks.len());
+    for (id, task) in tasks {
+        if task.i != 99 {
+            delete_task(ex, id).await.unwrap();
+            delete_task(ex, id).await.unwrap();
+            set_task_result(ex, id, &TaskResult::Done(None), now).await.unwrap();
+        }
+    }
+    assert_eq!(vec![(keep, MockTask { i: 99 })], get_tasks::<MockTask>(ex).await.unwrap());
+    assert!(matches!(
+        set_task_running(ex, RunnableTask::new(ids[0], Ok(MockTask { i: 1 }), 0), max_runtime, now)
+            .await,
+        Err(DbError::NotFound)
+    ));
+}
+
+async fn test_cleanup_deserialization_failure(ex: &mut Executor) {
+    put_new_mock_task(ex, MockTask::TRIGGER_DE_ERROR, datetime!(2026-01-01 00:00 UTC), None).await;
+    assert!(matches!(get_tasks::<MockTask>(ex).await, Err(DbError::DataIntegrityError(_))));
+    assert_eq!(1, get_tasks::<serde_json::Value>(ex).await.unwrap().len());
+}
+
 macro_rules! generate_db_tests [
     ( $setup:expr $(, #[$extra:meta] )? ) => {
         iii_iv_core::db::testutils::generate_tests!(
             $(#[$extra],)?
             $setup,
             $crate::db::tests,
+            test_cleanup_all_statuses,
+            test_cleanup_deserialization_failure,
             test_put_get_runnable_all_new,
             test_put_get_runnable_mix,
             test_put_get_runnable_limit,
