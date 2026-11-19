@@ -88,6 +88,78 @@ async fn test_email_log_id_domain(ex: &mut Executor) {
     assert!(raw_insert_email_log_with_id(ex, i64::from(i32::MAX) + 1).await.is_err());
 }
 
+async fn test_delete_email_logs_by_recipient(ex: &mut Executor) {
+    let recipient = iii_iv_core::model::email_address!("owner@example.com");
+    let now = datetime!(2026-11-19 00:00 UTC);
+    for message in [
+        Message::builder()
+            .from("from@example.com".parse().unwrap())
+            .to("Owner <owner@example.com>".parse().unwrap())
+            .body("Direct".to_owned())
+            .unwrap(),
+        Message::builder()
+            .from("from@example.com".parse().unwrap())
+            .to("other@example.com".parse().unwrap())
+            .cc("owner@example.com".parse().unwrap())
+            .body("Copy".to_owned())
+            .unwrap(),
+        Message::builder()
+            .from("from@example.com".parse().unwrap())
+            .to("other@example.com".parse().unwrap())
+            .bcc("owner@example.com".parse().unwrap())
+            .keep_bcc()
+            .body("Blind".to_owned())
+            .unwrap(),
+        Message::builder()
+            .from("owner@example.com".parse().unwrap())
+            .to("other-owner@example.com".parse().unwrap())
+            .subject("owner@example.com")
+            .body("owner@example.com".to_owned())
+            .unwrap(),
+    ] {
+        let id = put_email_log(ex, &message, now).await.unwrap();
+        update_email_log(ex, id, "retained SMTP result").await.unwrap();
+    }
+    assert_eq!(3, delete_email_logs_by_recipient(ex, &recipient).await.unwrap());
+    let logs = get_email_log(ex).await.unwrap();
+    assert_eq!(1, logs.len());
+    assert_eq!(Some("retained SMTP result"), logs[0].2.as_deref());
+    assert_eq!(0, delete_email_logs_by_recipient(ex, &recipient).await.unwrap());
+}
+
+async fn test_delete_email_logs_malformed(ex: &mut Executor) {
+    let recipient = iii_iv_core::model::email_address!("owner@example.com");
+    let message = Message::builder()
+        .from("from@example.com".parse().unwrap())
+        .to("owner@example.com".parse().unwrap())
+        .body("Direct".to_owned())
+        .unwrap();
+    put_email_log(ex, &message, datetime!(2026-11-19 00:00 UTC)).await.unwrap();
+    raw_insert_email_log_with_id(ex, 100).await.unwrap();
+    assert!(matches!(
+        delete_email_logs_by_recipient(ex, &recipient).await,
+        Err(DbError::DataIntegrityError(_))
+    ));
+    assert_eq!(2, get_email_log(ex).await.unwrap().len());
+}
+
+#[test]
+fn test_recipient_header_parsing() {
+    let recipient = iii_iv_core::model::email_address!("owner@example.com");
+    for headers in [
+        "To: Friends: Other <other@example.com>, Owner <owner@example.com>;\r\n",
+        "tO: Other <other@example.com>,\r\n Owner <owner@example.com>\r\n",
+        "To: =?utf-8?b?T3duZXI=?= <owner@example.com>\r\n",
+    ] {
+        assert!(has_recipient(format!("{}\r\nBody", headers).as_bytes(), &recipient).unwrap());
+    }
+    assert!(
+        !has_recipient(b"To: other-owner@example.com\r\n\r\nowner@example.com", &recipient)
+            .unwrap()
+    );
+    assert!(has_recipient(b"To: invalid-mailbox\r\n\r\n", &recipient).is_err());
+}
+
 macro_rules! generate_db_tests [
     ( $setup:expr $(, #[$extra:meta] )? ) => {
         iii_iv_core::db::testutils::generate_tests!(
@@ -95,7 +167,9 @@ macro_rules! generate_db_tests [
             $setup,
             $crate::db::tests,
             test_email_log,
-            test_email_log_id_domain
+            test_email_log_id_domain,
+            test_delete_email_logs_by_recipient,
+            test_delete_email_logs_malformed
         );
     }
 ];

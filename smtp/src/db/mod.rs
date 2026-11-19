@@ -23,8 +23,10 @@ use iii_iv_core::db::postgres;
 use iii_iv_core::db::sqlite::build_timestamp;
 #[cfg(any(feature = "sqlite", test))]
 use iii_iv_core::db::sqlite::{self, unpack_timestamp};
-use iii_iv_core::db::{DbResult, Executor, count_as_usize, ensure_one_upsert};
+use iii_iv_core::db::{DbError, DbResult, Executor, count_as_usize, ensure_one_upsert};
+use iii_iv_core::model::EmailAddress;
 use lettre::Message;
+use mailparse::{MailAddr, addrparse_header, parse_headers};
 use sqlx::{AssertSqlSafe, Row};
 use time::{Date, OffsetDateTime};
 
@@ -43,6 +45,93 @@ pub async fn init_schema(ex: &mut Executor) -> DbResult<()> {
         #[allow(unused)]
         _ => unreachable!(),
     }
+}
+
+/// Determines ownership from header-visible recipients in historical messages.
+fn has_recipient(message: &[u8], recipient: &EmailAddress) -> DbResult<bool> {
+    let invalid =
+        |error| DbError::DataIntegrityError(format!("Invalid email log message: {}", error));
+    let (headers, _) = parse_headers(message).map_err(invalid)?;
+    let mut found = false;
+    let mut recipient_headers = false;
+    for header in headers {
+        if !["to", "cc", "bcc"].iter().any(|name| header.get_key_ref().eq_ignore_ascii_case(name)) {
+            continue;
+        }
+        recipient_headers = true;
+        for address in addrparse_header(&header).map_err(invalid)?.iter() {
+            found |= match address {
+                MailAddr::Group(group) => {
+                    group.addrs.iter().any(|address| address.addr == recipient.as_str())
+                }
+                MailAddr::Single(address) => address.addr == recipient.as_str(),
+            };
+        }
+    }
+    if !recipient_headers {
+        return Err(DbError::DataIntegrityError(
+            "Email log message has no recipient headers".to_owned(),
+        ));
+    }
+    Ok(found)
+}
+
+/// Deletes complete email log entries addressed to `recipient`, returning the number removed.
+///
+/// Matches exact mailboxes in To, Cc, and retained Bcc headers, including historical messages.
+/// Envelope-only recipients cannot be recovered from stored messages.  The caller must use a
+/// transaction and coordinate concurrent mail submission.  All messages are parsed before any
+/// deletion, so malformed stored messages fail without silently leaving account data behind.
+pub async fn delete_email_logs_by_recipient(
+    ex: &mut Executor,
+    recipient: &EmailAddress,
+) -> DbResult<usize> {
+    let messages: Vec<(i32, Vec<u8>)> = match ex {
+        #[cfg(feature = "postgres")]
+        Executor::Postgres(ex) => sqlx::query_as("SELECT id, message FROM email_log")
+            .fetch_all(ex)
+            .await
+            .map_err(postgres::map_sqlx_error)?,
+
+        #[cfg(any(feature = "sqlite", test))]
+        Executor::Sqlite(ex) => sqlx::query_as("SELECT id, message FROM email_log")
+            .fetch_all(ex)
+            .await
+            .map_err(sqlite::map_sqlx_error)?,
+
+        #[allow(unused)]
+        _ => unreachable!(),
+    };
+    let mut ids = Vec::new();
+    for (id, message) in messages {
+        if has_recipient(&message, recipient)? {
+            ids.push(id);
+        }
+    }
+    let mut deleted = 0;
+    for id in ids {
+        deleted += match ex {
+            #[cfg(feature = "postgres")]
+            Executor::Postgres(ex) => sqlx::query("DELETE FROM email_log WHERE id = $1")
+                .bind(id)
+                .execute(ex)
+                .await
+                .map_err(postgres::map_sqlx_error)?
+                .rows_affected(),
+
+            #[cfg(any(feature = "sqlite", test))]
+            Executor::Sqlite(ex) => sqlx::query("DELETE FROM email_log WHERE id = ?")
+                .bind(id)
+                .execute(ex)
+                .await
+                .map_err(sqlite::map_sqlx_error)?
+                .rows_affected(),
+
+            #[allow(unused)]
+            _ => unreachable!(),
+        };
+    }
+    usize::try_from(deleted).map_err(|error| DbError::DataIntegrityError(error.to_string()))
 }
 
 /// Counts how many emails were sent on `day`.
