@@ -74,6 +74,86 @@ pub async fn init_schema(ex: &mut Executor) -> DbResult<()> {
     }
 }
 
+/// Lists every persisted task regardless of status, including completed and abandoned work.
+///
+/// Deserialization errors abort enumeration so cleanup cannot silently overlook stored data.
+/// Callers should coordinate concurrent producers and execution before deleting matching tasks.
+pub async fn get_tasks<T: DeserializeOwned>(ex: &mut Executor) -> DbResult<Vec<(Uuid, T)>> {
+    let rows: Vec<(Uuid, String)> = match ex {
+        #[cfg(feature = "postgres")]
+        Executor::Postgres(ex) => sqlx::query_as("SELECT id, json FROM tasks ORDER BY id")
+            .fetch_all(ex)
+            .await
+            .map_err(postgres::map_sqlx_error)?,
+        #[cfg(any(feature = "sqlite", test))]
+        Executor::Sqlite(ex) => sqlx::query_as("SELECT id, json FROM tasks ORDER BY id")
+            .fetch_all(ex)
+            .await
+            .map_err(sqlite::map_sqlx_error)?,
+        #[allow(unused)]
+        _ => unreachable!(),
+    };
+    rows.into_iter()
+        .map(|(id, json)| {
+            serde_json::from_str(&json).map(|task| (id, task)).map_err(|e| {
+                DbError::DataIntegrityError(format!("Cannot deserialize task {}: {}", id, e))
+            })
+        })
+        .collect()
+}
+
+/// Physically removes a task and its result, regardless of status.
+///
+/// Missing tasks are harmless.  This does not cancel execution already in progress;
+/// callers must coordinate task side effects with their own deletion transaction.
+pub async fn delete_task(ex: &mut Executor, id: Uuid) -> DbResult<()> {
+    match ex {
+        #[cfg(feature = "postgres")]
+        Executor::Postgres(ex) => {
+            sqlx::query("DELETE FROM tasks WHERE id = $1")
+                .bind(id)
+                .execute(ex)
+                .await
+                .map_err(postgres::map_sqlx_error)?;
+        }
+        #[cfg(any(feature = "sqlite", test))]
+        Executor::Sqlite(ex) => {
+            sqlx::query("DELETE FROM tasks WHERE id = ?")
+                .bind(id)
+                .execute(ex)
+                .await
+                .map_err(sqlite::map_sqlx_error)?;
+        }
+        #[allow(unused)]
+        _ => unreachable!(),
+    }
+    Ok(())
+}
+
+/// Distinguishes deleted tasks from tasks that another worker has claimed.
+async fn task_exists(ex: &mut Executor, id: Uuid) -> DbResult<bool> {
+    match ex {
+        #[cfg(feature = "postgres")]
+        Executor::Postgres(ex) => {
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM tasks WHERE id = $1)")
+                .bind(id)
+                .fetch_one(ex)
+                .await
+                .map_err(postgres::map_sqlx_error)
+        }
+        #[cfg(any(feature = "sqlite", test))]
+        Executor::Sqlite(ex) => {
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM tasks WHERE id = ?)")
+                .bind(id)
+                .fetch_one(ex)
+                .await
+                .map_err(sqlite::map_sqlx_error)
+        }
+        #[allow(unused)]
+        _ => unreachable!(),
+    }
+}
+
 /// Stores a new task with a serialized `task` descriptor, marks it as runnable, and
 /// tracks that it was enqueue at the `created` timestamp.  The task is postponed until
 /// `only_after` if specified.  Returns the ID of the created task.
@@ -555,11 +635,15 @@ where
         _ => unreachable!(),
     };
 
+    if rows_affected == 0 && !task_exists(ex, task.id).await? {
+        return Err(DbError::NotFound);
+    }
     ensure_one_update(task.id, rows_affected)?;
     Ok(task)
 }
 
 /// Marks the already-stored task `id` as completed with the given `result`.
+/// Missing tasks are ignored because cleanup may delete work during execution.
 ///
 /// The task's `updated` timestamp should represent the current time, as it will help
 /// troubleshoot issues after completion.
@@ -621,6 +705,8 @@ pub(crate) async fn set_task_result(
         _ => unreachable!(),
     };
 
-    ensure_one_update(id, rows_affected)?;
+    if rows_affected != 0 {
+        ensure_one_update(id, rows_affected)?;
+    }
     Ok(())
 }
