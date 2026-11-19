@@ -129,6 +129,11 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         verified: bool,
     ) -> DriverResult<(TxExecutor, User, OffsetDateTime)> {
         let mut tx = self.db.begin().await?;
+        let user = match db::lock_user(tx.ex(), admitted_user.id).await {
+            Ok(user) => user,
+            Err(DbError::NotFound) => return Err(DriverError::Unauthenticated),
+            Err(error) => return Err(error.into()),
+        };
         let mut failures = match db::lock_failures(
             tx.ex(),
             admitted_user.id,
@@ -146,11 +151,6 @@ impl<H: AuthnHooks> AuthnDriver<H> {
             return Err(DriverError::Unauthenticated);
         }
 
-        let user = match db::get_user_by_id(tx.ex(), admitted_user.id).await {
-            Ok(user) => user,
-            Err(DbError::NotFound) => return Err(DriverError::Unauthenticated),
-            Err(error) => return Err(error.into()),
-        };
         if !verified
             || user.password.is_none()
             || user.password != admitted_user.password
