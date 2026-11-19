@@ -44,6 +44,12 @@ impl<H: AuthnHooks> AuthnDriver<H> {
     pub(crate) async fn activate(self, user_id: Uuid, code: u64) -> DriverResult<User> {
         let mut tx = self.db.begin().await?;
 
+        match db::lock_user(tx.ex(), user_id).await {
+            Ok(_) => {}
+            Err(DbError::NotFound) => return Err(invalid_activation()),
+            Err(error) => return Err(error.into()),
+        }
+
         let mut failures = match db::lock_failures(
             tx.ex(),
             user_id,

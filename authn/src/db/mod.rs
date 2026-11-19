@@ -523,6 +523,63 @@ pub async fn get_user_by_username(ex: &mut Executor, username: Username) -> DbRe
     }
 }
 
+/// Gets an account and locks its row until the transaction ends on PostgreSQL.
+///
+/// Acquire this lock before account-specific locks or writes.  SQLite only reads the account;
+/// callers using SQLite must serialize concurrent account operations themselves.
+pub async fn lock_user(ex: &mut Executor, id: Uuid) -> DbResult<User> {
+    match ex {
+        #[cfg(feature = "postgres")]
+        Executor::Postgres(ex) => {
+            sqlx::query("SELECT id FROM users WHERE id = $1 FOR UPDATE")
+                .bind(id)
+                .fetch_one(ex)
+                .await
+                .map_err(postgres::map_sqlx_error)?;
+        }
+
+        #[cfg(any(feature = "sqlite", test))]
+        Executor::Sqlite(ex) => {
+            sqlx::query("SELECT id FROM users WHERE id = ?")
+                .bind(id)
+                .fetch_one(ex)
+                .await
+                .map_err(sqlite::map_sqlx_error)?;
+        }
+
+        #[allow(unused)]
+        _ => unreachable!(),
+    }
+    get_user_by_id(ex, id).await
+}
+
+/// Physically removes all sessions, including expired and logged-out sessions.
+pub(crate) async fn purge_sessions_for_user(ex: &mut Executor, user_id: Uuid) -> DbResult<()> {
+    match ex {
+        #[cfg(feature = "postgres")]
+        Executor::Postgres(ex) => {
+            sqlx::query("DELETE FROM sessions WHERE user_id = $1")
+                .bind(user_id)
+                .execute(ex)
+                .await
+                .map_err(postgres::map_sqlx_error)?;
+        }
+
+        #[cfg(any(feature = "sqlite", test))]
+        Executor::Sqlite(ex) => {
+            sqlx::query("DELETE FROM sessions WHERE user_id = ?")
+                .bind(user_id)
+                .execute(ex)
+                .await
+                .map_err(sqlite::map_sqlx_error)?;
+        }
+
+        #[allow(unused)]
+        _ => unreachable!(),
+    }
+    Ok(())
+}
+
 /// Deletes a user.
 pub async fn delete_user(ex: &mut Executor, id: Uuid) -> DbResult<()> {
     let rows_affected = match ex {

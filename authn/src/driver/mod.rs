@@ -48,6 +48,7 @@ use tokio::sync::Semaphore;
 
 mod activate;
 mod change_password;
+mod delete_account;
 pub(crate) mod email;
 mod failures;
 mod hooks;
@@ -370,7 +371,11 @@ impl<H: AuthnHooks> AuthnDriver<H> {
             return Err(DriverError::Unauthenticated);
         }
 
-        let user = Arc::from(db::get_user_by_id(tx.ex(), session.user_id).await?);
+        let user = match db::get_user_by_id(tx.ex(), session.user_id).await {
+            Ok(user) => Arc::from(user),
+            Err(DbError::NotFound) => return Err(DriverError::Unauthenticated),
+            Err(error) => return Err(error.into()),
+        };
         Ok(CachedSession { expires_at, user })
     }
 
@@ -378,7 +383,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
     ///
     /// When caching is enabled, both OK and error results come from an internal cache.  Successful
     /// entries are always rejected at their absolute expiration time even if their cache TTL is
-    /// longer.
+    /// longer.  Account existence is checked even on cache hits so deleted accounts are rejected.
     pub async fn get_session(
         &self,
         tx: &mut TxExecutor,
@@ -395,7 +400,14 @@ impl<H: AuthnHooks> AuthnDriver<H> {
                         let _previous = cache.remove(&token);
                         Err(DriverError::Unauthenticated)
                     }
-                    Ok(session) => Ok(session.user),
+                    Ok(session) => match db::get_user_by_id(tx.ex(), session.user.id).await {
+                        Ok(_) => Ok(session.user),
+                        Err(DbError::NotFound) => {
+                            let _previous = cache.remove(&token);
+                            Err(DriverError::Unauthenticated)
+                        }
+                        Err(error) => Err(error.into()),
+                    },
                     Err(error) => Err(error),
                 };
             }

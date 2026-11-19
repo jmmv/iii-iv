@@ -18,6 +18,7 @@
 use crate::driver::{AuthnDriver, AuthnHooks};
 use axum::Router;
 
+mod api_account_delete;
 mod api_activate_get;
 mod api_change_password_put;
 mod api_login_post;
@@ -27,6 +28,7 @@ mod httputils;
 #[cfg(any(test, feature = "testutils"))]
 pub mod testutils;
 
+pub use api_account_delete::DeleteAccountRequest;
 pub use api_activate_get::{ActivateRequest, ActivationSuccess};
 pub use api_change_password_put::ChangePasswordRequest;
 pub use api_login_post::LoginResponse;
@@ -37,13 +39,14 @@ pub use httputils::{get_basic_auth, get_bearer_auth, has_bearer_auth};
 ///
 /// The `driver` is a configured instance of the `AuthnDriver` to handle accounts.
 pub fn app<H: AuthnHooks>(driver: AuthnDriver<H>, activation_success: ActivationSuccess) -> Router {
-    use axum::routing::{get, post, put};
+    use axum::routing::{delete, get, post, put};
 
     let activate_router = Router::new()
         .route("/users/{user}/activate", get(api_activate_get::handler))
         .with_state((driver.clone(), activation_success));
 
     Router::new()
+        .route("/account", delete(api_account_delete::handler))
         .route("/login", post(api_login_post::handler))
         .route("/logout", post(api_logout_post::handler))
         .route("/password", put(api_change_password_put::handler))

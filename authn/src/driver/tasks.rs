@@ -80,7 +80,7 @@ impl AuthnTaskRunner {
     /// Sends an account activation email if the activation request is still current.
     async fn send_activation_email(&self, user_id: Uuid, activation_code: u64) -> ExecResult {
         let mut tx = self.db.begin().await?;
-        let user = match db::get_user_by_id(tx.ex(), user_id).await {
+        let user = match db::lock_user(tx.ex(), user_id).await {
             Ok(user) => user,
             Err(DbError::NotFound) => {
                 return Ok(Some("Skipped activation email for missing user".to_owned()));
@@ -102,9 +102,10 @@ impl AuthnTaskRunner {
         )
         .map_err(|e| ExecError::Failed(format!("Failed to build activation email: {}", e)))?;
 
+        // Keep the account locked through SMTP log updates so deletion cannot leave new logs.
+        let result = self.mailer.send_in_transaction(&mut tx, message).await;
         tx.commit().await?;
-
-        self.mailer.send(message).await.map_err(|e| {
+        result.map_err(|e| {
             ExecError::RetryAfterDelay(
                 self.email_retry_delay,
                 format!("Failed to send activation email: {}", e),

@@ -15,11 +15,11 @@
 
 //! Utilities to send messages over email.
 
-use crate::db::{count_email_log, put_email_log, update_email_log};
+use crate::db::{count_email_log, delete_email_log, put_email_log, update_email_log};
 use async_trait::async_trait;
 use iii_iv_core::clocks::Clock;
 use iii_iv_core::config::Options;
-use iii_iv_core::db::Db;
+use iii_iv_core::db::{Db, TxExecutor};
 use iii_iv_core::driver::{DriverError, DriverResult};
 use iii_iv_core::model::SecretString;
 use lettre::message::Message;
@@ -53,6 +53,19 @@ pub struct SmtpOptions {
 pub trait SmtpMailer {
     /// Sends a message over SMTP.
     async fn send(&self, message: Message) -> DriverResult<()>;
+
+    /// Sends a message using a caller-owned transaction for any logging.
+    ///
+    /// Database-backed implementations must override this to avoid acquiring a second connection
+    /// while the caller holds account locks.  Commit the transaction even on transport errors to
+    /// retain the attempt for quota accounting; the default implementation delegates to `send`.
+    async fn send_in_transaction(
+        &self,
+        _tx: &mut TxExecutor,
+        message: Message,
+    ) -> DriverResult<()> {
+        self.send(message).await
+    }
 }
 
 /// Mailer backed by a real SMTP connection using `lettre`.
@@ -153,6 +166,28 @@ where
             Err(ref e) => update_email_log(&mut self.db.ex().await?, id, &format!("{}", e)).await?,
         }
 
+        result
+    }
+
+    async fn send_in_transaction(&self, tx: &mut TxExecutor, message: Message) -> DriverResult<()> {
+        let now = self.clock.now_utc();
+        let id = put_email_log(tx.ex(), &message, now).await?;
+        if let Some(max_daily_emails) = self.max_daily_emails {
+            let daily_emails = count_email_log(tx.ex(), now.date()).await? - 1;
+            if daily_emails >= max_daily_emails {
+                delete_email_log(tx.ex(), id).await?;
+                return Err(DriverError::NoSpace(format!(
+                    "Too many emails sent today ({} >= {})",
+                    daily_emails, max_daily_emails,
+                )));
+            }
+        }
+        let result = self.transport.send_in_transaction(tx, message).await;
+        let status = match &result {
+            Ok(()) => "OK".to_owned(),
+            Err(error) => error.to_string(),
+        };
+        update_email_log(tx.ex(), id, &status).await?;
         result
     }
 }
@@ -286,6 +321,51 @@ mod tests {
         assert_eq!(1, log.len());
         assert_eq!(exp_message.formatted(), log[0].1);
         assert_eq!(Some("OK"), log[0].2.as_deref());
+    }
+
+    #[tokio::test]
+    async fn test_send_in_transaction() {
+        let db: Arc<dyn Db + Send + Sync> =
+            Arc::from(iii_iv_core::db::sqlite::testutils::setup().await);
+        use crate::db::init_schema;
+        use iii_iv_core::clocks::testutils::SettableClock;
+        use time::macros::datetime;
+
+        init_schema(&mut db.ex().await.unwrap()).await.unwrap();
+        let mailer = RecorderSmtpMailer::default();
+        let driver = SmtpDriver::new(
+            mailer.clone(),
+            db.clone(),
+            Arc::new(SettableClock::new(datetime!(2026-01-01 0:00 UTC))),
+            Some(2),
+        );
+        let mut tx = db.begin().await.unwrap();
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            driver.send_in_transaction(&mut tx, new_message()),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        tx.commit().await.unwrap();
+        mailer.inject_error_for("to@example.com").await;
+        let mut tx = db.begin().await.unwrap();
+        let result = driver.send_in_transaction(&mut tx, new_message()).await;
+        tx.commit().await.unwrap();
+        assert_eq!("Sending email to to@example.com failed", result.unwrap_err().to_string());
+        let mut tx = db.begin().await.unwrap();
+        let result = driver.send_in_transaction(&mut tx, new_message()).await;
+        tx.commit().await.unwrap();
+        assert!(matches!(result, Err(DriverError::NoSpace(_))));
+        let log = get_email_log(&mut db.ex().await.unwrap()).await.unwrap();
+        assert_eq!(2, log.len());
+        assert!(log.iter().any(|entry| entry.2.as_deref() == Some("OK")));
+        assert!(
+            log.iter()
+                .any(|entry| entry.2.as_deref() == Some("Sending email to to@example.com failed"))
+        );
+        mailer.expect_one_message(&"to@example.com".into()).await;
+        db.close().await;
     }
 
     #[tokio::test]

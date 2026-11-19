@@ -26,6 +26,20 @@ use time::OffsetDateTime;
 /// Collection of hooks to extend the behavior of the authn APIs.
 #[async_trait]
 pub trait AuthnHooks: Clone + Send + Sync + 'static {
+    /// Removes application-owned account state before authentication records are deleted.
+    ///
+    /// Runs with the account locked in the deletion transaction.  A failure rolls back all
+    /// deletion.  Implementations must also remove persisted tasks and email logs containing
+    /// account data, and coordinate their producers and handlers with `db::lock_user`.
+    async fn delete_account_hook(
+        &self,
+        _tx: &mut TxExecutor,
+        _now: OffsetDateTime,
+        _user: &User,
+    ) -> DriverResult<()> {
+        Ok(())
+    }
+
     /// Additional fields returned from a login API call.
     type LoginOutput: Send + Serialize;
 

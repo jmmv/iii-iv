@@ -110,28 +110,33 @@ pub async fn delete_email_logs_by_recipient(
     }
     let mut deleted = 0;
     for id in ids {
-        deleted += match ex {
-            #[cfg(feature = "postgres")]
-            Executor::Postgres(ex) => sqlx::query("DELETE FROM email_log WHERE id = $1")
-                .bind(id)
-                .execute(ex)
-                .await
-                .map_err(postgres::map_sqlx_error)?
-                .rows_affected(),
-
-            #[cfg(any(feature = "sqlite", test))]
-            Executor::Sqlite(ex) => sqlx::query("DELETE FROM email_log WHERE id = ?")
-                .bind(id)
-                .execute(ex)
-                .await
-                .map_err(sqlite::map_sqlx_error)?
-                .rows_affected(),
-
-            #[allow(unused)]
-            _ => unreachable!(),
-        };
+        deleted += delete_email_log(ex, id).await?;
     }
     usize::try_from(deleted).map_err(|error| DbError::DataIntegrityError(error.to_string()))
+}
+
+/// Removes a log record, returning zero if it was already removed.
+pub(crate) async fn delete_email_log(ex: &mut Executor, id: i32) -> DbResult<u64> {
+    match ex {
+        #[cfg(feature = "postgres")]
+        Executor::Postgres(ex) => sqlx::query("DELETE FROM email_log WHERE id = $1")
+            .bind(id)
+            .execute(ex)
+            .await
+            .map_err(postgres::map_sqlx_error)
+            .map(|done| done.rows_affected()),
+
+        #[cfg(any(feature = "sqlite", test))]
+        Executor::Sqlite(ex) => sqlx::query("DELETE FROM email_log WHERE id = ?")
+            .bind(id)
+            .execute(ex)
+            .await
+            .map_err(sqlite::map_sqlx_error)
+            .map(|done| done.rows_affected()),
+
+        #[allow(unused)]
+        _ => unreachable!(),
+    }
 }
 
 /// Counts how many emails were sent on `day`.
