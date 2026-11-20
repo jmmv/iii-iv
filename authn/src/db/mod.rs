@@ -35,6 +35,9 @@ pub use activation::{
     consume_user_activation, get_user_activation, set_user_activation, set_user_active,
 };
 
+mod credential;
+pub use credential::{delete_email_credential, get_email_credential, put_email_credential};
+
 mod failures;
 pub(crate) use failures::{clear_failures, get_failures, lock_failures, save_failures};
 

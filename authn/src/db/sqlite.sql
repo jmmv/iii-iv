@@ -79,3 +79,14 @@ CREATE TABLE IF NOT EXISTS sessions (
     logout_time_secs INTEGER,
     logout_time_nsecs INTEGER
 );
+
+CREATE TABLE IF NOT EXISTS email_credentials (
+    user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    purpose TEXT NOT NULL CHECK (purpose IN ('activation', 'recovery')),
+    digest TEXT NOT NULL,
+    issued_at_secs INTEGER NOT NULL,
+    issued_at_nsecs INTEGER NOT NULL,
+    expires_at_secs INTEGER NOT NULL,
+    expires_at_nsecs INTEGER NOT NULL,
+    PRIMARY KEY (user_id, purpose)
+);

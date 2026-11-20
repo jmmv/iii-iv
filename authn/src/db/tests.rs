@@ -282,6 +282,100 @@ async fn test_set_user_activation_ok(ex: &mut Executor) {
     assert!(read_user.is_active);
 }
 
+async fn test_email_credentials(ex: &mut Executor) {
+    use crate::model::{CredentialPurpose, EmailCredential, EmailToken};
+    let user = create_simple_user(ex, "credential").await;
+    let purpose = CredentialPurpose::Recovery;
+    assert_eq!(None, get_email_credential(ex, user.id, purpose).await.unwrap());
+    let token = EmailToken::generate();
+    let state = EmailCredential {
+        digest: token.digest(purpose),
+        issued_at: datetime!(2023-12-01 05:50:00 UTC),
+        expires_at: datetime!(2023-12-01 06:50:00 UTC),
+    };
+    put_email_credential(ex, user.id, purpose, &state).await.unwrap();
+    assert_eq!(Some(state), get_email_credential(ex, user.id, purpose).await.unwrap());
+    assert_eq!(
+        None,
+        get_email_credential(ex, user.id, CredentialPurpose::Activation).await.unwrap()
+    );
+    delete_email_credential(ex, user.id, purpose).await.unwrap();
+    assert_eq!(None, get_email_credential(ex, user.id, purpose).await.unwrap());
+}
+
+async fn test_email_credential_digest_validation(ex: &mut Executor) {
+    use crate::model::{CredentialPurpose, EmailCredential, EmailToken};
+    use base64::Engine;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+
+    let user = create_simple_user(ex, "bad-digest").await;
+    let purpose = CredentialPurpose::Recovery;
+    let state = EmailCredential {
+        digest: EmailToken::generate().digest(purpose),
+        issued_at: datetime!(2023-12-01 05:50:00 UTC),
+        expires_at: datetime!(2023-12-01 06:50:00 UTC),
+    };
+    put_email_credential(ex, user.id, purpose, &state).await.unwrap();
+    let stored: String = match ex {
+        #[cfg(feature = "postgres")]
+        Executor::Postgres(ex) => {
+            sqlx::query_scalar("SELECT digest FROM email_credentials WHERE user_id = $1")
+                .bind(user.id)
+                .fetch_one(ex)
+                .await
+                .unwrap()
+        }
+
+        #[cfg(any(feature = "sqlite", test))]
+        Executor::Sqlite(ex) => {
+            sqlx::query_scalar("SELECT digest FROM email_credentials WHERE user_id = ?")
+                .bind(user.id)
+                .fetch_one(ex)
+                .await
+                .unwrap()
+        }
+
+        #[allow(unused)]
+        _ => unreachable!(),
+    };
+    assert_eq!(URL_SAFE_NO_PAD.encode(state.digest.as_bytes()), stored);
+
+    for invalid in
+        ["not base64!".to_owned(), URL_SAFE_NO_PAD.encode([0; 31]), URL_SAFE_NO_PAD.encode([0; 33])]
+    {
+        match ex {
+            #[cfg(feature = "postgres")]
+            Executor::Postgres(ex) => {
+                sqlx::query("UPDATE email_credentials SET digest = $1 WHERE user_id = $2")
+                    .bind(&invalid)
+                    .bind(user.id)
+                    .execute(ex)
+                    .await
+                    .unwrap();
+            }
+
+            #[cfg(any(feature = "sqlite", test))]
+            Executor::Sqlite(ex) => {
+                sqlx::query("UPDATE email_credentials SET digest = ? WHERE user_id = ?")
+                    .bind(&invalid)
+                    .bind(user.id)
+                    .execute(ex)
+                    .await
+                    .unwrap();
+            }
+
+            #[allow(unused)]
+            _ => unreachable!(),
+        }
+        assert!(matches!(
+            get_email_credential(ex, user.id, purpose).await,
+            Err(DbError::DataIntegrityError(_))
+        ));
+    }
+    put_email_credential(ex, user.id, purpose, &state).await.unwrap();
+    assert_eq!(Some(state), get_email_credential(ex, user.id, purpose).await.unwrap());
+}
+
 async fn test_activation_status_without_credential(ex: &mut Executor) {
     let user = create_simple_user(ex, "no-credential").await;
     set_user_active(ex, user.id, false).await.unwrap();
@@ -696,6 +790,8 @@ macro_rules! generate_db_tests [
             $setup,
             $crate::db::tests,
             test_activation_expiry,
+            test_email_credentials,
+            test_email_credential_digest_validation,
             test_activation_status_without_credential,
             test_activation_code_roundtrip,
             test_failure_operation_isolation,

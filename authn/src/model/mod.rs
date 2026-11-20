@@ -23,6 +23,8 @@ mod coupon;
 #[cfg(any(test, feature = "testutils"))]
 pub use coupon::coupon_name;
 pub use coupon::{Coupon, CouponName};
+mod credential;
+pub use credential::{CredentialPurpose, EmailCredential, EmailToken};
 mod failures;
 pub(crate) use failures::{FailureHistory, FailureOperation};
 mod passwords;
