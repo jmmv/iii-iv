@@ -354,7 +354,7 @@ mod tests {
             )
             .await;
 
-            let user = db::create_user(
+            let user = create_active_user(
                 &mut context.ex().await,
                 Some(username!("hello")),
                 Some(hashed_password!("real-hash")),
@@ -438,7 +438,7 @@ mod tests {
         let username = username!("hello");
         let password = password!("password");
 
-        let user = db::create_user(
+        let user = create_active_user(
             &mut context.ex().await,
             Some(username.clone()),
             Some(password.clone().validate_and_hash(|_| None).unwrap()),
@@ -491,7 +491,7 @@ mod tests {
         let context = TestContext::setup_without_usernames(AuthnOptions::default()).await;
         let password = password!("password");
         let email = email_address!("some@example.com");
-        let user = db::create_user(
+        let user = create_active_user(
             &mut context.ex().await,
             None,
             Some(password.clone().validate_and_hash(|_| None).unwrap()),
@@ -540,7 +540,7 @@ mod tests {
         let username = username!("hello");
         let password = password!("password");
 
-        let user = db::create_user(
+        let user = create_active_user(
             &mut context.ex().await,
             Some(username.clone()),
             Some(password.clone().validate_and_hash(|_| None).unwrap()),
@@ -592,7 +592,7 @@ mod tests {
 
         let username = username!("hello");
 
-        let user = db::create_user(
+        let user = create_active_user(
             &mut context.ex().await,
             Some(username.clone()),
             Some(Password::new("ABC").unwrap().validate_and_hash(|_| None).unwrap()),
@@ -619,7 +619,7 @@ mod tests {
 
         let username = username!("hello");
 
-        db::create_user(
+        create_active_user(
             &mut context.ex().await,
             Some(username.clone()),
             None,
@@ -656,7 +656,7 @@ mod tests {
         let username = username!("hello");
         let password = password!("password");
 
-        let user = db::create_user(
+        let user = create_active_user(
             &mut context.ex().await,
             Some(username.clone()),
             Some(password.clone().validate_and_hash(|_| None).unwrap()),
@@ -707,7 +707,7 @@ mod tests {
         let username = username!("hello");
         let password = password!("password");
 
-        db::create_user(
+        create_active_user(
             &mut context.ex().await,
             Some(username.clone()),
             Some(password.clone().validate_and_hash(|_| None).unwrap()),
@@ -768,7 +768,7 @@ mod tests {
         let username = username!("hello");
         let password = password!("password");
 
-        db::create_user(
+        create_active_user(
             &mut context.ex().await,
             Some(username.clone()),
             Some(password.clone().validate_and_hash(|_| None).unwrap()),
@@ -910,7 +910,7 @@ mod tests {
         let second =
             TestContext::setup_with(AuthnOptions::default(), second_db, clock, "realm", true).await;
         let username = username!("race");
-        let user = db::create_user(
+        let user = create_active_user(
             &mut first.ex().await,
             Some(username.clone()),
             Some(hashed_password!("fixture")),
@@ -990,7 +990,7 @@ mod tests {
             )
             .await;
 
-            let user = db::create_user(
+            let user = create_active_user(
                 &mut context.ex().await,
                 Some(username!("hello")),
                 Some(hashed_password!("fixture")),
@@ -1062,7 +1062,7 @@ mod tests {
             TestContext::setup(AuthnOptions { password_hash_concurrency: 1, ..Default::default() })
                 .await;
 
-        let user = db::create_user(
+        let user = create_active_user(
             &mut context.ex().await,
             Some(username!("hello")),
             Some(hashed_password!("fixture")),

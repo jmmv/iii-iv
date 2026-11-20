@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS users (
     -- Stable internal identifier for the user.
     id UUID PRIMARY KEY NOT NULL,
 
+    is_active BOOLEAN NOT NULL DEFAULT FALSE,
+
     -- The user's chosen username.
     -- Null for services that identify users by email address.
     username VARCHAR(32) UNIQUE,

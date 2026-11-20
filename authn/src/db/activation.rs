@@ -105,6 +105,36 @@ pub async fn get_user_activation(
     }
 }
 
+/// Sets account activation independently of pending credentials.
+///
+/// Call with the account locked in a transaction.
+pub async fn set_user_active(ex: &mut Executor, user_id: Uuid, active: bool) -> DbResult<()> {
+    match ex {
+        #[cfg(feature = "postgres")]
+        Executor::Postgres(ex) => {
+            sqlx::query("UPDATE users SET is_active = $1 WHERE id = $2")
+                .bind(active)
+                .bind(user_id)
+                .execute(ex)
+                .await
+                .map_err(postgres::map_sqlx_error)?;
+        }
+
+        #[cfg(any(feature = "sqlite", test))]
+        Executor::Sqlite(ex) => {
+            sqlx::query("UPDATE users SET is_active = ? WHERE id = ?")
+                .bind(active)
+                .bind(user_id)
+                .execute(ex)
+                .await
+                .map_err(sqlite::map_sqlx_error)?;
+        }
+        #[allow(unused)]
+        _ => unreachable!(),
+    }
+    Ok(())
+}
+
 /// Inserts or clears activation state and resets activation failures atomically.
 ///
 /// Returns `DbError::AlreadyExists` if the user already has pending activation.
@@ -117,6 +147,7 @@ pub async fn set_user_activation(
 ) -> DbResult<User> {
     let now = activation.as_ref().map_or(OffsetDateTime::UNIX_EPOCH, |state| state.issued_at);
     lock_failures(ex, user.id, FailureOperation::Activation, now).await?;
+    let is_active = activation.is_none();
     match ex {
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => match activation {
@@ -175,6 +206,7 @@ pub async fn set_user_activation(
         #[allow(unused)]
         _ => unreachable!(),
     }
+    set_user_active(ex, user.id, is_active).await?;
     clear_failures(ex, user.id, FailureOperation::Activation).await?;
     get_user_by_id(ex, user.id).await
 }
@@ -220,5 +252,8 @@ pub async fn consume_user_activation(
         #[allow(unused)]
         _ => unreachable!(),
     };
+    if affected == 1 {
+        set_user_active(ex, user_id, true).await?;
+    }
     Ok(affected == 1)
 }

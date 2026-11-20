@@ -38,7 +38,7 @@ pub struct User {
     /// Coupon used to sign up this user, if any.
     pub coupon: Option<CouponName>,
 
-    /// Whether the user has no pending activation.  Derived from activation state.
+    /// Whether the account has verified its email address.
     pub is_active: bool,
 
     /// Time of last login of the user.  None if the user has never logged in.
@@ -46,7 +46,7 @@ pub struct User {
 }
 
 impl User {
-    /// Creates a new user with the given fields.
+    /// Creates an inactive user with the given fields.
     pub fn new(id: Uuid, username: Option<Username>, email: EmailAddress) -> Self {
         Self {
             id,
@@ -54,7 +54,7 @@ impl User {
             password: None,
             email,
             coupon: None,
-            is_active: true,
+            is_active: false,
             last_login: None,
         }
     }
@@ -94,7 +94,7 @@ mod tests {
         assert!(user.password.is_none());
         assert_eq!(&email_address!("a@example.com"), &user.email);
         assert!(user.coupon.is_none());
-        assert!(user.is_active);
+        assert!(!user.is_active);
         assert!(user.last_login.is_none());
 
         let user = user

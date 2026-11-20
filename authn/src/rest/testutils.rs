@@ -69,7 +69,9 @@ pub async fn create_test_user(
         .unwrap()
         .unwrap();
 
-    let user = db::create_user(ex, Some(username), Some(password), email, None).await.unwrap();
+    let mut user = db::create_user(ex, Some(username), Some(password), email, None).await.unwrap();
+    db::set_user_active(ex, user.id, true).await.unwrap();
+    user.is_active = true;
     let last_login = OffsetDateTime::from_unix_timestamp(100100).unwrap();
     db::update_user(ex, user.id, last_login).await.unwrap();
     user.with_last_login(last_login)
@@ -155,7 +157,7 @@ impl TestContext {
 
     /// Creates the `whoami` user without a password.
     pub(crate) async fn create_password_disabled_whoami_user(&mut self) -> User {
-        db::create_user(
+        let mut user = db::create_user(
             &mut self.db.ex().await.unwrap(),
             Some(Username::new(self.whoami.clone()).unwrap()),
             None,
@@ -163,7 +165,10 @@ impl TestContext {
             None,
         )
         .await
-        .unwrap()
+        .unwrap();
+        db::set_user_active(&mut self.db.ex().await.unwrap(), user.id, true).await.unwrap();
+        user.is_active = true;
+        user
     }
 
     /// Checks if the user with `username` exists by directly querying the backing database.
