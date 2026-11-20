@@ -23,18 +23,36 @@ use crate::driver::email::testutils::{get_latest_activation_code, make_test_acti
 use crate::driver::{AuthnDriver, AuthnHooks, AuthnOptions, AuthnTaskRunner};
 use crate::model::{AccessToken, AuthnTask, password};
 #[cfg(test)]
+use crate::model::{CouponName, HashedPassword, User};
+#[cfg(test)]
 use async_trait::async_trait;
 use iii_iv_core::clocks::Clock;
 use iii_iv_core::db::Db;
 #[cfg(test)]
+use iii_iv_core::db::DbResult;
+#[cfg(test)]
 use iii_iv_core::driver::{DriverError, DriverResult};
-use iii_iv_core::model::EmailAddress;
-use iii_iv_core::model::Username;
+use iii_iv_core::model::{EmailAddress, Username};
 use iii_iv_core::rest::BaseUrlsOptions;
 use iii_iv_queue::driver::Client;
 use iii_iv_smtp::driver::testutils::RecorderSmtpMailer;
 use std::sync::Arc;
 use std::time::Duration;
+
+/// Creates an explicitly activated account for tests that bypass signup.
+#[cfg(test)]
+pub(crate) async fn create_active_user(
+    ex: &mut Executor,
+    username: Option<Username>,
+    password: Option<HashedPassword>,
+    email: EmailAddress,
+    coupon: Option<CouponName>,
+) -> DbResult<User> {
+    let mut user = db::create_user(ex, username, password, email, coupon).await?;
+    db::set_user_active(ex, user.id, true).await?;
+    user.is_active = true;
+    Ok(user)
+}
 
 /// Session lifetime used by test logins.
 const TEST_SESSION_MAX_AGE: Option<Duration> = Some(Duration::from_secs(48 * 60 * 60));
@@ -233,7 +251,7 @@ impl AuthnHooks for FailingLoginHook {
         &self,
         _tx: &mut iii_iv_core::db::TxExecutor,
         _now: OffsetDateTime,
-        _user: &crate::model::User,
+        _user: &User,
     ) -> DriverResult<Self::LoginOutput> {
         Err(DriverError::BackendError("hook-failure-test".into()))
     }
@@ -244,7 +262,7 @@ impl AuthnHooks for FailingLoginHook {
         &self,
         _tx: &mut iii_iv_core::db::TxExecutor,
         _now: OffsetDateTime,
-        _user: &crate::model::User,
+        _user: &User,
         _input: Self::SignupInput,
     ) -> DriverResult<()> {
         Ok(())
@@ -264,7 +282,7 @@ impl AuthnHooks for FailingSignupHook {
         &self,
         _tx: &mut iii_iv_core::db::TxExecutor,
         _now: OffsetDateTime,
-        _user: &crate::model::User,
+        _user: &User,
     ) -> DriverResult<Self::LoginOutput> {
         Ok(NO_EXTENSIONS)
     }
@@ -275,7 +293,7 @@ impl AuthnHooks for FailingSignupHook {
         &self,
         _tx: &mut iii_iv_core::db::TxExecutor,
         _now: OffsetDateTime,
-        _user: &crate::model::User,
+        _user: &User,
         _input: Self::SignupInput,
     ) -> DriverResult<()> {
         Err(DriverError::BackendError("hook-failure-test".into()))

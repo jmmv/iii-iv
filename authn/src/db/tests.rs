@@ -77,9 +77,45 @@ async fn test_put_user_ok(ex: &mut Executor) {
     .with_last_login(datetime!(2026-05-10 11:12:13.456 UTC))
     .with_password(hashed_password!("fixture-hash"));
 
+    assert!(!user.is_active);
     put_user(ex, &user).await.unwrap();
-
     assert_eq!(user, get_user_by_id(ex, user.id).await.unwrap());
+
+    let mut active_user = User::new(
+        Uuid::new_v4(),
+        Some(username!("active-user")),
+        email_address!("active@example.com"),
+    );
+    active_user.is_active = true;
+    put_user(ex, &active_user).await.unwrap();
+    assert_eq!(active_user, get_user_by_id(ex, active_user.id).await.unwrap());
+}
+
+async fn test_user_default_inactive(ex: &mut Executor) {
+    let id = Uuid::new_v4();
+    match ex {
+        #[cfg(feature = "postgres")]
+        Executor::Postgres(ex) => {
+            sqlx::query("INSERT INTO users (id, email) VALUES ($1, 'default@example.com')")
+                .bind(id)
+                .execute(ex)
+                .await
+                .unwrap();
+        }
+
+        #[cfg(any(feature = "sqlite", test))]
+        Executor::Sqlite(ex) => {
+            sqlx::query("INSERT INTO users (id, email) VALUES (?, 'default@example.com')")
+                .bind(id)
+                .execute(ex)
+                .await
+                .unwrap();
+        }
+
+        #[allow(unused)]
+        _ => unreachable!(),
+    }
+    assert!(!get_user_by_id(ex, id).await.unwrap().is_active);
 }
 
 async fn test_user_with_coupon(ex: &mut Executor) {
@@ -220,7 +256,8 @@ async fn test_set_user_activation_ok(ex: &mut Executor) {
     )
     .await
     .unwrap();
-    assert!(user.is_active);
+    assert!(!user.is_active);
+    assert!(!get_user_by_id(ex, user.id).await.unwrap().is_active);
 
     user = set_user_activation(
         ex,
@@ -243,6 +280,15 @@ async fn test_set_user_activation_ok(ex: &mut Executor) {
 
     let read_user = get_user_by_id(ex, user.id).await.unwrap();
     assert!(read_user.is_active);
+}
+
+async fn test_activation_status_without_credential(ex: &mut Executor) {
+    let user = create_simple_user(ex, "no-credential").await;
+    set_user_active(ex, user.id, false).await.unwrap();
+    assert!(!get_user_by_id(ex, user.id).await.unwrap().is_active);
+    assert!(get_user_activation(ex, user.id).await.unwrap().is_none());
+    set_user_active(ex, user.id, true).await.unwrap();
+    assert!(get_user_by_id(ex, user.id).await.unwrap().is_active);
 }
 
 async fn test_activation_expiry(ex: &mut Executor) {
@@ -370,6 +416,7 @@ async fn test_activation_consume_race(db: Arc<dyn Db + Send + Sync>) {
 async fn test_activation_rollback(db: Arc<dyn Db + Send + Sync>) {
     let user = create_simple_user(&mut db.ex().await.unwrap(), "activation").await;
     let id = user.id;
+    set_user_active(&mut db.ex().await.unwrap(), id, true).await.unwrap();
     {
         let mut tx = db.begin().await.unwrap();
         set_user_activation(
@@ -649,6 +696,7 @@ macro_rules! generate_db_tests [
             $setup,
             $crate::db::tests,
             test_activation_expiry,
+            test_activation_status_without_credential,
             test_activation_code_roundtrip,
             test_failure_operation_isolation,
             test_failures_persistence,
@@ -657,6 +705,7 @@ macro_rules! generate_db_tests [
             test_coupons_ok,
             test_coupon_redemption,
             test_put_user_ok,
+            test_user_default_inactive,
             test_user_with_coupon,
             test_user_without_username,
             test_user_corrupted_name,

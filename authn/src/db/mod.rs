@@ -31,7 +31,9 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 mod activation;
-pub use activation::{consume_user_activation, get_user_activation, set_user_activation};
+pub use activation::{
+    consume_user_activation, get_user_activation, set_user_activation, set_user_active,
+};
 
 mod failures;
 pub(crate) use failures::{clear_failures, get_failures, lock_failures, save_failures};
@@ -342,15 +344,15 @@ impl TryFrom<SqliteRow> for User {
     }
 }
 
-/// Persists base user fields.  Activation status is managed separately.
+/// Persists a user, including their explicit activation status.
 pub async fn put_user(ex: &mut Executor, user: &User) -> DbResult<()> {
     let rows_affected = match ex {
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
             let query_str = "
                 INSERT INTO users (
-                    id, username, password, email, coupon, last_login
-                ) VALUES ($1, $2, $3, $4, $5, $6)";
+                    id, username, password, email, coupon, last_login, is_active
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7)";
             let done = sqlx::query(AssertSqlSafe(query_str))
                 .bind(user.id)
                 .bind(user.username.as_ref().map(Username::as_str))
@@ -358,6 +360,7 @@ pub async fn put_user(ex: &mut Executor, user: &User) -> DbResult<()> {
                 .bind(user.email.as_str())
                 .bind(user.coupon.as_ref().map(CouponName::as_str))
                 .bind(user.last_login)
+                .bind(user.is_active)
                 .execute(ex)
                 .await
                 .map_err(postgres::map_sqlx_error)?;
@@ -370,8 +373,8 @@ pub async fn put_user(ex: &mut Executor, user: &User) -> DbResult<()> {
             let query_str = "
                 INSERT INTO users (
                     id, username, password, email, coupon,
-                    last_login_secs, last_login_nsecs
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)";
+                    last_login_secs, last_login_nsecs, is_active
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
             let done = sqlx::query(AssertSqlSafe(query_str))
                 .bind(user.id)
                 .bind(user.username.as_ref().map(Username::as_str))
@@ -380,6 +383,7 @@ pub async fn put_user(ex: &mut Executor, user: &User) -> DbResult<()> {
                 .bind(user.coupon.as_ref().map(CouponName::as_str))
                 .bind(last_login_secs)
                 .bind(last_login_nsecs)
+                .bind(user.is_active)
                 .execute(ex)
                 .await
                 .map_err(sqlite::map_sqlx_error)?;
@@ -398,7 +402,7 @@ pub async fn put_user(ex: &mut Executor, user: &User) -> DbResult<()> {
 
 /// Creates a new user with an optional `username`, a hashed `password`, an `email` address,
 /// and a `coupon`.
-/// The user is created as activated (no activation code) and as not having logged in.
+/// The user is created as inactive and as not having logged in.
 pub async fn create_user(
     ex: &mut Executor,
     username: Option<Username>,
@@ -423,8 +427,8 @@ pub async fn get_user_by_id(ex: &mut Executor, id: Uuid) -> DbResult<User> {
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
             let raw_user = sqlx::query(
-                "SELECT users.*, activation_state.user_id IS NULL AS is_active
-                FROM users LEFT JOIN activation_state ON users.id = activation_state.user_id
+                "SELECT users.*
+                FROM users
                 WHERE users.id = $1",
             )
             .bind(id)
@@ -437,8 +441,8 @@ pub async fn get_user_by_id(ex: &mut Executor, id: Uuid) -> DbResult<User> {
         #[cfg(any(feature = "sqlite", test))]
         Executor::Sqlite(ex) => {
             let raw_user = sqlx::query(
-                "SELECT users.*, activation_state.user_id IS NULL AS is_active
-                FROM users LEFT JOIN activation_state ON users.id = activation_state.user_id
+                "SELECT users.*
+                FROM users
                 WHERE users.id = ?",
             )
             .bind(id)
@@ -459,8 +463,8 @@ pub async fn get_user_by_email(ex: &mut Executor, email: EmailAddress) -> DbResu
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
             let raw_user = sqlx::query(
-                "SELECT users.*, activation_state.user_id IS NULL AS is_active
-                FROM users LEFT JOIN activation_state ON users.id = activation_state.user_id
+                "SELECT users.*
+                FROM users
                 WHERE users.email = $1",
             )
             .bind(email.as_str())
@@ -473,8 +477,8 @@ pub async fn get_user_by_email(ex: &mut Executor, email: EmailAddress) -> DbResu
         #[cfg(any(feature = "sqlite", test))]
         Executor::Sqlite(ex) => {
             let raw_user = sqlx::query(
-                "SELECT users.*, activation_state.user_id IS NULL AS is_active
-                FROM users LEFT JOIN activation_state ON users.id = activation_state.user_id
+                "SELECT users.*
+                FROM users
                 WHERE users.email = ?",
             )
             .bind(email.as_str())
@@ -494,8 +498,8 @@ pub async fn get_user_by_username(ex: &mut Executor, username: Username) -> DbRe
     match ex {
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => {
-            let query_str = "SELECT users.*, activation_state.user_id IS NULL AS is_active
-                FROM users LEFT JOIN activation_state ON users.id = activation_state.user_id
+            let query_str = "SELECT users.*
+                FROM users
                 WHERE users.username = $1";
             let raw_user = sqlx::query(AssertSqlSafe(query_str))
                 .bind(username.as_str())
@@ -507,8 +511,8 @@ pub async fn get_user_by_username(ex: &mut Executor, username: Username) -> DbRe
 
         #[cfg(any(feature = "sqlite", test))]
         Executor::Sqlite(ex) => {
-            let query_str = "SELECT users.*, activation_state.user_id IS NULL AS is_active
-                FROM users LEFT JOIN activation_state ON users.id = activation_state.user_id
+            let query_str = "SELECT users.*
+                FROM users
                 WHERE users.username = ?";
             let raw_user = sqlx::query(AssertSqlSafe(query_str))
                 .bind(username.as_str())

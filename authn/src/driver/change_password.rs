@@ -136,7 +136,7 @@ mod tests {
     #[tokio::test]
     async fn test_change_password_without_password() {
         let context = TestContext::setup(AuthnOptions::default()).await;
-        let user = db::create_user(
+        let user = create_active_user(
             &mut context.ex().await,
             Some(username!("test")),
             None,
