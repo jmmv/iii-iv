@@ -60,8 +60,8 @@ impl AuthnTaskRunner {
     /// substitutions.  `user` is the username when present and the email address otherwise, while
     /// `username` is empty for username-free services.
     ///
-    /// The required `recovery_email` tuple contains the plain-text email template and the frontend
-    /// reset URL template.  The URL supports `user_id` and `token` substitutions, while the email
+    /// The required `recovery_email` tuple contains the email template and the frontend reset URL
+    /// template.  The URL supports `user_id` and `token` substitutions, while the email
     /// supports `reset_url` and the same account substitutions as the activation template.
     pub fn new(
         db: Arc<dyn Db + Send + Sync>,

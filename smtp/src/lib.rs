@@ -17,4 +17,5 @@
 
 pub mod db;
 pub mod driver;
+pub mod html;
 pub mod model;

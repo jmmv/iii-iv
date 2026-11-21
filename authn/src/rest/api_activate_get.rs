@@ -20,7 +20,7 @@ use crate::model::EmailToken;
 use axum::extract::{Path, Query, State};
 use axum::response::{Html, IntoResponse, Redirect};
 use iii_iv_core::rest::{EmptyBody, RestError};
-use iii_iv_core::template;
+use iii_iv_core::template::{self, escape_html};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use uuid::Uuid;
@@ -67,22 +67,6 @@ pub enum ActivationSuccess {
     /// Substitutions are percent-encoded URL components, not complete URLs.  The trusted template
     /// supplies URL structure, including query separators and fragment routes.
     RedirectTemplate(String),
-}
-
-/// Escapes account values for HTML text and quoted ordinary attributes.
-fn escape_html(value: &str) -> String {
-    let mut escaped = String::with_capacity(value.len());
-    for ch in value.chars() {
-        match ch {
-            '&' => escaped.push_str("&amp;"),
-            '<' => escaped.push_str("&lt;"),
-            '>' => escaped.push_str("&gt;"),
-            '"' => escaped.push_str("&quot;"),
-            '\'' => escaped.push_str("&#39;"),
-            _ => escaped.push(ch),
-        }
-    }
-    escaped
 }
 
 /// Percent-encodes UTF-8 bytes except URL-unreserved characters.

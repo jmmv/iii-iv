@@ -17,9 +17,43 @@
 
 use iii_iv_core::model::{EmailAddress, ModelError, ModelResult};
 use iii_iv_core::template;
-use lettre::message::Body;
-use lettre::message::header::ContentTransferEncoding;
+use lettre::message::header::{ContentTransferEncoding, ContentType};
+use lettre::message::{Body, MultiPart, SinglePart};
 pub use lettre::message::{Mailbox, Message};
+
+/// Builds a message with plain-text and HTML alternatives.
+///
+/// `html_body` must contain trusted markup with escaped text, or sanitized untrusted HTML.
+pub fn make_message(
+    from: Mailbox,
+    to: &EmailAddress,
+    subject: &str,
+    body: String,
+    html_body: String,
+) -> ModelResult<Message> {
+    let to = to
+        .as_str()
+        .parse()
+        .map_err(|e| ModelError(format!("Cannot parse email address {}: {}", to.as_str(), e)))?;
+    let encode = |body| {
+        Body::new_with_encoding(body, ContentTransferEncoding::QuotedPrintable)
+            .map_err(|e| ModelError(format!("Failed to encode message: {:?}", e)))
+    };
+    Message::builder()
+        .from(from)
+        .to(to)
+        .subject(subject)
+        .multipart(
+            MultiPart::alternative()
+                .singlepart(
+                    SinglePart::builder().header(ContentType::TEXT_PLAIN).body(encode(body)?),
+                )
+                .singlepart(
+                    SinglePart::builder().header(ContentType::TEXT_HTML).body(encode(html_body)?),
+                ),
+        )
+        .map_err(|e| ModelError(format!("Failed to construct message: {}", e)))
+}
 
 /// A template for an email message.
 pub struct EmailTemplate {
@@ -29,8 +63,14 @@ pub struct EmailTemplate {
     /// Subject of the message.
     pub subject_template: &'static str,
 
-    /// Body of the message.
+    /// Plain-text body of the message.
     pub body_template: &'static str,
+
+    /// HTML body with substitutions escaped for text and quoted ordinary attributes.
+    ///
+    /// Templates supply trusted markup and URL structure.  Substitutions in scripts, styles, and
+    /// executable URL contexts are unsupported.
+    pub html_body_template: &'static str,
 }
 
 impl EmailTemplate {
@@ -38,34 +78,23 @@ impl EmailTemplate {
     /// `replacements` to it.
     ///
     /// The subject and body of the template are subject to string replacements per the rules
-    /// described in `iii_iv_core::template::apply`.
+    /// described in `iii_iv_core::template::apply`.  HTML substitutions are escaped independently.
     pub fn apply(
         &self,
         to: &EmailAddress,
         replacements: &[(&'static str, &str)],
     ) -> ModelResult<Message> {
-        let to = to.as_str().parse().map_err(|e| {
-            // TODO(jmmv): This should never happen... but there is no guarantee right now that we can
-            // convert III-IV's `EmailAddress` into whatever Lettre expects.  It'd be nice if we didn't
-            // need this though.
-            ModelError(format!("Cannot parse email address {}: {}", to.as_str(), e))
-        })?;
-
-        let subject = template::apply(self.subject_template, replacements);
-
-        let body = Body::new_with_encoding(
+        let escaped: Vec<_> =
+            replacements.iter().map(|(key, value)| (*key, template::escape_html(value))).collect();
+        let html_replacements: Vec<_> =
+            escaped.iter().map(|(key, value)| (*key, value.as_str())).collect();
+        make_message(
+            self.from.clone(),
+            to,
+            &template::apply(self.subject_template, replacements),
             template::apply(self.body_template, replacements),
-            ContentTransferEncoding::QuotedPrintable,
+            template::apply(self.html_body_template, &html_replacements),
         )
-        .map_err(|e| ModelError(format!("Failed to encode message: {:?}", e)))?;
-
-        let message = Message::builder()
-            .from(self.from.clone())
-            .to(to)
-            .subject(subject)
-            .body(body)
-            .map_err(|e| ModelError(format!("Failed to encode message: {:?}", e)))?;
-        Ok(message)
     }
 }
 
@@ -75,27 +104,32 @@ pub mod testutils {
     use super::*;
     use std::collections::HashMap;
 
-    /// Given an SMTP `message`, parses it and extracts its headers and body.
+    /// Parses a message and returns its headers and decoded plain-text body.
     pub fn parse_message(message: &Message) -> (HashMap<String, String>, String) {
-        let text = String::from_utf8(message.formatted()).unwrap();
-        let (raw_headers, encoded_body) = text
-            .split_once("\r\n\r\n")
-            .unwrap_or_else(|| panic!("Message seems to have the wrong format: {}", text));
-
-        let mut headers = HashMap::default();
-        for raw_header in raw_headers.split("\r\n") {
-            let (key, value) = raw_header
-                .split_once(": ")
-                .unwrap_or_else(|| panic!("Header seems to have the wrong format: {}", raw_header));
-            let previous = headers.insert(key.to_owned(), value.to_owned());
-            assert!(previous.is_none(), "Duplicate header {}", raw_header);
-        }
-
-        let decoded_body =
-            quoted_printable::decode(encoded_body, quoted_printable::ParseMode::Strict).unwrap();
-        let body = String::from_utf8(decoded_body).unwrap().replace("\r\n", "\n");
-
+        let (headers, body, _) = parse_message_bodies(message);
         (headers, body)
+    }
+
+    /// Parses a message and returns its headers, decoded plain text, and optional decoded HTML.
+    ///
+    /// Supports single-part plain text and multipart alternatives.  Bodies use LF line endings.
+    pub fn parse_message_bodies(
+        message: &Message,
+    ) -> (HashMap<String, String>, String, Option<String>) {
+        let raw = message.formatted();
+        let parsed = mailparse::parse_mail(&raw).unwrap();
+        let headers = parsed.headers.iter().map(|h| (h.get_key(), h.get_value())).collect();
+        let decode =
+            |part: &mailparse::ParsedMail<'_>| part.get_body().unwrap().replace("\r\n", "\n");
+        if parsed.ctype.mimetype == "multipart/alternative" {
+            assert_eq!(2, parsed.subparts.len());
+            assert_eq!("text/plain", parsed.subparts[0].ctype.mimetype);
+            assert_eq!("text/html", parsed.subparts[1].ctype.mimetype);
+            (headers, decode(&parsed.subparts[0]), Some(decode(&parsed.subparts[1])))
+        } else {
+            assert_eq!("text/plain", parsed.ctype.mimetype);
+            (headers, decode(&parsed), None)
+        }
     }
 }
 
@@ -104,6 +138,7 @@ mod tests {
     use super::testutils::*;
     use super::*;
     use iii_iv_core::model::email_address;
+    use mailparse::MailHeaderMap;
 
     #[test]
     fn test_email_template() {
@@ -111,35 +146,52 @@ mod tests {
             from: "Sender <sender@example.com>".parse().unwrap(),
             subject_template: "The %s%",
             body_template: "The %b% with quoted printable =50 characters",
+            html_body_template: "<p>%b%</p><a href=\"%url%\">Link</a>",
         };
 
+        let value = "héllo <b>&\"' %nested%";
         let message = template
             .apply(
                 &email_address!("recipient@example.com"),
-                &[("s", "replaced subject"), ("b", "replaced body")],
+                &[("s", "subject & more"), ("b", value), ("url", "https://example.com/?a=1&b=2")],
             )
             .unwrap();
-        let (mut headers, body) = parse_message(&message);
 
-        let exp_message = Message::builder()
-            .from(template.from)
-            .to("recipient@example.com".parse().unwrap())
-            .subject("The replaced subject")
-            .body(
-                Body::new_with_encoding(
-                    "The replaced body with quoted printable =50 characters".to_owned(),
-                    ContentTransferEncoding::QuotedPrintable,
-                )
-                .unwrap(),
+        let (headers, body, html) = parse_message_bodies(&message);
+        assert_eq!("The subject & more", headers["Subject"]);
+        assert_eq!("recipient@example.com", headers["To"]);
+        assert_eq!(format!("The {value} with quoted printable =50 characters"), body);
+        assert_eq!(Some("<p>héllo &lt;b&gt;&amp;&quot;&#39; %nested%</p><a href=\"https://example.com/?a=1&amp;b=2\">Link</a>".to_owned()), html);
+        assert_eq!(body, parse_message(&message).1);
+        let raw = message.formatted();
+        let parsed = mailparse::parse_mail(&raw).unwrap();
+        assert_eq!("multipart/alternative", parsed.ctype.mimetype);
+        assert_eq!(2, parsed.subparts.len());
+        for part in &parsed.subparts {
+            assert_eq!("utf-8", part.ctype.params["charset"]);
+            assert_eq!(
+                "quoted-printable",
+                part.headers.get_first_value("Content-Transfer-Encoding").unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn test_make_message_long_bodies_and_empty_alternatives() {
+        for text in [String::new(), "Unicode é = and a long line. ".repeat(30)] {
+            let html = format!("<p>{}</p>", template::escape_html(&text));
+            let message = make_message(
+                "sender@example.com".parse().unwrap(),
+                &email_address!("recipient@example.com"),
+                "Subject",
+                text.clone(),
+                html.clone(),
             )
             .unwrap();
-        let (mut exp_headers, exp_body) = parse_message(&exp_message);
-
-        assert!(headers.remove("Date").is_some());
-        assert!(exp_headers.remove("Date").is_some());
-
-        assert_eq!(exp_headers, headers);
-        assert_eq!(exp_body, body);
+            let (_, plain, actual_html) = parse_message_bodies(&message);
+            assert_eq!(text, plain);
+            assert_eq!(Some(html), actual_html);
+        }
     }
 
     #[test]
