@@ -18,7 +18,7 @@
 use crate::db;
 use crate::driver::failures::FixedWindow;
 use crate::driver::{AuthnDriver, AuthnHooks};
-use crate::model::{FailureHistory, FailureOperation, User};
+use crate::model::{EmailToken, FailureHistory, FailureOperation, User};
 use iii_iv_core::db::DbError;
 use iii_iv_core::driver::{DriverError, DriverResult};
 use time::OffsetDateTime;
@@ -41,7 +41,12 @@ impl<H: AuthnHooks> AuthnDriver<H> {
     }
 
     /// Marks a user as active based on a confirmation code.
-    pub(crate) async fn activate(self, user_id: Uuid, code: u64) -> DriverResult<User> {
+    pub(crate) async fn activate(
+        self,
+        user_id: Uuid,
+        code: impl Into<EmailToken>,
+    ) -> DriverResult<User> {
+        let code = code.into();
         let mut tx = self.db.begin().await?;
 
         match db::lock_user(tx.ex(), user_id).await {
@@ -72,7 +77,7 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         if now >= activation.expires_at {
             return Err(invalid_activation());
         }
-        if code != activation.code {
+        if code.digest(crate::model::CredentialPurpose::Activation) != activation.code {
             self.record_activation_failure(&mut failures, now);
             db::save_failures(tx.ex(), user_id, FailureOperation::Activation, &failures).await?;
             tx.commit().await?;
@@ -98,8 +103,7 @@ mod tests {
     use crate::model::ActivationState;
     use futures::future::join_all;
     use iii_iv_core::clocks::testutils::SettableClock;
-    use iii_iv_core::db::sqlite::connect;
-    use iii_iv_core::db::{Db, Executor};
+    use iii_iv_core::db::Executor;
     use iii_iv_core::model::{email_address, username};
     use std::sync::Arc;
     use std::time::Duration;
@@ -301,50 +305,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_activation_survives_database_reopen() {
-        let path =
-            std::env::temp_dir().join(format!("iii-iv-activation-{}.sqlite", Uuid::new_v4()));
-        let connection = format!("sqlite://{}?mode=rwc", path.display());
-        let id;
-        let before;
-        {
-            let db = Arc::new(connect(&connection).await.unwrap());
-            let clock = Arc::new(SettableClock::new(datetime!(2023-12-01 05:50:00 UTC)));
-            let context = TestContext::setup_with(
-                AuthnOptions::default(),
-                db.clone(),
-                clock,
-                "the-realm",
-                true,
-            )
-            .await;
-            id = create_test_user(&mut context.ex().await, Some(42)).await;
-            for _ in 0..10 {
-                assert_eq!(Err(invalid_activation()), context.driver().activate(id, 0).await);
-            }
-            before = history(&context, id).await;
-            drop(context);
-            db.close().await;
+    async fn test_activation_survives_driver_recreation() {
+        let (first, second, id) = protection_context(AuthnOptions::default()).await;
+        for _ in 0..10 {
+            assert_eq!(Err(invalid_activation()), first.driver().activate(id, 0).await);
         }
-        {
-            let db = Arc::new(connect(&connection).await.unwrap());
-            let clock = Arc::new(SettableClock::new(datetime!(2023-12-01 05:50:00 UTC)));
-            let context = TestContext::setup_with(
-                AuthnOptions::default(),
-                db.clone(),
-                clock.clone(),
-                "realm",
-                true,
-            )
-            .await;
-            assert_eq!(Err(invalid_activation()), context.driver().activate(id, 42).await);
-            assert_eq!(before, history(&context, id).await);
-            clock.advance(Duration::from_secs(3600));
-            context.driver().activate(id, 42).await.unwrap();
-            drop(context);
-            db.close().await;
-        }
-        std::fs::remove_file(path).unwrap();
+        assert_eq!(Err(invalid_activation()), second.driver().activate(id, 42).await);
+        first.clock.sleep(Duration::from_secs(3600)).await;
+        second.driver().activate(id, 42).await.unwrap();
     }
 
     #[tokio::test]

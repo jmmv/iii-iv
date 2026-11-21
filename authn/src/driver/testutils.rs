@@ -21,7 +21,7 @@ use super::{NO_EXTENSIONS, NoExtensions};
 use crate::db;
 use crate::driver::email::testutils::{get_latest_activation_code, make_test_activation_template};
 use crate::driver::{AuthnDriver, AuthnHooks, AuthnOptions, AuthnTaskRunner};
-use crate::model::{AccessToken, AuthnTask, password};
+use crate::model::{AccessToken, AuthnTask, EmailToken, password};
 #[cfg(test)]
 use crate::model::{CouponName, HashedPassword, User};
 #[cfg(test)]
@@ -127,6 +127,7 @@ impl<H: AuthnHooks> TestContext<H> {
         ));
         let task_runner = AuthnTaskRunner::new(
             db.clone(),
+            clock.clone(),
             mailer.clone(),
             make_test_activation_template(),
             base_urls,
@@ -207,7 +208,7 @@ impl<H: AuthnHooks> TestContext<H> {
         &self,
         email: &EmailAddress,
         exp_user_id: Option<uuid::Uuid>,
-    ) -> Option<u64> {
+    ) -> Option<EmailToken> {
         self.run_authn_tasks().await;
         get_latest_activation_code(&self.mailer, email, exp_user_id).await
     }

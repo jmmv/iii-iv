@@ -16,6 +16,7 @@
 //! API to activate a newly-created user account.
 
 use crate::driver::{AuthnDriver, AuthnHooks};
+use crate::model::EmailToken;
 use axum::extract::{Path, Query, State};
 use axum::response::{Html, IntoResponse, Redirect};
 use iii_iv_core::rest::{EmptyBody, RestError};
@@ -38,10 +39,10 @@ const DEFAULT_ACTIVATED_TEMPLATE: &str = r#"<html>
 "#;
 
 /// Message sent to the server to activate a user account.
-#[derive(Default, Deserialize, Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct ActivateRequest {
     /// Activation code.
-    pub code: u64,
+    pub code: EmailToken,
 }
 
 /// Successful response to return when an account activation completes.
@@ -231,7 +232,7 @@ mod tests {
 
         let user = context.create_inactive_whoami_user(8991).await;
 
-        let request = ActivateRequest { code: 8991 };
+        let request = ActivateRequest { code: 8991.into() };
         let body = OneShotBuilder::new(context.app(), route(user.id, request))
             .send_empty()
             .await
@@ -254,7 +255,7 @@ mod tests {
 
         let user = context.create_inactive_whoami_user(8991).await;
 
-        let request = ActivateRequest { code: 8991 };
+        let request = ActivateRequest { code: 8991.into() };
         let body = OneShotBuilder::new(context.app(), route(user.id, request))
             .send_empty()
             .await
@@ -276,7 +277,7 @@ mod tests {
 
         let user = context.create_inactive_whoami_user(8991).await;
 
-        let request = ActivateRequest { code: 8991 };
+        let request = ActivateRequest { code: 8991.into() };
         OneShotBuilder::new(context.app(), route(user.id, request))
             .send_empty()
             .await
@@ -303,7 +304,7 @@ mod tests {
 
         let user = context.create_inactive_whoami_user(8991).await;
 
-        let request = ActivateRequest { code: 123 };
+        let request = ActivateRequest { code: 123.into() };
         OneShotBuilder::new(context.app(), route(user.id, request))
             .send_empty()
             .await
@@ -319,23 +320,25 @@ mod tests {
         let mut context = TestContextBuilder::new().build().await;
         let user = context.create_inactive_whoami_user(42).await;
         let incorrect =
-            OneShotBuilder::new(context.app(), route(user.id, ActivateRequest { code: 0 }))
+            OneShotBuilder::new(context.app(), route(user.id, ActivateRequest { code: 0.into() }))
                 .send_empty()
                 .await
                 .expect_status(http::StatusCode::BAD_REQUEST)
                 .take_response_snapshot()
                 .await;
-        let missing =
-            OneShotBuilder::new(context.app(), route(Uuid::new_v4(), ActivateRequest { code: 42 }))
-                .send_empty()
-                .await
-                .expect_status(http::StatusCode::BAD_REQUEST)
-                .take_response_snapshot()
-                .await;
+        let missing = OneShotBuilder::new(
+            context.app(),
+            route(Uuid::new_v4(), ActivateRequest { code: 42.into() }),
+        )
+        .send_empty()
+        .await
+        .expect_status(http::StatusCode::BAD_REQUEST)
+        .take_response_snapshot()
+        .await;
         assert_eq!(incorrect, missing);
 
         for _ in 0..9 {
-            OneShotBuilder::new(context.app(), route(user.id, ActivateRequest { code: 0 }))
+            OneShotBuilder::new(context.app(), route(user.id, ActivateRequest { code: 0.into() }))
                 .send_empty()
                 .await
                 .expect_status(http::StatusCode::BAD_REQUEST)
@@ -343,7 +346,7 @@ mod tests {
                 .await;
         }
         let blocked =
-            OneShotBuilder::new(context.app(), route(user.id, ActivateRequest { code: 42 }))
+            OneShotBuilder::new(context.app(), route(user.id, ActivateRequest { code: 42.into() }))
                 .send_empty()
                 .await
                 .expect_status(http::StatusCode::BAD_REQUEST)
@@ -353,7 +356,7 @@ mod tests {
 
         context.advance_clock(Duration::from_secs(86400));
         let expired =
-            OneShotBuilder::new(context.app(), route(user.id, ActivateRequest { code: 42 }))
+            OneShotBuilder::new(context.app(), route(user.id, ActivateRequest { code: 42.into() }))
                 .send_empty()
                 .await
                 .expect_status(http::StatusCode::BAD_REQUEST)
@@ -363,16 +366,17 @@ mod tests {
 
         let mut context = TestContextBuilder::new().build().await;
         let user = context.create_inactive_whoami_user(42).await;
-        OneShotBuilder::new(context.app(), route(user.id, ActivateRequest { code: 42 }))
+        OneShotBuilder::new(context.app(), route(user.id, ActivateRequest { code: 42.into() }))
             .send_empty()
             .await
             .verify();
-        let used = OneShotBuilder::new(context.app(), route(user.id, ActivateRequest { code: 42 }))
-            .send_empty()
-            .await
-            .expect_status(http::StatusCode::BAD_REQUEST)
-            .take_response_snapshot()
-            .await;
+        let used =
+            OneShotBuilder::new(context.app(), route(user.id, ActivateRequest { code: 42.into() }))
+                .send_empty()
+                .await
+                .expect_status(http::StatusCode::BAD_REQUEST)
+                .take_response_snapshot()
+                .await;
         assert_eq!(incorrect, used);
     }
 
@@ -400,6 +404,6 @@ mod tests {
             .build()
             .await
             .into_app(),
-        route(Uuid::nil(), ActivateRequest { code: 0 })
+        route(Uuid::nil(), ActivateRequest { code: 0.into() })
     );
 }

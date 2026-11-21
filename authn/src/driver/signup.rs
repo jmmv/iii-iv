@@ -17,7 +17,7 @@
 
 use crate::db;
 use crate::driver::{AuthnDriver, AuthnHooks};
-use crate::model::{ActivationState, AuthnTask, CouponName, Password};
+use crate::model::{ActivationState, AuthnTask, CouponName, EmailToken, Password};
 use iii_iv_core::db::DbError;
 use iii_iv_core::driver::{DriverError, DriverResult};
 use iii_iv_core::model::{EmailAddress, Username};
@@ -113,12 +113,12 @@ impl<H: AuthnHooks> AuthnDriver<H> {
             Err(e) => return Err(e.into()),
         };
 
-        let activation_code = rand::random::<u64>();
+        let activation_code = EmailToken::generate();
         let user = db::set_user_activation(
             tx.ex(),
             user,
             Some(ActivationState::new(
-                activation_code,
+                activation_code.clone(),
                 self.clock.now_utc(),
                 self.opts.activation_max_age,
             )),
@@ -178,7 +178,10 @@ mod tests {
                 .await
                 .unwrap()
                 .map(|activation| activation.code),
-            context.get_latest_activation_code(&user.email, Some(user.id)).await
+            context
+                .get_latest_activation_code(&user.email, Some(user.id))
+                .await
+                .map(|token| token.digest(crate::model::CredentialPurpose::Activation))
         );
     }
 
@@ -403,7 +406,10 @@ mod tests {
                 .await
                 .unwrap()
                 .map(|activation| activation.code),
-            context.get_latest_activation_code(&email, Some(user.id)).await
+            context
+                .get_latest_activation_code(&email, Some(user.id))
+                .await
+                .map(|token| token.digest(crate::model::CredentialPurpose::Activation))
         );
     }
 

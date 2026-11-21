@@ -13,97 +13,23 @@
 // License for the specific language governing permissions and limitations
 // under the License.
 
-//! Persistence of pending account activation.
+//! Activation backed by purpose-bound email credentials.
 
-use crate::db::{clear_failures, get_user_by_id, lock_failures};
-use crate::model::{ActivationState, FailureOperation, User};
+use crate::db::credential::encode_digest;
+use crate::db::{
+    clear_failures, delete_email_credential, get_email_credential, get_user_by_id, lock_failures,
+    put_email_credential,
+};
+use crate::model::{
+    ActivationState, CredentialPurpose, EmailCredential, EmailToken, FailureOperation, User,
+};
 #[cfg(feature = "postgres")]
 use iii_iv_core::db::postgres;
 #[cfg(any(feature = "sqlite", test))]
-use iii_iv_core::db::sqlite::{self, build_timestamp, unpack_timestamp};
+use iii_iv_core::db::sqlite::{self, unpack_timestamp};
 use iii_iv_core::db::{DbError, DbResult, Executor};
-use sqlx::Row;
-#[cfg(feature = "postgres")]
-use sqlx::postgres::PgRow;
-#[cfg(any(feature = "sqlite", test))]
-use sqlx::sqlite::SqliteRow;
 use time::OffsetDateTime;
 use uuid::Uuid;
-
-/// Reinterprets the database integer's bits as an unsigned activation code.
-fn activation_code_from_db(code: i64) -> u64 {
-    code as u64
-}
-
-/// Stores an activation code's bits in the signed database integer.
-fn activation_code_to_db(code: u64) -> i64 {
-    code as i64
-}
-
-#[cfg(feature = "postgres")]
-impl TryFrom<PgRow> for ActivationState {
-    type Error = DbError;
-
-    fn try_from(row: PgRow) -> DbResult<Self> {
-        let code: i64 = row.try_get("code").map_err(postgres::map_sqlx_error)?;
-        Ok(Self {
-            code: activation_code_from_db(code),
-            issued_at: row.try_get("issued_at").map_err(postgres::map_sqlx_error)?,
-            expires_at: row.try_get("expires_at").map_err(postgres::map_sqlx_error)?,
-        })
-    }
-}
-
-#[cfg(any(feature = "sqlite", test))]
-impl TryFrom<SqliteRow> for ActivationState {
-    type Error = DbError;
-
-    fn try_from(row: SqliteRow) -> DbResult<Self> {
-        let code: i64 = row.try_get("code").map_err(sqlite::map_sqlx_error)?;
-        Ok(Self {
-            code: activation_code_from_db(code),
-            issued_at: build_timestamp(
-                row.try_get("issued_at_secs").map_err(sqlite::map_sqlx_error)?,
-                row.try_get("issued_at_nsecs").map_err(sqlite::map_sqlx_error)?,
-            )?,
-            expires_at: build_timestamp(
-                row.try_get("expires_at_secs").map_err(sqlite::map_sqlx_error)?,
-                row.try_get("expires_at_nsecs").map_err(sqlite::map_sqlx_error)?,
-            )?,
-        })
-    }
-}
-
-/// Reads pending activation state.
-pub async fn get_user_activation(
-    ex: &mut Executor,
-    user_id: Uuid,
-) -> DbResult<Option<ActivationState>> {
-    match ex {
-        #[cfg(feature = "postgres")]
-        Executor::Postgres(ex) => {
-            let row = sqlx::query("SELECT * FROM activation_state WHERE user_id = $1")
-                .bind(user_id)
-                .fetch_optional(ex)
-                .await
-                .map_err(postgres::map_sqlx_error)?;
-            row.map(ActivationState::try_from).transpose()
-        }
-
-        #[cfg(any(feature = "sqlite", test))]
-        Executor::Sqlite(ex) => {
-            let row = sqlx::query("SELECT * FROM activation_state WHERE user_id = ?")
-                .bind(user_id)
-                .fetch_optional(ex)
-                .await
-                .map_err(sqlite::map_sqlx_error)?;
-            row.map(ActivationState::try_from).transpose()
-        }
-
-        #[allow(unused)]
-        _ => unreachable!(),
-    }
-}
 
 /// Sets account activation independently of pending credentials.
 ///
@@ -135,11 +61,21 @@ pub async fn set_user_active(ex: &mut Executor, user_id: Uuid, active: bool) -> 
     Ok(())
 }
 
-/// Inserts or clears activation state and resets activation failures atomically.
-///
-/// Returns `DbError::AlreadyExists` if the user already has pending activation.
-///
-/// Call within a transaction, before reads unless a write lock is already held.
+/// Reads the pending activation credential digest and lifetime.
+pub async fn get_user_activation(
+    ex: &mut Executor,
+    user_id: Uuid,
+) -> DbResult<Option<ActivationState>> {
+    Ok(get_email_credential(ex, user_id, CredentialPurpose::Activation).await?.map(|state| {
+        ActivationState {
+            code: state.digest,
+            issued_at: state.issued_at,
+            expires_at: state.expires_at,
+        }
+    }))
+}
+
+/// Sets activation state with the account locked in a transaction.
 pub async fn set_user_activation(
     ex: &mut Executor,
     user: User,
@@ -147,84 +83,47 @@ pub async fn set_user_activation(
 ) -> DbResult<User> {
     let now = activation.as_ref().map_or(OffsetDateTime::UNIX_EPOCH, |state| state.issued_at);
     lock_failures(ex, user.id, FailureOperation::Activation, now).await?;
-    let is_active = activation.is_none();
-    match ex {
-        #[cfg(feature = "postgres")]
-        Executor::Postgres(ex) => match activation {
-            None => {
-                sqlx::query("DELETE FROM activation_state WHERE user_id = $1")
-                    .bind(user.id)
-                    .execute(ex)
-                    .await
-                    .map_err(postgres::map_sqlx_error)?;
-            }
-
-            Some(activation) => {
-                sqlx::query(
-                    "INSERT INTO activation_state (user_id, code, issued_at, expires_at)
-                        VALUES ($1, $2, $3, $4)",
-                )
-                .bind(user.id)
-                .bind(activation_code_to_db(activation.code))
-                .bind(activation.issued_at)
-                .bind(activation.expires_at)
-                .execute(ex)
-                .await
-                .map_err(postgres::map_sqlx_error)?;
-            }
-        },
-
-        #[cfg(any(feature = "sqlite", test))]
-        Executor::Sqlite(ex) => match activation {
-            None => {
-                sqlx::query("DELETE FROM activation_state WHERE user_id = ?")
-                    .bind(user.id)
-                    .execute(ex)
-                    .await
-                    .map_err(sqlite::map_sqlx_error)?;
-            }
-
-            Some(activation) => {
-                let (issued_secs, issued_nsecs) = unpack_timestamp(activation.issued_at);
-                let (expires_secs, expires_nsecs) = unpack_timestamp(activation.expires_at);
-                sqlx::query(
-                    "INSERT INTO activation_state (user_id, code, issued_at_secs, issued_at_nsecs,
-                        expires_at_secs, expires_at_nsecs) VALUES (?, ?, ?, ?, ?, ?)",
-                )
-                .bind(user.id)
-                .bind(activation_code_to_db(activation.code))
-                .bind(issued_secs)
-                .bind(issued_nsecs)
-                .bind(expires_secs)
-                .bind(expires_nsecs)
-                .execute(ex)
-                .await
-                .map_err(sqlite::map_sqlx_error)?;
-            }
-        },
-
-        #[allow(unused)]
-        _ => unreachable!(),
+    let active = activation.is_none();
+    if let Some(state) = activation {
+        if get_user_activation(ex, user.id).await?.is_some() {
+            return Err(DbError::AlreadyExists);
+        }
+        put_email_credential(
+            ex,
+            user.id,
+            CredentialPurpose::Activation,
+            &EmailCredential {
+                digest: state.code,
+                issued_at: state.issued_at,
+                expires_at: state.expires_at,
+            },
+        )
+        .await?;
+    } else {
+        delete_email_credential(ex, user.id, CredentialPurpose::Activation).await?;
     }
-    set_user_active(ex, user.id, is_active).await?;
+    set_user_active(ex, user.id, active).await?;
     clear_failures(ex, user.id, FailureOperation::Activation).await?;
     get_user_by_id(ex, user.id).await
 }
 
-/// Atomically consumes a matching, unexpired code.  Returns whether activation succeeded.
+/// Consumes a matching activation credential with the account locked in a transaction.
 pub async fn consume_user_activation(
     ex: &mut Executor,
     user_id: Uuid,
-    code: u64,
+    token: impl Into<EmailToken>,
     now: OffsetDateTime,
 ) -> DbResult<bool> {
+    let token = token.into();
+    let digest = encode_digest(token.digest(CredentialPurpose::Activation));
     let affected = match ex {
         #[cfg(feature = "postgres")]
         Executor::Postgres(ex) => sqlx::query(
-            "DELETE FROM activation_state WHERE user_id = $1 AND code = $2 AND expires_at > $3",
+            "DELETE FROM email_credentials
+            WHERE user_id = $1 AND purpose = 'activation' AND digest = $2 AND expires_at > $3",
         )
         .bind(user_id)
-        .bind(activation_code_to_db(code))
+        .bind(&digest)
         .bind(now)
         .execute(ex)
         .await
@@ -235,11 +134,12 @@ pub async fn consume_user_activation(
         Executor::Sqlite(ex) => {
             let (secs, nsecs) = unpack_timestamp(now);
             sqlx::query(
-                "DELETE FROM activation_state WHERE user_id = ? AND code = ?
-                AND (expires_at_secs > ? OR (expires_at_secs = ? AND expires_at_nsecs > ?))",
+                "DELETE FROM email_credentials
+                WHERE user_id = ? AND purpose = 'activation' AND digest = ?
+                    AND (expires_at_secs > ? OR (expires_at_secs = ? AND expires_at_nsecs > ?))",
             )
             .bind(user_id)
-            .bind(activation_code_to_db(code))
+            .bind(&digest)
             .bind(secs)
             .bind(secs)
             .bind(nsecs)
