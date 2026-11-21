@@ -16,7 +16,7 @@
 //! Utilities to send canned messages to users over email.
 
 use crate::driver::DriverResult;
-use crate::model::User;
+use crate::model::{EmailToken, User};
 use iii_iv_core::rest::BaseUrlsOptions;
 use iii_iv_smtp::model::{EmailTemplate, Message};
 
@@ -28,8 +28,9 @@ pub(super) fn make_activation_code_message(
     template: &EmailTemplate,
     base_urls: &BaseUrlsOptions,
     user: &User,
-    code: u64,
+    code: impl Into<EmailToken>,
 ) -> DriverResult<Message> {
+    let code = code.into();
     // TODO(jmmv): This doesn't really belong here because it's leaking details about the REST
     // router into the driver.
     let activate_url =
@@ -97,15 +98,13 @@ pub(crate) mod testutils {
         mailer: &RecorderSmtpMailer,
         to: &EmailAddress,
         exp_user_id: Option<Uuid>,
-    ) -> Option<u64> {
+    ) -> Option<EmailToken> {
         let activation_url = get_latest_activation_url(mailer, to, exp_user_id).await;
         activation_url.map(|url| {
-            url.as_str()
-                .split_once('=')
-                .map(|(_, code)| {
-                    str::parse(code).expect("Want only one numerical parameter in query string")
-                })
-                .expect("No parameter found in query string")
+            serde_json::from_value(serde_json::Value::String(
+                url.query_pairs().find(|(key, _)| key == "code").unwrap().1.into_owned(),
+            ))
+            .unwrap()
         })
     }
 }
@@ -136,7 +135,11 @@ mod tests {
         let (headers, body) = parse_message(&message);
         assert_eq!(to.as_str(), headers.get("To").unwrap());
         assert_eq!(
-            format!("https://test.example.com:1234/api/users/{}/activate?code=7654", user_id),
+            format!(
+                "https://test.example.com:1234/api/users/{}/activate?code={}",
+                user_id,
+                EmailToken::from(7654)
+            ),
             body
         );
     }

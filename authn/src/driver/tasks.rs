@@ -18,7 +18,8 @@
 use crate::db;
 use crate::driver::AuthnOptions;
 use crate::driver::email::make_activation_code_message;
-use crate::model::AuthnTask;
+use crate::model::{AuthnTask, CredentialPurpose, EmailToken};
+use iii_iv_core::clocks::Clock;
 use iii_iv_core::db::{Db, DbError};
 use iii_iv_core::rest::BaseUrlsOptions;
 use iii_iv_queue::model::{ExecError, ExecResult};
@@ -39,6 +40,9 @@ pub struct AuthnTaskRunner {
     /// Database that stores authentication state.
     db: Arc<dyn Db + Send + Sync>,
 
+    /// Clock for credential expiration checks.
+    clock: Arc<dyn Clock + Send + Sync>,
+
     /// Delay before retrying email deliveries.
     email_retry_delay: std::time::Duration,
 
@@ -54,6 +58,7 @@ impl AuthnTaskRunner {
     /// `username` is empty for username-free services.
     pub fn new(
         db: Arc<dyn Db + Send + Sync>,
+        clock: Arc<dyn Clock + Send + Sync>,
         mailer: Arc<dyn SmtpMailer + Send + Sync>,
         activation_template: EmailTemplate,
         base_urls: Arc<BaseUrlsOptions>,
@@ -63,6 +68,7 @@ impl AuthnTaskRunner {
             activation_template: Arc::from(activation_template),
             base_urls,
             db,
+            clock,
             email_retry_delay: opts.email_retry_delay,
             mailer,
         }
@@ -78,7 +84,11 @@ impl AuthnTaskRunner {
     }
 
     /// Sends an account activation email if the activation request is still current.
-    async fn send_activation_email(&self, user_id: Uuid, activation_code: u64) -> ExecResult {
+    async fn send_activation_email(
+        &self,
+        user_id: Uuid,
+        activation_code: EmailToken,
+    ) -> ExecResult {
         let mut tx = self.db.begin().await?;
         let user = match db::lock_user(tx.ex(), user_id).await {
             Ok(user) => user,
@@ -88,9 +98,11 @@ impl AuthnTaskRunner {
             Err(e) => return Err(e.into()),
         };
 
-        if db::get_user_activation(tx.ex(), user.id).await?.map(|activation| activation.code)
-            != Some(activation_code)
-        {
+        let state = db::get_user_activation(tx.ex(), user.id).await?;
+        if !state.is_some_and(|state| {
+            state.code == activation_code.digest(CredentialPurpose::Activation)
+                && self.clock.now_utc() < state.expires_at
+        }) {
             return Ok(Some("Skipped obsolete activation email".to_owned()));
         }
 
@@ -159,7 +171,7 @@ mod tests {
         )
         .await
         .unwrap();
-        AuthnTask::SendActivationEmail { activation_code: 9876, user_id }
+        AuthnTask::SendActivationEmail { activation_code: 9876.into(), user_id }
     }
 
     #[tokio::test]
@@ -175,7 +187,14 @@ mod tests {
         let user = db::get_user_by_username(&mut context.ex().await, username!("some-user"))
             .await
             .unwrap();
-        assert_eq!(format!("http://localhost:1234/api/users/{}/activate?code=9876", user.id), body);
+        assert_eq!(
+            format!(
+                "http://localhost:1234/api/users/{}/activate?code={}",
+                user.id,
+                EmailToken::from(9876)
+            ),
+            body
+        );
     }
 
     #[tokio::test]

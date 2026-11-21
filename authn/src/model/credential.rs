@@ -73,6 +73,19 @@ impl EmailToken {
     }
 }
 
+#[cfg(any(test, feature = "testutils"))]
+impl From<u64> for EmailToken {
+    fn from(value: u64) -> Self {
+        Self(URL_SAFE_NO_PAD.encode(format!("test-token-{value:032}")))
+    }
+}
+
+impl std::fmt::Display for EmailToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// Persisted credential metadata; never contains the secret token.
 #[derive(Debug, PartialEq)]
 pub struct EmailCredential {

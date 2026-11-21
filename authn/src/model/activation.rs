@@ -15,14 +15,16 @@
 
 //! Pending account activation.
 
+use crate::model::{CredentialPurpose, EmailToken};
+use iii_iv_core::model::Sha256Sum;
 use std::time::Duration;
 use time::OffsetDateTime;
 
 /// A pending account activation and its validity interval.
 #[derive(Debug, PartialEq)]
 pub struct ActivationState {
-    /// Code required to activate the account.
-    pub code: u64,
+    /// Purpose-bound digest of the activation token.
+    pub code: Sha256Sum,
 
     /// Time at which the code was issued.
     pub issued_at: OffsetDateTime,
@@ -33,7 +35,11 @@ pub struct ActivationState {
 
 impl ActivationState {
     /// Creates a code valid for the configured maximum age after issuance.
-    pub fn new(code: u64, issued_at: OffsetDateTime, max_age: Duration) -> Self {
-        Self { code, issued_at, expires_at: issued_at + max_age }
+    pub fn new(code: impl Into<EmailToken>, issued_at: OffsetDateTime, max_age: Duration) -> Self {
+        Self {
+            code: code.into().digest(CredentialPurpose::Activation),
+            issued_at,
+            expires_at: issued_at + max_age,
+        }
     }
 }

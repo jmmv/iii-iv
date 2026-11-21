@@ -20,7 +20,7 @@ use crate::db;
 use crate::driver::AuthnHooks;
 use crate::model::{AccessToken, Password, User};
 #[cfg(test)]
-use crate::model::{ActivationState, AuthnTask, Coupon, CouponName};
+use crate::model::{ActivationState, AuthnTask, Coupon, CouponName, EmailToken};
 use crate::rest::LoginResponse;
 #[cfg(test)]
 use async_trait::async_trait;
@@ -138,7 +138,10 @@ impl TestContext {
 
     /// Creates the `whoami` user by directly modifying the backing database. The user is marked
     /// as inactive with a pending activation `code`.
-    pub(crate) async fn create_inactive_whoami_user(&mut self, code: u64) -> User {
+    pub(crate) async fn create_inactive_whoami_user(
+        &mut self,
+        code: impl Into<EmailToken>,
+    ) -> User {
         let user = self.create_whoami_user().await;
         assert!(user.is_active);
 
@@ -256,7 +259,7 @@ impl TestContext {
         &self,
         email: &EmailAddress,
         exp_user_id: Option<uuid::Uuid>,
-    ) -> Option<u64> {
+    ) -> Option<EmailToken> {
         let tasks = iii_iv_queue::db::get_runnable_tasks::<AuthnTask>(
             &mut self.db.ex().await.unwrap(),
             u16::MAX,
@@ -329,6 +332,7 @@ impl TestContextBuilder {
         let base_urls = Arc::from(BaseUrlsOptions::from_strs("http://localhost:1234/", None));
         let task_runner = AuthnTaskRunner::new(
             db.clone(),
+            clock.clone(),
             mailer.clone(),
             make_test_activation_template(),
             base_urls,

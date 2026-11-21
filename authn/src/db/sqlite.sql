@@ -45,15 +45,6 @@ CREATE TABLE IF NOT EXISTS users (
            OR (last_login_secs IS NOT NULL AND last_login_nsecs IS NOT NULL))
 );
 
-CREATE TABLE IF NOT EXISTS activation_state (
-    user_id UUID PRIMARY KEY NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    code INTEGER NOT NULL,
-    issued_at_secs INTEGER NOT NULL,
-    issued_at_nsecs INTEGER NOT NULL,
-    expires_at_secs INTEGER NOT NULL,
-    expires_at_nsecs INTEGER NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS authn_failures (
     user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     operation TEXT NOT NULL CHECK (operation IN ('activation', 'login')),
