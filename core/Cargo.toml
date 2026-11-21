@@ -45,6 +45,7 @@ base64 = { workspace = true, optional = true }
 bytes = { workspace = true, optional = true }
 env_logger = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
+hex = { workspace = true }
 http = { workspace = true }
 hyper = { workspace = true, optional = true }
 iii-iv-options-derive = { path = "../options-derive" }
@@ -53,6 +54,8 @@ log = { workspace = true }
 mime = { workspace = true, optional = true }
 rand = { workspace = true, optional = true }
 regex = { workspace = true, optional = true }
+sha1 = { workspace = true }
+sha2 = { workspace = true }
 serde_json = { workspace = true }
 serde_urlencoded = { workspace = true, optional = true }
 serde = { workspace = true }
