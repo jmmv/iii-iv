@@ -30,6 +30,8 @@ contributions if you have any.
 *   Proven foundations: `sqlx` for database access, `axum` as the web framework,
     and `tokio` as the async runtime.
 *   Configuration via environment variables.
+*   Multipart plain-text and HTML email templates, with escaped substitutions
+    and reusable HTML sanitization for untrusted feed content.
 
 ## What's in the name?
 

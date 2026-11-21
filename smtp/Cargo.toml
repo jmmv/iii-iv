@@ -13,16 +13,17 @@ workspace = true
 default = ["postgres"]
 postgres = ["dep:sqlx", "iii-iv-core/postgres", "sqlx/postgres"]
 sqlite = ["dep:sqlx", "iii-iv-core/sqlite", "sqlx/sqlite"]
-testutils = ["dep:futures", "dep:env_logger", "dep:quoted_printable", "iii-iv-core/sqlite"]
+testutils = ["dep:futures", "dep:env_logger", "iii-iv-core/sqlite"]
 
 [dependencies]
+ammonia = { workspace = true }
 async-trait = { workspace = true }
 env_logger = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
 iii-iv-core = { path = "../core" }
 mailparse = { workspace = true }
-quoted_printable = { workspace = true, optional = true }
 time = { workspace = true }
+url = { workspace = true }
 
 [dependencies.lettre]
 workspace = true
@@ -37,7 +38,6 @@ features = ["runtime-tokio", "tls-rustls", "time"]
 env_logger = { workspace = true }
 futures = { workspace = true }
 iii-iv-core = { path = "../core", features = ["sqlite", "testutils"] }
-quoted_printable = { workspace = true }
 serial_test = { workspace = true }
 temp-env = { workspace = true }
 time = { workspace = true, features = ["macros"] }

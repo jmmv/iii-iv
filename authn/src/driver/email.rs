@@ -67,15 +67,21 @@ pub(crate) mod testutils {
     /// Creates an email activation template to capture activation codes during tests.
     pub(crate) fn make_test_activation_template() -> EmailTemplate {
         let from = "from@example.com".parse().unwrap();
-        EmailTemplate { from, subject_template: "Test activation", body_template: "%activate_url%" }
+        EmailTemplate {
+            from,
+            subject_template: "Test activation",
+            body_template: "%activate_url%",
+            html_body_template: "<a href=\"%activate_url%\">Activate</a>",
+        }
     }
 
-    /// Plain-text recovery message exposing only the reset URL during tests.
+    /// Recovery template exposing only the reset URL in its plain-text body during tests.
     pub(crate) fn make_test_recovery_template() -> EmailTemplate {
         EmailTemplate {
             from: "from@example.com".parse().unwrap(),
             subject_template: "Test recovery",
             body_template: "%reset_url%",
+            html_body_template: "<a href=\"%reset_url%\">Reset password</a>",
         }
     }
 
