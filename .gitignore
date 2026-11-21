@@ -1,3 +1,5 @@
+*~
+.*.swp
 Cargo.lock
 config.env
 target
