@@ -14,6 +14,18 @@
 // under the License.
 
 //! Common utilities to implement custom authentication.
+//!
+//! Password recovery uses `POST /password/recovery` with an email address and
+//! `POST /password/reset` with the emailed user ID, token, and new password.  Recovery also
+//! verifies inactive accounts and revokes existing sessions; it never enables password-disabled
+//! accounts.  The task runner requires recovery email and reset URL templates at construction.
+//! Recovery templates are plain text and support `reset_url`, `email`, `user`, `user_id`, and
+//! `username`.  The trusted reset URL template supports `user_id` and `token` substitutions.
+//!
+//! `AUTHN_RECOVERY_MAX_AGE` defaults to one hour and `AUTHN_RECOVERY_RESEND_COOLDOWN` to one minute,
+//! with the application's usual environment prefix.  Tokens are purpose-bound and digested in
+//! credential storage, but queued delivery tasks contain their raw values.  Treat queue contents
+//! as secrets and remove all account-owned tasks in the account deletion hook.
 
 pub mod db;
 pub mod driver;
