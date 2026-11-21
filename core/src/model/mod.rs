@@ -21,6 +21,8 @@ mod emailaddress;
 pub use emailaddress::EmailAddress;
 #[cfg(any(test, feature = "testutils"))]
 pub use emailaddress::email_address;
+mod sums;
+pub use sums::{Sha1Sum, Sha256Sum};
 mod username;
 pub use username::Username;
 #[cfg(any(test, feature = "testutils"))]
