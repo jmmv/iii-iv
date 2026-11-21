@@ -55,6 +55,7 @@ mod hooks;
 mod login;
 mod logout;
 mod passwords;
+mod recovery;
 pub use hooks::{AuthnHooks, AuthnNoHooks, NO_EXTENSIONS, NoExtensions};
 mod signup;
 mod tasks;
@@ -125,7 +126,8 @@ pub struct AuthnOptions {
     #[option(default = DEFAULT_ACTIVATION_MAX_AGE)]
     pub activation_max_age: Duration,
 
-    /// Delay before retrying email deliveries.
+    /// Delay before retrying email deliveries.  Recovery caps this at half the remaining
+    /// credential lifetime.
     #[option(default = DEFAULT_EMAIL_RETRY_DELAY)]
     pub email_retry_delay: Duration,
 
@@ -144,6 +146,14 @@ pub struct AuthnOptions {
     /// Login backoff max delay.  Zero values are accepted.
     #[option(default = DEFAULT_LOGIN_BACKOFF_MAX_DELAY)]
     pub login_backoff_max_delay: Duration,
+
+    /// Recovery credential lifetime.  Zero makes credentials expire immediately.
+    #[option(default = Duration::from_secs(3600))]
+    pub recovery_max_age: Duration,
+
+    /// Minimum interval between recovery emails for an account.
+    #[option(default = Duration::from_secs(60))]
+    pub recovery_resend_cooldown: Duration,
 
     /// Whether users can sign up without an invitation.
     #[option(default = false)]
@@ -186,6 +196,8 @@ impl Default for AuthnOptions {
             login_backoff_quiet_window: DEFAULT_LOGIN_BACKOFF_QUIET_WINDOW,
             login_backoff_initial_delay: DEFAULT_LOGIN_BACKOFF_INITIAL_DELAY,
             login_backoff_max_delay: DEFAULT_LOGIN_BACKOFF_MAX_DELAY,
+            recovery_max_age: Duration::from_secs(3600),
+            recovery_resend_cooldown: Duration::from_secs(60),
             open_signups: false,
             password_hash_concurrency: DEFAULT_PASSWORD_HASH_CONCURRENCY,
             sessions_cache_ttl: DEFAULT_SESSIONS_CACHE_TTL,
@@ -457,6 +469,8 @@ mod tests {
                 "TEST_AUTHN_LOGIN_BACKOFF_QUIET_WINDOW",
                 "TEST_AUTHN_LOGIN_BACKOFF_INITIAL_DELAY",
                 "TEST_AUTHN_LOGIN_BACKOFF_MAX_DELAY",
+                "TEST_AUTHN_RECOVERY_MAX_AGE",
+                "TEST_AUTHN_RECOVERY_RESEND_COOLDOWN",
                 "TEST_AUTHN_OPEN_SIGNUPS",
                 "TEST_AUTHN_PASSWORD_HASH_CONCURRENCY",
                 "TEST_AUTHN_SESSIONS_CACHE_CAPACITY",
@@ -490,6 +504,8 @@ mod tests {
                 ("TEST_AUTHN_LOGIN_BACKOFF_INITIAL_DELAY", Some("2s")),
                 ("TEST_AUTHN_LOGIN_BACKOFF_MAX_DELAY", Some("10s")),
                 ("TEST_AUTHN_LOGIN_BACKOFF_QUIET_WINDOW", Some("30s")),
+                ("TEST_AUTHN_RECOVERY_MAX_AGE", Some("2h")),
+                ("TEST_AUTHN_RECOVERY_RESEND_COOLDOWN", Some("3m")),
                 ("TEST_AUTHN_OPEN_SIGNUPS", Some("true")),
                 ("TEST_AUTHN_PASSWORD_HASH_CONCURRENCY", Some("5")),
                 ("TEST_AUTHN_SESSIONS_CACHE_CAPACITY", Some("30")),
@@ -510,6 +526,8 @@ mod tests {
                         login_backoff_quiet_window: Duration::from_secs(30),
                         login_backoff_initial_delay: Duration::from_secs(2),
                         login_backoff_max_delay: Duration::from_secs(10),
+                        recovery_max_age: Duration::from_secs(7200),
+                        recovery_resend_cooldown: Duration::from_secs(180),
                         open_signups: true,
                         password_hash_concurrency: 5,
                         sessions_cache_capacity: 30,

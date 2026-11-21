@@ -40,7 +40,9 @@ use time::OffsetDateTime;
 
 #[cfg(test)]
 use {
-    crate::driver::email::testutils::{get_latest_activation_code, make_test_activation_template},
+    crate::driver::email::testutils::{
+        get_latest_activation_code, make_test_activation_template, make_test_recovery_template,
+    },
     crate::driver::{
         AuthnDriver, AuthnNoHooks, AuthnOptions, AuthnTaskRunner, NO_EXTENSIONS, NoExtensions,
     },
@@ -254,6 +256,25 @@ impl TestContext {
         &self.whoami_password
     }
 
+    /// Executes queued tasks and reads the latest recovery credential.
+    pub(crate) async fn get_latest_recovery_token(
+        &self,
+        email: &EmailAddress,
+    ) -> Option<EmailToken> {
+        let tasks = iii_iv_queue::db::get_runnable_tasks::<AuthnTask>(
+            &mut self.db.ex().await.unwrap(),
+            u16::MAX,
+            Duration::ZERO,
+            self.clock.now_utc(),
+        )
+        .await
+        .unwrap();
+        for task in tasks {
+            assert!(self.task_runner.run(task.into_json_task().unwrap()).await.is_ok());
+        }
+        crate::driver::email::testutils::get_latest_recovery_token(&self.mailer, email).await
+    }
+
     /// Gets the latest activation code sent to `email` for `exp_user_id`, if any.
     pub(crate) async fn get_latest_activation_code(
         &self,
@@ -335,6 +356,10 @@ impl TestContextBuilder {
             clock.clone(),
             mailer.clone(),
             make_test_activation_template(),
+            (
+                make_test_recovery_template(),
+                "http://frontend.example.com/reset?user_id=%user_id%&token=%token%".to_owned(),
+            ),
             base_urls,
             &self.opts,
         );

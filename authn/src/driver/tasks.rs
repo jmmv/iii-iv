@@ -34,6 +34,9 @@ pub struct AuthnTaskRunner {
     /// Email template to use for activation emails.
     activation_template: Arc<EmailTemplate>,
 
+    /// Application-owned recovery email and reset URL template.
+    recovery_email: (Arc<EmailTemplate>, String),
+
     /// Base URLs of the running service.
     base_urls: Arc<BaseUrlsOptions>,
 
@@ -56,30 +59,27 @@ impl AuthnTaskRunner {
     /// The activation template supports `activate_url`, `email`, `user`, `user_id`, and `username`
     /// substitutions.  `user` is the username when present and the email address otherwise, while
     /// `username` is empty for username-free services.
+    ///
+    /// The required `recovery_email` tuple contains the plain-text email template and the frontend
+    /// reset URL template.  The URL supports `user_id` and `token` substitutions, while the email
+    /// supports `reset_url` and the same account substitutions as the activation template.
     pub fn new(
         db: Arc<dyn Db + Send + Sync>,
         clock: Arc<dyn Clock + Send + Sync>,
         mailer: Arc<dyn SmtpMailer + Send + Sync>,
         activation_template: EmailTemplate,
+        recovery_email: (EmailTemplate, String),
         base_urls: Arc<BaseUrlsOptions>,
         opts: &AuthnOptions,
     ) -> Self {
         Self {
             activation_template: Arc::from(activation_template),
+            recovery_email: (Arc::new(recovery_email.0), recovery_email.1),
             base_urls,
             db,
             clock,
             email_retry_delay: opts.email_retry_delay,
             mailer,
-        }
-    }
-
-    /// Executes an authentication task.
-    pub async fn run(&self, task: AuthnTask) -> ExecResult {
-        match task {
-            AuthnTask::SendActivationEmail { activation_code, user_id } => {
-                self.send_activation_email(user_id, activation_code).await
-            }
         }
     }
 
@@ -124,6 +124,70 @@ impl AuthnTaskRunner {
             )
         })?;
         Ok(None)
+    }
+
+    /// Sends the recovery link only while its credential remains usable.
+    async fn send_recovery_email(&self, user_id: Uuid, token: EmailToken) -> ExecResult {
+        let mut tx = self.db.begin().await?;
+        let user = match db::lock_user(tx.ex(), user_id).await {
+            Ok(user) => user,
+            Err(DbError::NotFound) => {
+                return Ok(Some("Skipped recovery email for missing user".to_owned()));
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let state = db::get_email_credential(tx.ex(), user_id, CredentialPurpose::Recovery).await?;
+        let Some(state) = state.filter(|state| {
+            user.password.is_some()
+                && state.digest == token.digest(CredentialPurpose::Recovery)
+                && self.clock.now_utc() < state.expires_at
+        }) else {
+            return Ok(Some("Skipped obsolete recovery email".to_owned()));
+        };
+        let (template, url_template) = &self.recovery_email;
+        let user_id = user_id.to_string();
+        let url = iii_iv_core::template::apply(
+            url_template,
+            &[("user_id", user_id.as_str()), ("token", token.as_str())],
+        );
+        let username = user.username.as_ref().map(|name| name.as_str()).unwrap_or("");
+        let display_name = if username.is_empty() { user.email.as_str() } else { username };
+        let message = template
+            .apply(
+                &user.email,
+                &[
+                    ("reset_url", url.as_str()),
+                    ("email", user.email.as_str()),
+                    ("user", display_name),
+                    ("user_id", user_id.as_str()),
+                    ("username", username),
+                ],
+            )
+            .map_err(|_| ExecError::Failed("Failed to build recovery email".to_owned()))?;
+        // Serialize delivery and SMTP logging with deletion of the account.
+        let result = self.mailer.send_in_transaction(&mut tx, message).await;
+        tx.commit().await?;
+        result.map_err(|_| {
+            let remaining = (state.expires_at - self.clock.now_utc()).max(time::Duration::ZERO);
+            ExecError::RetryAfterDelay(
+                self.email_retry_delay.min(remaining.unsigned_abs() / 2),
+                "Failed to send recovery email".to_owned(),
+            )
+        })?;
+        Ok(None)
+    }
+
+    /// Executes an authentication task.
+    pub async fn run(&self, task: AuthnTask) -> ExecResult {
+        match task {
+            AuthnTask::SendActivationEmail { activation_code, user_id } => {
+                self.send_activation_email(user_id, activation_code).await
+            }
+
+            AuthnTask::SendPasswordRecoveryEmail { user_id, token } => {
+                self.send_recovery_email(user_id, token).await
+            }
+        }
     }
 }
 

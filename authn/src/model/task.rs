@@ -34,4 +34,30 @@ pub enum AuthnTask {
         /// Account that needs to be activated.
         user_id: Uuid,
     },
+    /// Sends a password recovery link.  The raw token persists until the task is removed.
+    SendPasswordRecoveryEmail {
+        /// Account receiving the link.
+        user_id: Uuid,
+        /// Secret credential to embed in the email.
+        token: EmailToken,
+    },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_task_serialization() {
+        let user_id = Uuid::new_v4();
+        for task in [
+            AuthnTask::SendActivationEmail { user_id, activation_code: EmailToken::generate() },
+            AuthnTask::SendPasswordRecoveryEmail { user_id, token: EmailToken::generate() },
+        ] {
+            assert_eq!(
+                task,
+                serde_json::from_str::<AuthnTask>(&serde_json::to_string(&task).unwrap()).unwrap()
+            );
+        }
+    }
 }

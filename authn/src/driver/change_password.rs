@@ -36,9 +36,11 @@ impl<H: AuthnHooks> AuthnDriver<H> {
         let mut tx = self.db.begin().await?;
         let now = self.clock.now_utc();
 
-        let session = self.get_session_uncached(&mut tx, now, token).await?;
+        let session = self.get_session_uncached(&mut tx, now, token.clone()).await?;
 
-        let old_hash = match session.user.password.as_ref() {
+        let user = db::lock_user(tx.ex(), session.user.id).await?;
+        self.get_session_uncached(&mut tx, self.clock.now_utc(), token).await?;
+        let old_hash = match user.password.as_ref() {
             Some(hash) => hash,
             None => {
                 return Err(DriverError::Forbidden("Password not set; cannot change".to_owned()));
@@ -69,6 +71,8 @@ impl<H: AuthnHooks> AuthnDriver<H> {
 
         db::delete_sessions_for_user(tx.ex(), session.user.id, now).await?;
 
+        db::delete_email_credential(tx.ex(), user.id, crate::model::CredentialPurpose::Recovery)
+            .await?;
         tx.commit().await?;
 
         let mut cache = self.sessions_cache.lock().await;
@@ -85,13 +89,8 @@ mod tests {
     use crate::driver::NO_EXTENSIONS;
     use crate::driver::testutils::*;
     use crate::model::{Session, password};
-    use iii_iv_core::clocks::Clock;
-    use iii_iv_core::clocks::testutils::SettableClock;
-    use iii_iv_core::db::Db;
     use iii_iv_core::model::{EmailAddress, username};
-    use std::sync::Arc;
     use std::time::Duration;
-    use time::macros::datetime;
 
     #[tokio::test]
     async fn test_change_password_ok() {
@@ -291,20 +290,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_change_password_visible_across_drivers_by_default() {
-        let db: Arc<dyn Db + Send + Sync> =
-            Arc::from(iii_iv_core::db::sqlite::testutils::setup().await);
-        let clock: Arc<dyn Clock + Send + Sync> =
-            Arc::from(SettableClock::new(datetime!(2023-12-01 05:50:00 UTC)));
-        let first = TestContext::setup_with(
+        let first = TestContext::setup(AuthnOptions::default()).await;
+        let second = TestContext::setup_with(
             AuthnOptions::default(),
-            db.clone(),
-            clock.clone(),
+            first.driver().db.clone(),
+            first.clock.clone(),
             "the-realm",
             true,
         )
         .await;
-        let second =
-            TestContext::setup_with(AuthnOptions::default(), db, clock, "the-realm", true).await;
         let username = username!("test");
         let token1 = first.do_test_login(username.clone()).await;
         let (session2, _, NO_EXTENSIONS) = second
@@ -342,14 +336,15 @@ mod tests {
     async fn test_change_password_delayed_across_drivers_with_cache() {
         let opts =
             AuthnOptions { sessions_cache_ttl: Duration::from_secs(60), ..Default::default() };
-        let db: Arc<dyn Db + Send + Sync> =
-            Arc::from(iii_iv_core::db::sqlite::testutils::setup().await);
-        let clock: Arc<dyn Clock + Send + Sync> =
-            Arc::from(SettableClock::new(datetime!(2023-12-01 05:50:00 UTC)));
-        let first =
-            TestContext::setup_with(opts.clone(), db.clone(), clock.clone(), "the-realm", true)
-                .await;
-        let second = TestContext::setup_with(opts, db, clock, "the-realm", true).await;
+        let first = TestContext::setup(opts.clone()).await;
+        let second = TestContext::setup_with(
+            opts,
+            first.driver().db.clone(),
+            first.clock.clone(),
+            "the-realm",
+            true,
+        )
+        .await;
         let username = username!("test");
         let token1 = first.do_test_login(username.clone()).await;
         let (session2, _, NO_EXTENSIONS) = second

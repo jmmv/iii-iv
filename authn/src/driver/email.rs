@@ -70,6 +70,34 @@ pub(crate) mod testutils {
         EmailTemplate { from, subject_template: "Test activation", body_template: "%activate_url%" }
     }
 
+    /// Plain-text recovery message exposing only the reset URL during tests.
+    pub(crate) fn make_test_recovery_template() -> EmailTemplate {
+        EmailTemplate {
+            from: "from@example.com".parse().unwrap(),
+            subject_template: "Test recovery",
+            body_template: "%reset_url%",
+        }
+    }
+
+    /// Reads the latest recovery credential from a delivered message.
+    pub(crate) async fn get_latest_recovery_token(
+        mailer: &RecorderSmtpMailer,
+        to: &EmailAddress,
+    ) -> Option<EmailToken> {
+        let inboxes = mailer.inboxes.lock().await;
+        let inbox = inboxes.get(to)?;
+        for message in inbox.iter().rev() {
+            let (headers, body) = parse_message(message);
+            if headers.get("Subject").map(String::as_str) != Some("Test recovery") {
+                continue;
+            }
+            let url = Url::parse(&body).unwrap();
+            let token = url.query_pairs().find(|(key, _)| key == "token").unwrap().1.into_owned();
+            return Some(serde_json::from_value(serde_json::Value::String(token)).unwrap());
+        }
+        None
+    }
+
     /// Gets the latest activation URL sent to `to` for `exp_user_id`, if any.
     pub(crate) async fn get_latest_activation_url(
         mailer: &RecorderSmtpMailer,

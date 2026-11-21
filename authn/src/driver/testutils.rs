@@ -19,7 +19,10 @@ use super::AuthnNoHooks;
 #[cfg(test)]
 use super::{NO_EXTENSIONS, NoExtensions};
 use crate::db;
-use crate::driver::email::testutils::{get_latest_activation_code, make_test_activation_template};
+use crate::driver::email::testutils::{
+    get_latest_activation_code, get_latest_recovery_token, make_test_activation_template,
+    make_test_recovery_template,
+};
 use crate::driver::{AuthnDriver, AuthnHooks, AuthnOptions, AuthnTaskRunner};
 use crate::model::{AccessToken, AuthnTask, EmailToken, password};
 #[cfg(test)]
@@ -130,6 +133,10 @@ impl<H: AuthnHooks> TestContext<H> {
             clock.clone(),
             mailer.clone(),
             make_test_activation_template(),
+            (
+                make_test_recovery_template(),
+                "http://frontend.example.com/reset?user_id=%user_id%&token=%token%".to_owned(),
+            ),
             base_urls,
             &opts,
         );
@@ -211,6 +218,12 @@ impl<H: AuthnHooks> TestContext<H> {
     ) -> Option<EmailToken> {
         self.run_authn_tasks().await;
         get_latest_activation_code(&self.mailer, email, exp_user_id).await
+    }
+
+    /// Executes pending tasks and reads the latest emailed recovery credential.
+    pub async fn get_latest_recovery_token(&self, email: &EmailAddress) -> Option<EmailToken> {
+        self.run_authn_tasks().await;
+        get_latest_recovery_token(&self.mailer, email).await
     }
 
     /// Executes all queued authentication tasks without changing their queue state.
